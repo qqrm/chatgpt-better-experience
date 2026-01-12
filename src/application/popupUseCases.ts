@@ -41,6 +41,11 @@ export interface PopupSettingsInput {
   autoTempChat: boolean;
   oneClickDelete: boolean;
   wideChatWidth: number;
+  enableBottomCopyButton: boolean;
+  showOnHoverOnly: boolean;
+  buttonSize: "S" | "M" | "L";
+  edgeOffsetPx: number;
+  showCopiedFeedback: boolean;
 }
 
 export async function savePopupSettings(
