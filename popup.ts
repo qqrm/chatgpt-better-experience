@@ -25,6 +25,11 @@ const editLastMessageEl = mustGetElement<HTMLInputElement>("editLastMessageOnArr
 const autoExpandEl = mustGetElement<HTMLInputElement>("autoExpandChats");
 const autoTempChatEl = mustGetElement<HTMLInputElement>("autoTempChat");
 const oneClickDeleteEl = mustGetElement<HTMLInputElement>("oneClickDelete");
+const enableBottomCopyButtonEl = mustGetElement<HTMLInputElement>("enableBottomCopyButton");
+const showOnHoverOnlyEl = mustGetElement<HTMLInputElement>("showOnHoverOnly");
+const buttonSizeEl = mustGetElement<HTMLSelectElement>("buttonSize");
+const edgeOffsetPxEl = mustGetElement<HTMLInputElement>("edgeOffsetPx");
+const showCopiedFeedbackEl = mustGetElement<HTMLInputElement>("showCopiedFeedback");
 const wideChatWidthEl = mustGetElement<HTMLInputElement>("wideChatWidth");
 const wideChatWidthValueEl = mustGetElement<HTMLElement>("wideChatWidthValue");
 
@@ -47,6 +52,11 @@ async function load() {
   autoExpandEl.checked = settings.autoExpandChats;
   autoTempChatEl.checked = settings.autoTempChat;
   oneClickDeleteEl.checked = settings.oneClickDelete;
+  enableBottomCopyButtonEl.checked = settings.enableBottomCopyButton;
+  showOnHoverOnlyEl.checked = settings.showOnHoverOnly;
+  buttonSizeEl.value = settings.buttonSize;
+  edgeOffsetPxEl.value = String(settings.edgeOffsetPx);
+  showCopiedFeedbackEl.checked = settings.showCopiedFeedback;
   wideChatWidthEl.value = String(settings.wideChatWidth);
   wideChatWidthValueEl.textContent = `${settings.wideChatWidth}%`;
 
@@ -63,7 +73,12 @@ async function save() {
     autoExpandChats: !!autoExpandEl.checked,
     autoTempChat: !!autoTempChatEl.checked,
     oneClickDelete: !!oneClickDeleteEl.checked,
-    wideChatWidth
+    wideChatWidth,
+    enableBottomCopyButton: !!enableBottomCopyButtonEl.checked,
+    showOnHoverOnly: !!showOnHoverOnlyEl.checked,
+    buttonSize: buttonSizeEl.value as "S" | "M" | "L",
+    edgeOffsetPx: Math.max(0, Number(edgeOffsetPxEl.value) || 0),
+    showCopiedFeedback: !!showCopiedFeedbackEl.checked
   };
 
   const { hint } = await savePopupSettings(popupDeps, input);
@@ -78,6 +93,11 @@ editLastMessageEl.addEventListener("change", () => void save().catch(() => {}));
 autoExpandEl.addEventListener("change", () => void save().catch(() => {}));
 autoTempChatEl.addEventListener("change", () => void save().catch(() => {}));
 oneClickDeleteEl.addEventListener("change", () => void save().catch(() => {}));
+enableBottomCopyButtonEl.addEventListener("change", () => void save().catch(() => {}));
+showOnHoverOnlyEl.addEventListener("change", () => void save().catch(() => {}));
+buttonSizeEl.addEventListener("change", () => void save().catch(() => {}));
+edgeOffsetPxEl.addEventListener("input", () => void save().catch(() => {}));
+showCopiedFeedbackEl.addEventListener("change", () => void save().catch(() => {}));
 wideChatWidthEl.addEventListener("input", () => void save().catch(() => {}));
 
 void load().catch(() => {});

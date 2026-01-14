@@ -32,7 +32,12 @@ describe("utils", () => {
       autoTempChat: false,
       tempChatEnabled: SETTINGS_DEFAULTS.tempChatEnabled,
       oneClickDelete: SETTINGS_DEFAULTS.oneClickDelete,
-      wideChatWidth: 100
+      wideChatWidth: 100,
+      enableBottomCopyButton: SETTINGS_DEFAULTS.enableBottomCopyButton,
+      showOnHoverOnly: SETTINGS_DEFAULTS.showOnHoverOnly,
+      buttonSize: SETTINGS_DEFAULTS.buttonSize,
+      edgeOffsetPx: SETTINGS_DEFAULTS.edgeOffsetPx,
+      showCopiedFeedback: SETTINGS_DEFAULTS.showCopiedFeedback
     });
   });
 

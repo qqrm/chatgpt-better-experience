@@ -54,7 +54,12 @@ describe("popup settings", () => {
       autoTempChat: false,
       tempChatEnabled: true,
       oneClickDelete: SETTINGS_DEFAULTS.oneClickDelete,
-      wideChatWidth: 42
+      wideChatWidth: 42,
+      enableBottomCopyButton: SETTINGS_DEFAULTS.enableBottomCopyButton,
+      showOnHoverOnly: SETTINGS_DEFAULTS.showOnHoverOnly,
+      buttonSize: SETTINGS_DEFAULTS.buttonSize,
+      edgeOffsetPx: SETTINGS_DEFAULTS.edgeOffsetPx,
+      showCopiedFeedback: SETTINGS_DEFAULTS.showCopiedFeedback
     });
     expect(hint).toBe("Auto-send happens only while holding Alt when you accept dictation.");
   });
@@ -77,7 +82,12 @@ describe("popup settings", () => {
       autoExpandChats: false,
       autoTempChat: true,
       oneClickDelete: true,
-      wideChatWidth: 70
+      wideChatWidth: 70,
+      enableBottomCopyButton: true,
+      showOnHoverOnly: false,
+      buttonSize: "M" as const,
+      edgeOffsetPx: 8,
+      showCopiedFeedback: true
     };
 
     const { hint } = await savePopupSettings({ storagePort }, input);
