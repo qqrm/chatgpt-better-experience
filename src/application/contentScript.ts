@@ -1809,18 +1809,10 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   }
 
   function resolveBottomCopyContainer(pre: HTMLPreElement) {
-    let el: HTMLElement | null = pre.parentElement;
-    let fallback: HTMLElement | null = pre.parentElement;
-    let depth = 0;
-    while (el && el !== document.body && depth < 6) {
-      if (isScrollable(el)) {
-        return { container: el, mode: "sticky" as const };
-      }
-      fallback = el;
-      el = el.parentElement;
-      depth += 1;
+    if (isScrollable(pre)) {
+      return { container: pre, mode: "sticky" as const };
     }
-    return { container: fallback ?? pre, mode: "absolute" as const };
+    return { container: pre, mode: "absolute" as const };
   }
 
   function bottomCopySizePx(size: "S" | "M" | "L") {
