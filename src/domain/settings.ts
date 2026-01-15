@@ -9,10 +9,6 @@ export interface Settings {
   oneClickDelete: boolean;
   wideChatWidth: number;
   enableBottomCopyButton: boolean;
-  showOnHoverOnly: boolean;
-  buttonSize: "S" | "M" | "L";
-  edgeOffsetPx: number;
-  showCopiedFeedback: boolean;
 }
 
 export type SettingsRecord = Settings & Record<string, unknown>;
@@ -27,9 +23,5 @@ export const SETTINGS_DEFAULTS: SettingsRecord = {
   tempChatEnabled: false,
   oneClickDelete: false,
   wideChatWidth: 0,
-  enableBottomCopyButton: true,
-  showOnHoverOnly: false,
-  buttonSize: "M",
-  edgeOffsetPx: 8,
-  showCopiedFeedback: true
+  enableBottomCopyButton: true
 };
