@@ -28,14 +28,6 @@ export function normalizeSettings(value: Record<string, unknown> | null | undefi
     typeof data.wideChatWidth === "number" && Number.isFinite(data.wideChatWidth)
       ? Math.min(100, Math.max(0, Math.round(data.wideChatWidth)))
       : base.wideChatWidth;
-  const buttonSize =
-    data.buttonSize === "S" || data.buttonSize === "M" || data.buttonSize === "L"
-      ? data.buttonSize
-      : base.buttonSize;
-  const edgeOffsetPx =
-    typeof data.edgeOffsetPx === "number" && Number.isFinite(data.edgeOffsetPx)
-      ? Math.max(0, Math.round(data.edgeOffsetPx))
-      : base.edgeOffsetPx;
   return {
     skipKey: typeof data.skipKey === "string" ? data.skipKey : base.skipKey,
     holdToSend: typeof data.holdToSend === "boolean" ? data.holdToSend : base.holdToSend,
@@ -58,15 +50,7 @@ export function normalizeSettings(value: Record<string, unknown> | null | undefi
     enableBottomCopyButton:
       typeof data.enableBottomCopyButton === "boolean"
         ? data.enableBottomCopyButton
-        : base.enableBottomCopyButton,
-    showOnHoverOnly:
-      typeof data.showOnHoverOnly === "boolean" ? data.showOnHoverOnly : base.showOnHoverOnly,
-    buttonSize,
-    edgeOffsetPx,
-    showCopiedFeedback:
-      typeof data.showCopiedFeedback === "boolean"
-        ? data.showCopiedFeedback
-        : base.showCopiedFeedback
+        : base.enableBottomCopyButton
   };
 }
 

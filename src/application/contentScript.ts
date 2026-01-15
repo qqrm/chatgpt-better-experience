@@ -80,10 +80,8 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     oneClickDeleteEnabled: boolean;
     wideChatWidth: number;
     enableBottomCopyButton: boolean;
-    showOnHoverOnly: boolean;
     bottomCopyButtonSize: "S" | "M" | "L";
     bottomCopyEdgeOffsetPx: number;
-    showCopiedFeedback: boolean;
     logClicks: boolean;
     logBlur: boolean;
   }
@@ -102,10 +100,8 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     oneClickDeleteEnabled: false,
     wideChatWidth: 0,
     enableBottomCopyButton: true,
-    showOnHoverOnly: false,
-    bottomCopyButtonSize: "M",
+    bottomCopyButtonSize: "L",
     bottomCopyEdgeOffsetPx: 8,
-    showCopiedFeedback: true,
 
     finalTextTimeoutMs: 25000,
     finalTextQuietMs: 320,
@@ -1178,10 +1174,6 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     CFG.oneClickDeleteEnabled = settings.oneClickDelete;
     CFG.wideChatWidth = settings.wideChatWidth;
     CFG.enableBottomCopyButton = settings.enableBottomCopyButton;
-    CFG.showOnHoverOnly = settings.showOnHoverOnly;
-    CFG.bottomCopyButtonSize = settings.buttonSize;
-    CFG.bottomCopyEdgeOffsetPx = settings.edgeOffsetPx;
-    CFG.showCopiedFeedback = settings.showCopiedFeedback;
     tempChatEnabled = settings.tempChatEnabled;
     log("settings refreshed", {
       skipKey: CFG.modifierKey,
@@ -1193,10 +1185,8 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       oneClickDelete: CFG.oneClickDeleteEnabled,
       wideChatWidth: CFG.wideChatWidth,
       enableBottomCopyButton: CFG.enableBottomCopyButton,
-      showOnHoverOnly: CFG.showOnHoverOnly,
       bottomCopyButtonSize: CFG.bottomCopyButtonSize,
       bottomCopyEdgeOffsetPx: CFG.bottomCopyEdgeOffsetPx,
-      showCopiedFeedback: CFG.showCopiedFeedback,
       tempChatEnabled
     });
     maybeEnableTempChat();
@@ -1675,7 +1665,6 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   const BOTTOM_COPY_MODE_ATTR = "data-cgbe-bottom-copy-mode";
   const BOTTOM_COPY_BASE_PAD_ATTR = "data-cgbe-bottom-copy-base-pad";
   const BOTTOM_COPY_REL_ATTR = "data-cgbe-bottom-copy-relative";
-  const BOTTOM_COPY_HOVER_ATTR = "data-cgbe-bottom-copy-hover";
   const BOTTOM_COPY_STYLE_ID = "cgbe-bottom-copy-style";
 
   const bottomCopyState: {
@@ -1721,18 +1710,8 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
         padding-right: 0;
       }
 
-      [${BOTTOM_COPY_CONTAINER_ATTR}="1"][${BOTTOM_COPY_HOVER_ATTR}="1"] .cgbe-bottom-copy-wrap{
-        opacity: 0;
-        transition: opacity 150ms ease;
-      }
-
-      [${BOTTOM_COPY_CONTAINER_ATTR}="1"][${BOTTOM_COPY_HOVER_ATTR}="1"]:hover .cgbe-bottom-copy-wrap{
-        opacity: 1;
-      }
-
       .cgbe-bottom-copy-btn{
         pointer-events: auto;
-        width: var(--cgbe-bottom-copy-size);
         height: var(--cgbe-bottom-copy-size);
         border-radius: 8px;
         border: 1px solid rgba(255, 255, 255, 0.14);
@@ -1741,7 +1720,10 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        padding: 0;
+        gap: 6px;
+        padding: 0 10px;
+        font-size: 12px;
+        font-weight: 500;
         cursor: pointer;
         backdrop-filter: blur(6px);
         position: relative;
@@ -1760,19 +1742,22 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
         height: 16px;
       }
 
-      .cgbe-bottom-copy-btn[data-cgbe-copied="1"]::after{
-        content: "Copied";
-        position: absolute;
-        right: 0;
-        bottom: calc(100% + 6px);
-        padding: 2px 6px;
-        border-radius: 6px;
-        font-size: 11px;
-        background: rgba(30, 30, 30, 0.9);
-        color: #f8fafc;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        white-space: nowrap;
-        pointer-events: none;
+      .cgbe-bottom-copy-state{
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .cgbe-bottom-copy-state--copied{
+        display: none;
+      }
+
+      .cgbe-bottom-copy-btn[data-cgbe-copied="1"] .cgbe-bottom-copy-state--copy{
+        display: none;
+      }
+
+      .cgbe-bottom-copy-btn[data-cgbe-copied="1"] .cgbe-bottom-copy-state--copied{
+        display: inline-flex;
       }
 
       @media (prefers-color-scheme: light) {
@@ -1786,9 +1771,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
           background: rgba(255, 255, 255, 0.98);
         }
 
-        .cgbe-bottom-copy-btn[data-cgbe-copied="1"]::after{
-          background: rgba(255, 255, 255, 0.95);
-          color: #0f172a;
+        .cgbe-bottom-copy-btn{
           border-color: rgba(15, 23, 42, 0.12);
         }
       }
@@ -1824,8 +1807,6 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   function applyBottomCopySettings(container: HTMLElement, mode: "sticky" | "absolute") {
     container.setAttribute(BOTTOM_COPY_CONTAINER_ATTR, "1");
     container.setAttribute(BOTTOM_COPY_MODE_ATTR, mode);
-    if (CFG.showOnHoverOnly) container.setAttribute(BOTTOM_COPY_HOVER_ATTR, "1");
-    else container.removeAttribute(BOTTOM_COPY_HOVER_ATTR);
 
     const sizePx = bottomCopySizePx(CFG.bottomCopyButtonSize);
     const offsetPx = Math.max(0, CFG.bottomCopyEdgeOffsetPx);
@@ -1865,7 +1846,6 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     container.style.removeProperty("--cgbe-bottom-copy-offset");
     container.removeAttribute(BOTTOM_COPY_CONTAINER_ATTR);
     container.removeAttribute(BOTTOM_COPY_MODE_ATTR);
-    container.removeAttribute(BOTTOM_COPY_HOVER_ATTR);
   }
 
   function isTopCopyButton(btn: HTMLButtonElement) {
@@ -1917,7 +1897,6 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   }
 
   function setCopiedFeedback(btn: HTMLButtonElement) {
-    if (!CFG.showCopiedFeedback) return;
     btn.setAttribute("data-cgbe-copied", "1");
     const prev = bottomCopyTimers.get(btn);
     if (prev) window.clearTimeout(prev);
@@ -1969,10 +1948,19 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       btn.setAttribute("aria-label", "Copy code");
       btn.title = "Copy code";
       btn.innerHTML = `
-        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-          <path d="M8 8V5.5A2.5 2.5 0 0 1 10.5 3h7A2.5 2.5 0 0 1 20 5.5v7A2.5 2.5 0 0 1 17.5 15H15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-          <rect x="4" y="8" width="11" height="11" rx="2.5" stroke="currentColor" stroke-width="1.6"/>
-        </svg>
+        <span class="cgbe-bottom-copy-state cgbe-bottom-copy-state--copy">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+            <path d="M8 8V5.5A2.5 2.5 0 0 1 10.5 3h7A2.5 2.5 0 0 1 20 5.5v7A2.5 2.5 0 0 1 17.5 15H15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="4" y="8" width="11" height="11" rx="2.5" stroke="currentColor" stroke-width="1.6"/>
+          </svg>
+          <span class="cgbe-bottom-copy-label">Copy code</span>
+        </span>
+        <span class="cgbe-bottom-copy-state cgbe-bottom-copy-state--copied">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+            <path d="M6 12.5l4 4 8-9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="cgbe-bottom-copy-label">Copied</span>
+        </span>
       `;
       btn.addEventListener("click", (ev) => {
         const target = bottomCopyTargets.get(btn as HTMLButtonElement);
@@ -2081,11 +2069,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
           !("oneClickDelete" in changes) &&
           !("wideChatWidth" in changes) &&
           !("tempChatEnabled" in changes) &&
-          !("enableBottomCopyButton" in changes) &&
-          !("showOnHoverOnly" in changes) &&
-          !("buttonSize" in changes) &&
-          !("edgeOffsetPx" in changes) &&
-          !("showCopiedFeedback" in changes))
+          !("enableBottomCopyButton" in changes))
       ) {
         return;
       }
