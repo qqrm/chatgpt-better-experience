@@ -1693,7 +1693,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
 
       [${BOTTOM_COPY_CONTAINER_ATTR}="1"] .cgbe-bottom-copy-wrap{
         position: sticky;
-        bottom: var(--cgbe-bottom-copy-offset);
+        top: var(--cgbe-bottom-copy-offset);
         display: flex;
         justify-content: flex-end;
         width: 100%;
@@ -1705,7 +1705,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       [${BOTTOM_COPY_CONTAINER_ATTR}="1"][${BOTTOM_COPY_MODE_ATTR}="absolute"] .cgbe-bottom-copy-wrap{
         position: absolute;
         right: var(--cgbe-bottom-copy-offset);
-        bottom: var(--cgbe-bottom-copy-offset);
+        top: var(--cgbe-bottom-copy-offset);
         width: auto;
         padding-right: 0;
       }
@@ -1814,12 +1814,12 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     container.style.setProperty("--cgbe-bottom-copy-offset", `${offsetPx}px`);
 
     if (!container.hasAttribute(BOTTOM_COPY_BASE_PAD_ATTR)) {
-      const basePad = parseFloat(getComputedStyle(container).paddingBottom || "0");
+      const basePad = parseFloat(getComputedStyle(container).paddingTop || "0");
       container.setAttribute(BOTTOM_COPY_BASE_PAD_ATTR, String(basePad));
     }
     const basePad = parseFloat(container.getAttribute(BOTTOM_COPY_BASE_PAD_ATTR) || "0");
     const extraPad = sizePx + offsetPx + 6;
-    container.style.paddingBottom = `${basePad + extraPad}px`;
+    container.style.paddingTop = `${basePad + extraPad}px`;
 
     if (mode === "absolute") {
       const pos = getComputedStyle(container).position;
@@ -1837,10 +1837,10 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     }
     const basePad = container.getAttribute(BOTTOM_COPY_BASE_PAD_ATTR);
     if (basePad !== null) {
-      container.style.paddingBottom = `${parseFloat(basePad)}px`;
+      container.style.paddingTop = `${parseFloat(basePad)}px`;
       container.removeAttribute(BOTTOM_COPY_BASE_PAD_ATTR);
     } else {
-      container.style.removeProperty("padding-bottom");
+      container.style.removeProperty("padding-top");
     }
     container.style.removeProperty("--cgbe-bottom-copy-size");
     container.style.removeProperty("--cgbe-bottom-copy-offset");
@@ -1950,8 +1950,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       btn.innerHTML = `
         <span class="cgbe-bottom-copy-state cgbe-bottom-copy-state--copy">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-            <path d="M8 8V5.5A2.5 2.5 0 0 1 10.5 3h7A2.5 2.5 0 0 1 20 5.5v7A2.5 2.5 0 0 1 17.5 15H15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-            <rect x="4" y="8" width="11" height="11" rx="2.5" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M12.668 10.667c0-.71 0-1.204-.031-1.588a2.4 2.4 0 0 0-.113-.615l-.055-.13a1.84 1.84 0 0 0-.676-.731l-.127-.072c-.158-.08-.37-.137-.745-.168-.384-.031-.877-.031-1.588-.031H6.5c-.711 0-1.204 0-1.588.031a2.4 2.4 0 0 0-.615.113l-.13.055a1.84 1.84 0 0 0-.731.676l-.07.127c-.081.158-.138.37-.169.745-.031.384-.032.877-.032 1.588V13.5c0 .711 0 1.204.032 1.588.031.376.088.587.168.745l.07.126c.177.288.43.522.732.676l.13.056c.144.052.333.089.615.112.384.031.877.032 1.588.032h2.833c.71 0 1.204 0 1.588-.032.376-.031.587-.088.745-.168l.127-.07c.287-.177.522-.43.676-.732l.055-.13c.052-.144.09-.333.113-.615.031-.384.031-.877.031-1.588zm1.33 1.998c.455-.002.803-.005 1.09-.028.376-.031.587-.088.745-.168l.126-.071c.288-.177.522-.43.676-.732l.056-.13a2.4 2.4 0 0 0 .112-.615c.031-.384.032-.877.032-1.588V6.5c0-.711 0-1.204-.032-1.588a2.4 2.4 0 0 0-.112-.615l-.056-.13a1.84 1.84 0 0 0-.676-.731l-.126-.07c-.158-.081-.37-.138-.745-.169-.384-.031-.877-.032-1.588-.032h-2.833c-.71 0-1.204.001-1.588.032-.282.023-.471.06-.615.112l-.13.056a1.84 1.84 0 0 0-.731.676l-.072.126c-.08.158-.137.37-.168.745-.023.287-.027.635-.029 1.09h1.999c.689 0 1.246 0 1.696.036.458.038.865.117 1.242.309l.217.122c.496.304.9.74 1.165 1.26l.067.143c.144.337.21.698.242 1.099.037.45.036 1.007.036 1.696zm4.167-3.332c0 .689 0 1.246-.036 1.696-.033.401-.098.762-.242 1.099l-.067.143c-.265.52-.67.956-1.165 1.26l-.219.122c-.376.192-.782.271-1.24.309-.337.027-.734.031-1.2.033-.003.467-.007.864-.034 1.201-.033.401-.098.762-.242 1.098l-.067.142c-.265.522-.669.958-1.165 1.262l-.217.122c-.377.192-.784.271-1.242.309-.45.037-1.007.036-1.696.036H6.5c-.69 0-1.246 0-1.696-.036-.4-.033-.762-.098-1.098-.242l-.143-.067a3.17 3.17 0 0 1-1.261-1.165l-.122-.219c-.192-.376-.271-.782-.309-1.24-.037-.45-.036-1.007-.036-1.696v-2.833c0-.689 0-1.246.036-1.696.038-.458.117-.865.309-1.242l.122-.217c.304-.496.74-.9 1.261-1.165l.143-.067c.336-.144.697-.21 1.098-.242.337-.027.733-.032 1.2-.034.002-.467.007-.863.034-1.2.037-.458.117-.864.309-1.24l.122-.22c.304-.495.74-.899 1.26-1.164l.143-.067c.337-.144.698-.21 1.099-.242.45-.037 1.007-.036 1.696-.036H13.5c.69 0 1.246 0 1.696.036.458.038.864.117 1.24.309l.22.122c.495.304.899.74 1.164 1.261l.067.143c.144.336.21.697.242 1.098.037.45.036 1.007.036 1.696z" fill="currentColor"/>
           </svg>
           <span class="cgbe-bottom-copy-label">Copy code</span>
         </span>
