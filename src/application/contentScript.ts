@@ -1667,6 +1667,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   const BOTTOM_COPY_REL_ATTR = "data-cgbe-bottom-copy-relative";
   const BOTTOM_COPY_STYLE_ID = "cgbe-bottom-copy-style";
   const BOTTOM_COPY_SETTLE_DELAY_MS = 500;
+  const TOP_COPY_SELECTOR = 'div.sticky button[aria-label="Copy"]';
 
   const bottomCopyState: {
     started: boolean;
@@ -1681,6 +1682,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     { pre: HTMLPreElement; code: Element }
   >();
   const bottomCopyTimers = new WeakMap<HTMLButtonElement, number>();
+  const bottomCopyWrapByPre = new WeakMap<HTMLPreElement, HTMLElement>();
   const bottomCopyPending = new WeakMap<
     HTMLPreElement,
     {
@@ -1721,68 +1723,6 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
 
       .cgbe-bottom-copy-btn{
         pointer-events: auto;
-        height: var(--cgbe-bottom-copy-size);
-        border-radius: 8px;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        background: rgba(22, 22, 22, 0.7);
-        color: #f8fafc;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        padding: 0 10px;
-        font-size: 12px;
-        font-weight: 500;
-        cursor: pointer;
-        backdrop-filter: blur(6px);
-        position: relative;
-      }
-
-      .cgbe-bottom-copy-btn:hover{
-        background: rgba(36, 36, 36, 0.85);
-      }
-
-      .cgbe-bottom-copy-btn:active{
-        transform: translateY(1px);
-      }
-
-      .cgbe-bottom-copy-btn svg{
-        width: 16px;
-        height: 16px;
-      }
-
-      .cgbe-bottom-copy-state{
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-      }
-
-      .cgbe-bottom-copy-state--copied{
-        display: none;
-      }
-
-      .cgbe-bottom-copy-btn[data-cgbe-copied="1"] .cgbe-bottom-copy-state--copy{
-        display: none;
-      }
-
-      .cgbe-bottom-copy-btn[data-cgbe-copied="1"] .cgbe-bottom-copy-state--copied{
-        display: inline-flex;
-      }
-
-      @media (prefers-color-scheme: light) {
-        .cgbe-bottom-copy-btn{
-          background: rgba(255, 255, 255, 0.92);
-          color: #0f172a;
-          border-color: rgba(15, 23, 42, 0.12);
-        }
-
-        .cgbe-bottom-copy-btn:hover{
-          background: rgba(255, 255, 255, 0.98);
-        }
-
-        .cgbe-bottom-copy-btn{
-          border-color: rgba(15, 23, 42, 0.12);
-        }
       }
     `;
     const host = document.head ?? document.documentElement;
@@ -1811,6 +1751,14 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     if (size === "S") return 24;
     if (size === "L") return 32;
     return 28;
+  }
+
+  function isViewportIntersecting(el: Element) {
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    const vw = document.documentElement.clientWidth;
+    const vh = document.documentElement.clientHeight;
+    return r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw;
   }
 
   function applyBottomCopySettings(container: HTMLElement, mode: "sticky" | "absolute") {
@@ -1857,31 +1805,12 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     container.removeAttribute(BOTTOM_COPY_MODE_ATTR);
   }
 
-  function isTopCopyButton(btn: HTMLButtonElement) {
-    if (btn.hasAttribute(BOTTOM_COPY_BTN_ATTR)) return false;
-    const label = norm(btn.getAttribute("aria-label"));
-    const title = norm(btn.getAttribute("title"));
-    const text = norm(btn.textContent);
-    const dt = norm(btn.getAttribute("data-testid"));
-    const labelMatch =
-      (label.includes("copy") && label.includes("code")) ||
-      (title.includes("copy") && title.includes("code")) ||
-      (text.includes("copy") && text.includes("code"));
-    if (labelMatch) return true;
-    return dt.includes("copy") && dt.includes("code");
-  }
-
   function findTopCopyButton(pre: HTMLPreElement) {
-    let el: HTMLElement | null = pre;
-    let depth = 0;
-    while (el && el !== document.body && depth < 6) {
-      const btns = Array.from(el.querySelectorAll<HTMLButtonElement>("button"));
-      const match = btns.find((btn) => isTopCopyButton(btn) && isElementVisible(btn));
-      if (match) return match;
-      el = el.parentElement;
-      depth += 1;
-    }
-    return null;
+    const btn = pre.querySelector<HTMLButtonElement>(TOP_COPY_SELECTOR);
+    if (!btn) return null;
+    const text = norm(btn.textContent);
+    if (text.includes("copy") && text.includes("code")) return btn;
+    return btn;
   }
 
   function copyWithExecCommand(text: string) {
@@ -1940,6 +1869,33 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     if (copyWithExecCommand(text)) setCopiedFeedback(btn);
   }
 
+  let bottomCopyRaf = 0;
+
+  function updateBottomCopyVisibility() {
+    bottomCopyRaf = 0;
+
+    const pres = qsa<HTMLPreElement>(`pre[${BOTTOM_COPY_MARK}="1"]`);
+    for (const pre of pres) {
+      const wrap = bottomCopyWrapByPre.get(pre);
+      if (!wrap) continue;
+
+      const preVisible = isViewportIntersecting(pre);
+      if (!preVisible) {
+        wrap.style.display = "none";
+        continue;
+      }
+
+      const topBtn = findTopCopyButton(pre);
+      const topVisible = topBtn ? isViewportIntersecting(topBtn) : false;
+      wrap.style.display = topVisible ? "none" : "";
+    }
+  }
+
+  function scheduleBottomCopyVisibilityUpdate() {
+    if (bottomCopyRaf) return;
+    bottomCopyRaf = requestAnimationFrame(updateBottomCopyVisibility);
+  }
+
   function ensureBottomCopyButton(pre: HTMLPreElement, code: Element) {
     const { container, mode } = resolveBottomCopyContainer(pre);
     if (!container) return;
@@ -1950,33 +1906,37 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       const wrap = document.createElement("div");
       wrap.className = "cgbe-bottom-copy-wrap";
 
-      btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "cgbe-bottom-copy-btn";
-      btn.setAttribute(BOTTOM_COPY_BTN_ATTR, "1");
-      btn.setAttribute("aria-label", "Copy code");
-      btn.title = "Copy code";
-      btn.innerHTML = `
-        <span class="cgbe-bottom-copy-state cgbe-bottom-copy-state--copy">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-            <path d="M12.668 10.667c0-.71 0-1.204-.031-1.588a2.4 2.4 0 0 0-.113-.615l-.055-.13a1.84 1.84 0 0 0-.676-.731l-.127-.072c-.158-.08-.37-.137-.745-.168-.384-.031-.877-.031-1.588-.031H6.5c-.711 0-1.204 0-1.588.031a2.4 2.4 0 0 0-.615.113l-.13.055a1.84 1.84 0 0 0-.731.676l-.07.127c-.081.158-.138.37-.169.745-.031.384-.032.877-.032 1.588V13.5c0 .711 0 1.204.032 1.588.031.376.088.587.168.745l.07.126c.177.288.43.522.732.676l.13.056c.144.052.333.089.615.112.384.031.877.032 1.588.032h2.833c.71 0 1.204 0 1.588-.032.376-.031.587-.088.745-.168l.127-.07c.287-.177.522-.43.676-.732l.055-.13c.052-.144.09-.333.113-.615.031-.384.031-.877.031-1.588zm1.33 1.998c.455-.002.803-.005 1.09-.028.376-.031.587-.088.745-.168l.126-.071c.288-.177.522-.43.676-.732l.056-.13a2.4 2.4 0 0 0 .112-.615c.031-.384.032-.877.032-1.588V6.5c0-.711 0-1.204-.032-1.588a2.4 2.4 0 0 0-.112-.615l-.056-.13a1.84 1.84 0 0 0-.676-.731l-.126-.07c-.158-.081-.37-.138-.745-.169-.384-.031-.877-.032-1.588-.032h-2.833c-.71 0-1.204.001-1.588.032-.282.023-.471.06-.615.112l-.13.056a1.84 1.84 0 0 0-.731.676l-.072.126c-.08.158-.137.37-.168.745-.023.287-.027.635-.029 1.09h1.999c.689 0 1.246 0 1.696.036.458.038.865.117 1.242.309l.217.122c.496.304.9.74 1.165 1.26l.067.143c.144.337.21.698.242 1.099.037.45.036 1.007.036 1.696zm4.167-3.332c0 .689 0 1.246-.036 1.696-.033.401-.098.762-.242 1.099l-.067.143c-.265.52-.67.956-1.165 1.26l-.219.122c-.376.192-.782.271-1.24.309-.337.027-.734.031-1.2.033-.003.467-.007.864-.034 1.201-.033.401-.098.762-.242 1.098l-.067.142c-.265.522-.669.958-1.165 1.262l-.217.122c-.377.192-.784.271-1.242.309-.45.037-1.007.036-1.696.036H6.5c-.69 0-1.246 0-1.696-.036-.4-.033-.762-.098-1.098-.242l-.143-.067a3.17 3.17 0 0 1-1.261-1.165l-.122-.219c-.192-.376-.271-.782-.309-1.24-.037-.45-.036-1.007-.036-1.696v-2.833c0-.689 0-1.246.036-1.696.038-.458.117-.865.309-1.242l.122-.217c.304-.496.74-.9 1.261-1.165l.143-.067c.336-.144.697-.21 1.098-.242.337-.027.733-.032 1.2-.034.002-.467.007-.863.034-1.2.037-.458.117-.864.309-1.24l.122-.22c.304-.495.74-.899 1.26-1.164l.143-.067c.337-.144.698-.21 1.099-.242.45-.037 1.007-.036 1.696-.036H13.5c.69 0 1.246 0 1.696.036.458.038.864.117 1.24.309l.22.122c.495.304.899.74 1.164 1.261l.067.143c.144.336.21.697.242 1.098.037.45.036 1.007.036 1.696z" fill="currentColor"/>
-          </svg>
+      const topBtn = findTopCopyButton(pre);
+      if (topBtn) {
+        const cloned = topBtn.cloneNode(true) as HTMLButtonElement;
+        cloned.setAttribute(BOTTOM_COPY_BTN_ATTR, "1");
+        cloned.removeAttribute("data-testid");
+        cloned.addEventListener("click", (ev) => {
+          const target = bottomCopyTargets.get(cloned);
+          if (!target) return;
+          void handleBottomCopyClick(ev, cloned, target.pre, target.code);
+        });
+        btn = cloned;
+      } else {
+        btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "cgbe-bottom-copy-btn";
+        btn.setAttribute(BOTTOM_COPY_BTN_ATTR, "1");
+        btn.setAttribute("aria-label", "Copy code");
+        btn.title = "Copy code";
+        btn.innerHTML = `
           <span class="cgbe-bottom-copy-label">Copy code</span>
-        </span>
-        <span class="cgbe-bottom-copy-state cgbe-bottom-copy-state--copied">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-            <path d="M6 12.5l4 4 8-9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          <span class="cgbe-bottom-copy-label">Copied</span>
-        </span>
-      `;
-      btn.addEventListener("click", (ev) => {
-        const target = bottomCopyTargets.get(btn as HTMLButtonElement);
-        if (!target) return;
-        void handleBottomCopyClick(ev, btn as HTMLButtonElement, target.pre, target.code);
-      });
+        `;
+        btn.addEventListener("click", (ev) => {
+          const target = bottomCopyTargets.get(btn as HTMLButtonElement);
+          if (!target) return;
+          void handleBottomCopyClick(ev, btn as HTMLButtonElement, target.pre, target.code);
+        });
+      }
       wrap.appendChild(btn);
       container.appendChild(wrap);
+      bottomCopyWrapByPre.set(pre, wrap);
+      scheduleBottomCopyVisibilityUpdate();
     }
 
     bottomCopyTargets.set(btn, { pre, code });
@@ -2030,6 +1990,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       for (const node of Array.from(mutation.addedNodes)) {
         if (!(node instanceof Element)) continue;
         hookBottomCopyInRoot(node);
+        scheduleBottomCopyVisibilityUpdate();
       }
     }
   }
@@ -2041,6 +2002,9 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     hookBottomCopyInRoot(document.documentElement);
     bottomCopyState.observer = new MutationObserver(handleBottomCopyMutations);
     bottomCopyState.observer.observe(document.documentElement, { childList: true, subtree: true });
+    window.addEventListener("scroll", scheduleBottomCopyVisibilityUpdate, true);
+    window.addEventListener("resize", scheduleBottomCopyVisibilityUpdate, true);
+    scheduleBottomCopyVisibilityUpdate();
   }
 
   function stopBottomCopy() {
@@ -2050,6 +2014,8 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       bottomCopyState.observer.disconnect();
       bottomCopyState.observer = null;
     }
+    window.removeEventListener("scroll", scheduleBottomCopyVisibilityUpdate, true);
+    window.removeEventListener("resize", scheduleBottomCopyVisibilityUpdate, true);
     const buttons = qsa<HTMLButtonElement>(`button[${BOTTOM_COPY_BTN_ATTR}="1"]`);
     for (const btn of buttons) {
       const wrap = btn.closest(".cgbe-bottom-copy-wrap");
