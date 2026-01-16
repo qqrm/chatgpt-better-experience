@@ -465,6 +465,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     "keydown",
     (e: KeyboardEvent) => {
       updateKeyState(e, true);
+      if (e.key === "Shift") updateOneClickDeleteTooltipForAllButtons();
       if (keyMatchesModifier(e)) {
         const graceActive = performance.now() <= graceUntilMs;
         if (graceActive) graceCaptured = true;
@@ -498,6 +499,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     "keyup",
     (e: KeyboardEvent) => {
       updateKeyState(e, false);
+      if (e.key === "Shift") updateOneClickDeleteTooltipForAllButtons();
       if (keyMatchesModifier(e)) {
         tmLog("KEY", "up modifier");
       }
@@ -512,6 +514,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       keyState.shift = false;
       keyState.ctrl = false;
       keyState.alt = false;
+      updateOneClickDeleteTooltipForAllButtons();
       if (!CFG.logBlur) return;
       const t = performance.now();
       if (t - lastBlurLogAt > 800) {
@@ -1404,6 +1407,8 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   const ONE_CLICK_DELETE_X_SIZE = 26;
   const ONE_CLICK_DELETE_X_RIGHT = 6;
   const ONE_CLICK_DELETE_DOTS_LEFT = 10;
+  const ONE_CLICK_DELETE_TOOLTIP_HINT = "Hold Shift to delete";
+  const ONE_CLICK_DELETE_TOOLTIP_DELETE = "Delete chat";
 
   const oneClickDeleteState: {
     started: boolean;
@@ -1525,11 +1530,28 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     if (x) return x;
     x = document.createElement("span");
     x.setAttribute(ONE_CLICK_DELETE_X_MARK, "1");
-    x.setAttribute("aria-label", "Delete chat");
-    x.title = "Delete chat";
+    const tooltip = getOneClickDeleteTooltip();
+    x.setAttribute("aria-label", tooltip);
+    x.title = tooltip;
     x.textContent = "×";
     btn.appendChild(x);
     return x;
+  }
+
+  function getOneClickDeleteTooltip() {
+    return keyState.shift ? ONE_CLICK_DELETE_TOOLTIP_DELETE : ONE_CLICK_DELETE_TOOLTIP_HINT;
+  }
+
+  function updateOneClickDeleteTooltipForAllButtons() {
+    if (!CFG.oneClickDeleteEnabled) return;
+    const tooltip = getOneClickDeleteTooltip();
+    const btns = qsa<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
+    for (const btn of btns) {
+      const x = btn.querySelector<HTMLSpanElement>(`span[${ONE_CLICK_DELETE_X_MARK}="1"]`);
+      if (!x) continue;
+      x.title = tooltip;
+      x.setAttribute("aria-label", tooltip);
+    }
   }
 
   function clearOneClickDeleteButtons() {
@@ -1592,6 +1614,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     ensureOneClickDeleteStyle();
     const btns = qsa<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
     for (const btn of btns) hookOneClickDeleteButton(btn);
+    updateOneClickDeleteTooltipForAllButtons();
   }
 
   function handleOneClickDeleteClick(ev: MouseEvent) {
@@ -1602,9 +1625,13 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     const btn = target.closest(ONE_CLICK_DELETE_BUTTON_SELECTOR);
     if (!(btn instanceof HTMLElement)) return;
     if (!isOneClickDeleteRightZone(btn, ev)) return;
-    setTimeout(() => {
-      runOneClickDeleteFlow().catch(() => {});
-    }, 0);
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (typeof ev.stopImmediatePropagation === "function") {
+      ev.stopImmediatePropagation();
+    }
+    if (!keyState.shift) return;
+    runOneClickDeleteFlow().catch(() => {});
   }
 
   function startOneClickDelete() {
