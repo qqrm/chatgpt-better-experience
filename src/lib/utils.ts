@@ -46,11 +46,7 @@ export function normalizeSettings(value: Record<string, unknown> | null | undefi
       typeof data.tempChatEnabled === "boolean" ? data.tempChatEnabled : base.tempChatEnabled,
     oneClickDelete:
       typeof data.oneClickDelete === "boolean" ? data.oneClickDelete : base.oneClickDelete,
-    wideChatWidth,
-    enableBottomCopyButton:
-      typeof data.enableBottomCopyButton === "boolean"
-        ? data.enableBottomCopyButton
-        : base.enableBottomCopyButton
+    wideChatWidth
   };
 }
 

@@ -79,9 +79,6 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     autoTempChatEnabled: boolean;
     oneClickDeleteEnabled: boolean;
     wideChatWidth: number;
-    enableBottomCopyButton: boolean;
-    bottomCopyButtonSize: "S" | "M" | "L";
-    bottomCopyEdgeOffsetPx: number;
     logClicks: boolean;
     logBlur: boolean;
   }
@@ -99,9 +96,6 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     autoTempChatEnabled: false,
     oneClickDeleteEnabled: false,
     wideChatWidth: 0,
-    enableBottomCopyButton: true,
-    bottomCopyButtonSize: "L",
-    bottomCopyEdgeOffsetPx: 8,
 
     finalTextTimeoutMs: 25000,
     finalTextQuietMs: 320,
@@ -1173,7 +1167,6 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     CFG.autoTempChatEnabled = settings.autoTempChat;
     CFG.oneClickDeleteEnabled = settings.oneClickDelete;
     CFG.wideChatWidth = settings.wideChatWidth;
-    CFG.enableBottomCopyButton = settings.enableBottomCopyButton;
     tempChatEnabled = settings.tempChatEnabled;
     log("settings refreshed", {
       skipKey: CFG.modifierKey,
@@ -1184,15 +1177,11 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       autoTempChat: CFG.autoTempChatEnabled,
       oneClickDelete: CFG.oneClickDeleteEnabled,
       wideChatWidth: CFG.wideChatWidth,
-      enableBottomCopyButton: CFG.enableBottomCopyButton,
-      bottomCopyButtonSize: CFG.bottomCopyButtonSize,
-      bottomCopyEdgeOffsetPx: CFG.bottomCopyEdgeOffsetPx,
       tempChatEnabled
     });
     maybeEnableTempChat();
     updateOneClickDeleteState();
     updateWideChatState();
-    updateBottomCopyState();
   }
 
   let graceUntilMs = 0;
@@ -1659,397 +1648,6 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     else stopOneClickDelete();
   }
 
-  const BOTTOM_COPY_MARK = "data-cgbe-bottom-copy";
-  const BOTTOM_COPY_CONTAINER_ATTR = "data-cgbe-bottom-copy-container";
-  const BOTTOM_COPY_BTN_ATTR = "data-cgbe-bottom-copy-btn";
-  const BOTTOM_COPY_MODE_ATTR = "data-cgbe-bottom-copy-mode";
-  const BOTTOM_COPY_BASE_PAD_ATTR = "data-cgbe-bottom-copy-base-pad";
-  const BOTTOM_COPY_REL_ATTR = "data-cgbe-bottom-copy-relative";
-  const BOTTOM_COPY_STYLE_ID = "cgbe-bottom-copy-style";
-  const BOTTOM_COPY_SETTLE_DELAY_MS = 500;
-  const TOP_COPY_SELECTOR = 'div.sticky button[aria-label="Copy"]';
-
-  const bottomCopyState: {
-    started: boolean;
-    observer: MutationObserver | null;
-  } = {
-    started: false,
-    observer: null
-  };
-
-  const bottomCopyTargets = new WeakMap<
-    HTMLButtonElement,
-    { pre: HTMLPreElement; code: Element }
-  >();
-  const bottomCopyTimers = new WeakMap<HTMLButtonElement, number>();
-  const bottomCopyWrapByPre = new WeakMap<HTMLPreElement, HTMLElement>();
-  const bottomCopyPending = new WeakMap<
-    HTMLPreElement,
-    {
-      observer: MutationObserver;
-      timerId: number | null;
-      code: Element;
-    }
-  >();
-
-  function ensureBottomCopyStyle() {
-    if (document.getElementById(BOTTOM_COPY_STYLE_ID)) return;
-    const st = document.createElement("style");
-    st.id = BOTTOM_COPY_STYLE_ID;
-    st.textContent = `
-      [${BOTTOM_COPY_CONTAINER_ATTR}="1"]{
-        --cgbe-bottom-copy-size: 28px;
-        --cgbe-bottom-copy-offset: 8px;
-      }
-
-      [${BOTTOM_COPY_CONTAINER_ATTR}="1"] .cgbe-bottom-copy-wrap{
-        position: sticky;
-        bottom: var(--cgbe-bottom-copy-offset);
-        display: flex;
-        justify-content: flex-end;
-        width: 100%;
-        padding-right: var(--cgbe-bottom-copy-offset);
-        pointer-events: none;
-        z-index: 2;
-      }
-
-      [${BOTTOM_COPY_CONTAINER_ATTR}="1"][${BOTTOM_COPY_MODE_ATTR}="absolute"] .cgbe-bottom-copy-wrap{
-        position: absolute;
-        right: var(--cgbe-bottom-copy-offset);
-        bottom: var(--cgbe-bottom-copy-offset);
-        width: auto;
-        padding-right: 0;
-      }
-
-      .cgbe-bottom-copy-btn{
-        pointer-events: auto;
-      }
-    `;
-    const host = document.head ?? document.documentElement;
-    if (!host) return;
-    host.appendChild(st);
-  }
-
-  function removeBottomCopyStyle() {
-    const st = document.getElementById(BOTTOM_COPY_STYLE_ID);
-    if (st) st.remove();
-  }
-
-  function isScrollable(el: Element) {
-    const cs = getComputedStyle(el);
-    return ["auto", "scroll"].includes(cs.overflowX) || ["auto", "scroll"].includes(cs.overflowY);
-  }
-
-  function resolveBottomCopyContainer(pre: HTMLPreElement) {
-    if (isScrollable(pre)) {
-      return { container: pre, mode: "sticky" as const };
-    }
-    return { container: pre, mode: "absolute" as const };
-  }
-
-  function bottomCopySizePx(size: "S" | "M" | "L") {
-    if (size === "S") return 24;
-    if (size === "L") return 32;
-    return 28;
-  }
-
-  function isViewportIntersecting(el: Element) {
-    const r = el.getBoundingClientRect();
-    if (r.width <= 0 || r.height <= 0) return false;
-    const vw = document.documentElement.clientWidth;
-    const vh = document.documentElement.clientHeight;
-    return r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw;
-  }
-
-  function applyBottomCopySettings(container: HTMLElement, mode: "sticky" | "absolute") {
-    container.setAttribute(BOTTOM_COPY_CONTAINER_ATTR, "1");
-    container.setAttribute(BOTTOM_COPY_MODE_ATTR, mode);
-
-    const sizePx = bottomCopySizePx(CFG.bottomCopyButtonSize);
-    const offsetPx = Math.max(0, CFG.bottomCopyEdgeOffsetPx);
-    container.style.setProperty("--cgbe-bottom-copy-size", `${sizePx}px`);
-    container.style.setProperty("--cgbe-bottom-copy-offset", `${offsetPx}px`);
-
-    if (!container.hasAttribute(BOTTOM_COPY_BASE_PAD_ATTR)) {
-      const basePad = parseFloat(getComputedStyle(container).paddingBottom || "0");
-      container.setAttribute(BOTTOM_COPY_BASE_PAD_ATTR, String(basePad));
-    }
-    const basePad = parseFloat(container.getAttribute(BOTTOM_COPY_BASE_PAD_ATTR) || "0");
-    const extraPad = sizePx + offsetPx + 6;
-    container.style.paddingBottom = `${basePad + extraPad}px`;
-
-    if (mode === "absolute") {
-      const pos = getComputedStyle(container).position;
-      if (pos === "static") {
-        container.style.position = "relative";
-        container.setAttribute(BOTTOM_COPY_REL_ATTR, "1");
-      }
-    }
-  }
-
-  function clearBottomCopyContainer(container: HTMLElement) {
-    if (container.hasAttribute(BOTTOM_COPY_REL_ATTR)) {
-      container.style.position = "";
-      container.removeAttribute(BOTTOM_COPY_REL_ATTR);
-    }
-    const basePad = container.getAttribute(BOTTOM_COPY_BASE_PAD_ATTR);
-    if (basePad !== null) {
-      container.style.paddingBottom = `${parseFloat(basePad)}px`;
-      container.removeAttribute(BOTTOM_COPY_BASE_PAD_ATTR);
-    } else {
-      container.style.removeProperty("padding-bottom");
-    }
-    container.style.removeProperty("--cgbe-bottom-copy-size");
-    container.style.removeProperty("--cgbe-bottom-copy-offset");
-    container.removeAttribute(BOTTOM_COPY_CONTAINER_ATTR);
-    container.removeAttribute(BOTTOM_COPY_MODE_ATTR);
-  }
-
-  function findTopCopyButton(pre: HTMLPreElement) {
-    const btn = pre.querySelector<HTMLButtonElement>(TOP_COPY_SELECTOR);
-    if (!btn) return null;
-    const text = norm(btn.textContent);
-    if (text.includes("copy") && text.includes("code")) return btn;
-    return btn;
-  }
-
-  function copyWithExecCommand(text: string) {
-    if (!document.body) return false;
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.setAttribute("readonly", "true");
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    ta.style.left = "-9999px";
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    let ok = false;
-    try {
-      ok = document.execCommand("copy");
-    } catch (_) {
-      ok = false;
-    }
-    ta.remove();
-    return ok;
-  }
-
-  function setCopiedFeedback(btn: HTMLButtonElement) {
-    btn.setAttribute("data-cgbe-copied", "1");
-    const prev = bottomCopyTimers.get(btn);
-    if (prev) window.clearTimeout(prev);
-    const timeoutId = window.setTimeout(() => {
-      btn.removeAttribute("data-cgbe-copied");
-    }, 1400);
-    bottomCopyTimers.set(btn, timeoutId);
-  }
-
-  async function handleBottomCopyClick(
-    ev: MouseEvent,
-    btn: HTMLButtonElement,
-    pre: HTMLPreElement,
-    code: Element
-  ) {
-    ev.preventDefault();
-    ev.stopPropagation();
-    const topBtn = findTopCopyButton(pre);
-    if (topBtn) {
-      humanClick(topBtn, "bottom-copy");
-      setCopiedFeedback(btn);
-      return;
-    }
-    const text = code.textContent ?? "";
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-      try {
-        await navigator.clipboard.writeText(text);
-        setCopiedFeedback(btn);
-      } catch (_) {}
-      return;
-    }
-    if (copyWithExecCommand(text)) setCopiedFeedback(btn);
-  }
-
-  let bottomCopyRaf = 0;
-
-  function updateBottomCopyVisibility() {
-    bottomCopyRaf = 0;
-
-    const pres = qsa<HTMLPreElement>(`pre[${BOTTOM_COPY_MARK}="1"]`);
-    for (const pre of pres) {
-      const wrap = bottomCopyWrapByPre.get(pre);
-      if (!wrap) continue;
-
-      const preVisible = isViewportIntersecting(pre);
-      if (!preVisible) {
-        wrap.style.display = "none";
-        continue;
-      }
-
-      const topBtn = findTopCopyButton(pre);
-      const topVisible = topBtn ? isViewportIntersecting(topBtn) : false;
-      wrap.style.display = topVisible ? "none" : "";
-    }
-  }
-
-  function scheduleBottomCopyVisibilityUpdate() {
-    if (bottomCopyRaf) return;
-    bottomCopyRaf = requestAnimationFrame(updateBottomCopyVisibility);
-  }
-
-  function ensureBottomCopyButton(pre: HTMLPreElement, code: Element) {
-    const { container, mode } = resolveBottomCopyContainer(pre);
-    if (!container) return;
-    applyBottomCopySettings(container, mode);
-
-    let btn = container.querySelector<HTMLButtonElement>(`button[${BOTTOM_COPY_BTN_ATTR}="1"]`);
-    if (!btn) {
-      const wrap = document.createElement("div");
-      wrap.className = "cgbe-bottom-copy-wrap";
-
-      const topBtn = findTopCopyButton(pre);
-      if (topBtn) {
-        const cloned = topBtn.cloneNode(true) as HTMLButtonElement;
-        cloned.setAttribute(BOTTOM_COPY_BTN_ATTR, "1");
-        cloned.removeAttribute("data-testid");
-        cloned.addEventListener("click", (ev) => {
-          const target = bottomCopyTargets.get(cloned);
-          if (!target) return;
-          void handleBottomCopyClick(ev, cloned, target.pre, target.code);
-        });
-        btn = cloned;
-      } else {
-        btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "cgbe-bottom-copy-btn";
-        btn.setAttribute(BOTTOM_COPY_BTN_ATTR, "1");
-        btn.setAttribute("aria-label", "Copy code");
-        btn.title = "Copy code";
-        btn.innerHTML = `
-          <span class="cgbe-bottom-copy-label">Copy code</span>
-        `;
-        btn.addEventListener("click", (ev) => {
-          const target = bottomCopyTargets.get(btn as HTMLButtonElement);
-          if (!target) return;
-          void handleBottomCopyClick(ev, btn as HTMLButtonElement, target.pre, target.code);
-        });
-      }
-      wrap.appendChild(btn);
-      container.appendChild(wrap);
-      bottomCopyWrapByPre.set(pre, wrap);
-      scheduleBottomCopyVisibilityUpdate();
-    }
-
-    bottomCopyTargets.set(btn, { pre, code });
-    pre.setAttribute(BOTTOM_COPY_MARK, "1");
-  }
-
-  function scheduleBottomCopyButton(pre: HTMLPreElement, code: Element) {
-    if (pre.hasAttribute(BOTTOM_COPY_MARK)) {
-      ensureBottomCopyButton(pre, code);
-      return;
-    }
-    let pending = bottomCopyPending.get(pre);
-    if (!pending) {
-      const observer = new MutationObserver(() => {
-        scheduleBottomCopyButton(pre, code);
-      });
-      pending = { observer, timerId: null, code };
-      bottomCopyPending.set(pre, pending);
-      observer.observe(code, { childList: true, characterData: true, subtree: true });
-    } else if (pending.code !== code) {
-      pending.code = code;
-    }
-    if (pending.timerId !== null) {
-      window.clearTimeout(pending.timerId);
-    }
-    pending.timerId = window.setTimeout(() => {
-      pending?.observer.disconnect();
-      bottomCopyPending.delete(pre);
-      ensureBottomCopyButton(pre, code);
-    }, BOTTOM_COPY_SETTLE_DELAY_MS);
-  }
-
-  function collectPreElements(root: Element) {
-    const pres: HTMLPreElement[] = [];
-    if (root instanceof HTMLPreElement) pres.push(root);
-    pres.push(...Array.from(root.querySelectorAll<HTMLPreElement>("pre")));
-    return pres;
-  }
-
-  function hookBottomCopyInRoot(root: Element) {
-    const pres = collectPreElements(root);
-    for (const pre of pres) {
-      const code = pre.querySelector("code");
-      if (!code) continue;
-      scheduleBottomCopyButton(pre, code);
-    }
-  }
-
-  function handleBottomCopyMutations(mutations: MutationRecord[]) {
-    for (const mutation of mutations) {
-      for (const node of Array.from(mutation.addedNodes)) {
-        if (!(node instanceof Element)) continue;
-        hookBottomCopyInRoot(node);
-        scheduleBottomCopyVisibilityUpdate();
-      }
-    }
-  }
-
-  function startBottomCopy() {
-    if (bottomCopyState.started) return;
-    bottomCopyState.started = true;
-    ensureBottomCopyStyle();
-    hookBottomCopyInRoot(document.documentElement);
-    bottomCopyState.observer = new MutationObserver(handleBottomCopyMutations);
-    bottomCopyState.observer.observe(document.documentElement, { childList: true, subtree: true });
-    window.addEventListener("scroll", scheduleBottomCopyVisibilityUpdate, true);
-    window.addEventListener("resize", scheduleBottomCopyVisibilityUpdate, true);
-    scheduleBottomCopyVisibilityUpdate();
-  }
-
-  function stopBottomCopy() {
-    if (!bottomCopyState.started) return;
-    bottomCopyState.started = false;
-    if (bottomCopyState.observer) {
-      bottomCopyState.observer.disconnect();
-      bottomCopyState.observer = null;
-    }
-    window.removeEventListener("scroll", scheduleBottomCopyVisibilityUpdate, true);
-    window.removeEventListener("resize", scheduleBottomCopyVisibilityUpdate, true);
-    const buttons = qsa<HTMLButtonElement>(`button[${BOTTOM_COPY_BTN_ATTR}="1"]`);
-    for (const btn of buttons) {
-      const wrap = btn.closest(".cgbe-bottom-copy-wrap");
-      if (wrap) wrap.remove();
-      else btn.remove();
-    }
-    const containers = qsa<HTMLElement>(`[${BOTTOM_COPY_CONTAINER_ATTR}="1"]`);
-    for (const container of containers) {
-      clearBottomCopyContainer(container);
-    }
-    const pres = qsa<HTMLPreElement>(`pre[${BOTTOM_COPY_MARK}="1"]`);
-    for (const pre of pres) pre.removeAttribute(BOTTOM_COPY_MARK);
-    removeBottomCopyStyle();
-  }
-
-  function refreshBottomCopySettings() {
-    if (!bottomCopyState.started) return;
-    const containers = qsa<HTMLElement>(`[${BOTTOM_COPY_CONTAINER_ATTR}="1"]`);
-    for (const container of containers) {
-      const mode =
-        container.getAttribute(BOTTOM_COPY_MODE_ATTR) === "absolute" ? "absolute" : "sticky";
-      applyBottomCopySettings(container, mode);
-    }
-  }
-
-  function updateBottomCopyState() {
-    if (CFG.enableBottomCopyButton) {
-      if (!bottomCopyState.started) startBottomCopy();
-      else refreshBottomCopySettings();
-    } else {
-      stopBottomCopy();
-    }
-  }
-
   void refreshSettings();
   resolvedStorage.onChanged?.(
     (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, areaName: string) => {
@@ -2064,8 +1662,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
           !("autoTempChat" in changes) &&
           !("oneClickDelete" in changes) &&
           !("wideChatWidth" in changes) &&
-          !("tempChatEnabled" in changes) &&
-          !("enableBottomCopyButton" in changes))
+          !("tempChatEnabled" in changes))
       ) {
         return;
       }

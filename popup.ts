@@ -25,7 +25,6 @@ const editLastMessageEl = mustGetElement<HTMLInputElement>("editLastMessageOnArr
 const autoExpandEl = mustGetElement<HTMLInputElement>("autoExpandChats");
 const autoTempChatEl = mustGetElement<HTMLInputElement>("autoTempChat");
 const oneClickDeleteEl = mustGetElement<HTMLInputElement>("oneClickDelete");
-const enableBottomCopyButtonEl = mustGetElement<HTMLInputElement>("enableBottomCopyButton");
 const wideChatWidthEl = mustGetElement<HTMLInputElement>("wideChatWidth");
 const wideChatWidthValueEl = mustGetElement<HTMLElement>("wideChatWidthValue");
 
@@ -48,7 +47,6 @@ async function load() {
   autoExpandEl.checked = settings.autoExpandChats;
   autoTempChatEl.checked = settings.autoTempChat;
   oneClickDeleteEl.checked = settings.oneClickDelete;
-  enableBottomCopyButtonEl.checked = settings.enableBottomCopyButton;
   wideChatWidthEl.value = String(settings.wideChatWidth);
   wideChatWidthValueEl.textContent = `${settings.wideChatWidth}%`;
 
@@ -65,8 +63,7 @@ async function save() {
     autoExpandChats: !!autoExpandEl.checked,
     autoTempChat: !!autoTempChatEl.checked,
     oneClickDelete: !!oneClickDeleteEl.checked,
-    wideChatWidth,
-    enableBottomCopyButton: !!enableBottomCopyButtonEl.checked
+    wideChatWidth
   };
 
   const { hint } = await savePopupSettings(popupDeps, input);
@@ -81,7 +78,6 @@ editLastMessageEl.addEventListener("change", () => void save().catch(() => {}));
 autoExpandEl.addEventListener("change", () => void save().catch(() => {}));
 autoTempChatEl.addEventListener("change", () => void save().catch(() => {}));
 oneClickDeleteEl.addEventListener("change", () => void save().catch(() => {}));
-enableBottomCopyButtonEl.addEventListener("change", () => void save().catch(() => {}));
 wideChatWidthEl.addEventListener("input", () => void save().catch(() => {}));
 
 void load().catch(() => {});
