@@ -1666,6 +1666,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   const BOTTOM_COPY_BASE_PAD_ATTR = "data-cgbe-bottom-copy-base-pad";
   const BOTTOM_COPY_REL_ATTR = "data-cgbe-bottom-copy-relative";
   const BOTTOM_COPY_STYLE_ID = "cgbe-bottom-copy-style";
+  const BOTTOM_COPY_SETTLE_DELAY_MS = 500;
 
   const bottomCopyState: {
     started: boolean;
@@ -1680,6 +1681,14 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     { pre: HTMLPreElement; code: Element }
   >();
   const bottomCopyTimers = new WeakMap<HTMLButtonElement, number>();
+  const bottomCopyPending = new WeakMap<
+    HTMLPreElement,
+    {
+      observer: MutationObserver;
+      timerId: number | null;
+      code: Element;
+    }
+  >();
 
   function ensureBottomCopyStyle() {
     if (document.getElementById(BOTTOM_COPY_STYLE_ID)) return;
@@ -1693,7 +1702,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
 
       [${BOTTOM_COPY_CONTAINER_ATTR}="1"] .cgbe-bottom-copy-wrap{
         position: sticky;
-        top: var(--cgbe-bottom-copy-offset);
+        bottom: var(--cgbe-bottom-copy-offset);
         display: flex;
         justify-content: flex-end;
         width: 100%;
@@ -1705,7 +1714,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       [${BOTTOM_COPY_CONTAINER_ATTR}="1"][${BOTTOM_COPY_MODE_ATTR}="absolute"] .cgbe-bottom-copy-wrap{
         position: absolute;
         right: var(--cgbe-bottom-copy-offset);
-        top: var(--cgbe-bottom-copy-offset);
+        bottom: var(--cgbe-bottom-copy-offset);
         width: auto;
         padding-right: 0;
       }
@@ -1814,12 +1823,12 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     container.style.setProperty("--cgbe-bottom-copy-offset", `${offsetPx}px`);
 
     if (!container.hasAttribute(BOTTOM_COPY_BASE_PAD_ATTR)) {
-      const basePad = parseFloat(getComputedStyle(container).paddingTop || "0");
+      const basePad = parseFloat(getComputedStyle(container).paddingBottom || "0");
       container.setAttribute(BOTTOM_COPY_BASE_PAD_ATTR, String(basePad));
     }
     const basePad = parseFloat(container.getAttribute(BOTTOM_COPY_BASE_PAD_ATTR) || "0");
     const extraPad = sizePx + offsetPx + 6;
-    container.style.paddingTop = `${basePad + extraPad}px`;
+    container.style.paddingBottom = `${basePad + extraPad}px`;
 
     if (mode === "absolute") {
       const pos = getComputedStyle(container).position;
@@ -1837,10 +1846,10 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     }
     const basePad = container.getAttribute(BOTTOM_COPY_BASE_PAD_ATTR);
     if (basePad !== null) {
-      container.style.paddingTop = `${parseFloat(basePad)}px`;
+      container.style.paddingBottom = `${parseFloat(basePad)}px`;
       container.removeAttribute(BOTTOM_COPY_BASE_PAD_ATTR);
     } else {
-      container.style.removeProperty("padding-top");
+      container.style.removeProperty("padding-bottom");
     }
     container.style.removeProperty("--cgbe-bottom-copy-size");
     container.style.removeProperty("--cgbe-bottom-copy-offset");
@@ -1974,6 +1983,32 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     pre.setAttribute(BOTTOM_COPY_MARK, "1");
   }
 
+  function scheduleBottomCopyButton(pre: HTMLPreElement, code: Element) {
+    if (pre.hasAttribute(BOTTOM_COPY_MARK)) {
+      ensureBottomCopyButton(pre, code);
+      return;
+    }
+    let pending = bottomCopyPending.get(pre);
+    if (!pending) {
+      const observer = new MutationObserver(() => {
+        scheduleBottomCopyButton(pre, code);
+      });
+      pending = { observer, timerId: null, code };
+      bottomCopyPending.set(pre, pending);
+      observer.observe(code, { childList: true, characterData: true, subtree: true });
+    } else if (pending.code !== code) {
+      pending.code = code;
+    }
+    if (pending.timerId !== null) {
+      window.clearTimeout(pending.timerId);
+    }
+    pending.timerId = window.setTimeout(() => {
+      pending?.observer.disconnect();
+      bottomCopyPending.delete(pre);
+      ensureBottomCopyButton(pre, code);
+    }, BOTTOM_COPY_SETTLE_DELAY_MS);
+  }
+
   function collectPreElements(root: Element) {
     const pres: HTMLPreElement[] = [];
     if (root instanceof HTMLPreElement) pres.push(root);
@@ -1986,11 +2021,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     for (const pre of pres) {
       const code = pre.querySelector("code");
       if (!code) continue;
-      if (pre.hasAttribute(BOTTOM_COPY_MARK)) {
-        ensureBottomCopyButton(pre, code);
-        continue;
-      }
-      ensureBottomCopyButton(pre, code);
+      scheduleBottomCopyButton(pre, code);
     }
   }
 
