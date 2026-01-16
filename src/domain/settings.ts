@@ -8,7 +8,6 @@ export interface Settings {
   tempChatEnabled: boolean;
   oneClickDelete: boolean;
   wideChatWidth: number;
-  enableBottomCopyButton: boolean;
 }
 
 export type SettingsRecord = Settings & Record<string, unknown>;
@@ -22,6 +21,5 @@ export const SETTINGS_DEFAULTS: SettingsRecord = {
   autoTempChat: false,
   tempChatEnabled: false,
   oneClickDelete: false,
-  wideChatWidth: 0,
-  enableBottomCopyButton: true
+  wideChatWidth: 0
 };
