@@ -243,6 +243,88 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     return true;
   }
 
+  function isEditableElement(el: Element | null) {
+    if (!el) return false;
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return true;
+    if (el.getAttribute("contenteditable") === "true") return true;
+    return !!el.closest('[contenteditable="true"]');
+  }
+
+  function findVisibleInput(root: Element | Document) {
+    const candidates = qsa<HTMLInputElement | HTMLTextAreaElement>("input, textarea", root);
+    for (const el of candidates) {
+      if (el instanceof HTMLInputElement && el.type === "hidden") continue;
+      if (isElementVisible(el)) return el;
+    }
+    return null;
+  }
+
+  function findRenameMenuItem(menu: Element) {
+    const preferred = menu.querySelector<HTMLElement>(
+      'div[role="menuitem"][data-testid="rename-chat-menu-item"]'
+    );
+    if (preferred) return preferred;
+    const items = qsa<HTMLElement>('[role="menuitem"]', menu);
+    for (const item of items) {
+      const text = norm(item.textContent);
+      if (text.includes("rename") || text.includes("переимен")) return item;
+    }
+    return null;
+  }
+
+  async function waitForVisibleRadixMenu(timeoutMs = 2000) {
+    const t0 = performance.now();
+    while (performance.now() - t0 < timeoutMs) {
+      const menus = qsa('[data-radix-menu-content][role="menu"]');
+      for (const menu of menus) {
+        if (isElementVisible(menu)) return menu;
+      }
+      await sleep(25);
+    }
+    return null;
+  }
+
+  async function waitForRenameInput(activeChat: HTMLElement, timeoutMs = 2000) {
+    const t0 = performance.now();
+    while (performance.now() - t0 < timeoutMs) {
+      const inChat = findVisibleInput(activeChat);
+      if (inChat) return inChat;
+      const dialogs = qsa<HTMLElement>('[role="dialog"]');
+      const dialog = dialogs.find((el) => isElementVisible(el)) ?? null;
+      if (dialog) {
+        const dialogInput = findVisibleInput(dialog);
+        if (dialogInput) return dialogInput;
+      }
+      await sleep(25);
+    }
+    return null;
+  }
+
+  async function triggerRenameActiveChat() {
+    const activeChat = qs<HTMLElement>('a[data-sidebar-item="true"][data-active]');
+    if (!activeChat) return false;
+    const optionsBtn = activeChat.querySelector<HTMLButtonElement>(
+      'button[data-testid^="history-item-"][data-testid$="-options"]'
+    );
+    if (!optionsBtn) return false;
+    humanClick(optionsBtn, "open chat options");
+
+    const menu = await waitForVisibleRadixMenu(2000);
+    if (!menu) return false;
+
+    const renameItem = findRenameMenuItem(menu);
+    if (!renameItem) return false;
+    humanClick(renameItem, "rename chat");
+
+    const input = await waitForRenameInput(activeChat, 2000);
+    if (!input) return false;
+    try {
+      input.focus();
+      if (typeof input.select === "function") input.select();
+    } catch (_) {}
+    return true;
+  }
+
   type TextboxElement = HTMLTextAreaElement | HTMLElement;
 
   function findTextbox(): HTMLElement | null {
@@ -471,6 +553,27 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
         if (graceActive) graceCaptured = true;
         tmLog("KEY", "down modifier", { graceActive, graceMs: CFG.modifierGraceMs });
       }
+
+      if (e.key === "F2" && !e.repeat) {
+        const targetEl = e.target instanceof Element ? e.target : null;
+        const activeEl = document.activeElement instanceof Element ? document.activeElement : null;
+        if (!isEditableElement(targetEl) && !isEditableElement(activeEl)) {
+          const activeChat = qs<HTMLElement>('a[data-sidebar-item="true"][data-active]');
+          const optionsBtn = activeChat?.querySelector<HTMLButtonElement>(
+            'button[data-testid^="history-item-"][data-testid$="-options"]'
+          );
+          if (activeChat && optionsBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            void (async () => {
+              const ok = await triggerRenameActiveChat();
+              tmLog("KEY", "rename chat", { ok });
+            })();
+            return;
+          }
+        }
+      }
+
       if (
         shouldTriggerArrowUpEdit({
           enabled: CFG.editLastMessageOnArrowUp,
