@@ -4,18 +4,22 @@
     <meta charset="utf-8" />
     <title>chat-gpt-better-experience</title>
     <style>
-      :root {
+      html {
         color-scheme: light dark;
+      }
+
+      :root {
         --bg: #f7f7f8;
-        --surface: #ffffff;
-        --text: #111827;
-        --text-secondary: #6b7280;
-        --separator: #e5e7eb;
+        --fg: #111827;
+        --muted: #6b7280;
+        --border: #e5e7eb;
         --control-bg: #ffffff;
+        --control-fg: #111827;
         --control-border: #d1d5db;
         --control-hover: #f3f4f6;
         --accent: #10a37f;
-        --focus-ring: rgba(16, 163, 127, 0.28);
+        --focus: rgba(16, 163, 127, 0.28);
+        --surface: #ffffff;
         --toggle-bg: #e5e7eb;
         --range-track: #d1d5db;
       }
@@ -23,18 +27,51 @@
       @media (prefers-color-scheme: dark) {
         :root {
           --bg: #0f1115;
-          --surface: #1a1f25;
-          --text: #f3f4f6;
-          --text-secondary: #a1a1aa;
-          --separator: #2a2f36;
+          --fg: #f3f4f6;
+          --muted: #a1a1aa;
+          --border: #2a2f36;
           --control-bg: #1f252c;
+          --control-fg: #f3f4f6;
           --control-border: #2f353d;
           --control-hover: #262c33;
           --accent: #22c392;
-          --focus-ring: rgba(34, 195, 146, 0.3);
+          --focus: rgba(34, 195, 146, 0.3);
+          --surface: #1a1f25;
           --toggle-bg: #2a3138;
           --range-track: #303740;
         }
+      }
+
+      html[data-theme="light"] {
+        --bg: #f7f7f8;
+        --fg: #111827;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --control-bg: #ffffff;
+        --control-fg: #111827;
+        --control-border: #d1d5db;
+        --control-hover: #f3f4f6;
+        --accent: #10a37f;
+        --focus: rgba(16, 163, 127, 0.28);
+        --surface: #ffffff;
+        --toggle-bg: #e5e7eb;
+        --range-track: #d1d5db;
+      }
+
+      html[data-theme="dark"] {
+        --bg: #0f1115;
+        --fg: #f3f4f6;
+        --muted: #a1a1aa;
+        --border: #2a2f36;
+        --control-bg: #1f252c;
+        --control-fg: #f3f4f6;
+        --control-border: #2f353d;
+        --control-hover: #262c33;
+        --accent: #22c392;
+        --focus: rgba(34, 195, 146, 0.3);
+        --surface: #1a1f25;
+        --toggle-bg: #2a3138;
+        --range-track: #303740;
       }
 
       body {
@@ -47,9 +84,22 @@
         margin: 12px;
         width: 296px;
         background: var(--bg);
-        color: var(--text);
+        color: var(--fg);
         font-size: 13px;
         line-height: 1.4;
+        position: relative;
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        padding-right: 36px;
+      }
+
+      .header .title {
+        margin-bottom: 0;
       }
 
       .title {
@@ -57,7 +107,7 @@
         font-size: 13px;
         letter-spacing: 0.2px;
         margin-bottom: 8px;
-        color: var(--text);
+        color: var(--fg);
       }
 
       .row {
@@ -67,7 +117,7 @@
         gap: 12px;
         margin-top: 8px;
         padding-top: 8px;
-        border-top: 1px solid var(--separator);
+        border-top: 1px solid var(--border);
       }
 
       .row:first-of-type {
@@ -77,7 +127,7 @@
       }
 
       .row > label {
-        color: var(--text-secondary);
+        color: var(--muted);
         font-weight: 500;
       }
 
@@ -126,7 +176,7 @@
 
       input[type="checkbox"]:focus-visible {
         outline: none;
-        box-shadow: 0 0 0 3px var(--focus-ring);
+        box-shadow: 0 0 0 3px var(--focus);
       }
 
       input[type="range"] {
@@ -173,7 +223,7 @@
         border-radius: 8px;
         border: 1px solid var(--control-border);
         background: var(--control-bg);
-        color: var(--text);
+        color: var(--control-fg);
         cursor: pointer;
         transition:
           border-color 140ms ease,
@@ -188,37 +238,118 @@
       select:focus-visible {
         outline: none;
         border-color: var(--accent);
-        box-shadow: 0 0 0 3px var(--focus-ring);
+        box-shadow: 0 0 0 3px var(--focus);
       }
 
       .check {
         display: flex;
         align-items: center;
         gap: 10px;
-        color: var(--text);
+        color: var(--fg);
       }
 
       .check label {
-        color: var(--text);
+        color: var(--fg);
         font-weight: 500;
       }
 
       #wideChatWidthValue {
         font-variant-numeric: tabular-nums;
-        color: var(--text);
+        color: var(--fg);
       }
 
       .hint {
         margin-top: 8px;
         font-size: 12px;
-        color: var(--text-secondary);
+        color: var(--muted);
         line-height: 1.35;
+      }
+
+      #qqrm-theme-toggle {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        border: 1px solid var(--control-border);
+        background: var(--control-bg);
+        color: var(--control-fg);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition:
+          background 140ms ease,
+          border-color 140ms ease,
+          box-shadow 140ms ease,
+          transform 140ms ease;
+      }
+
+      #qqrm-theme-toggle:hover {
+        background: var(--control-hover);
+      }
+
+      #qqrm-theme-toggle:active {
+        transform: scale(0.98);
+      }
+
+      #qqrm-theme-toggle:focus-visible {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--focus);
+      }
+
+      #qqrm-theme-toggle svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      .theme-icon {
+        display: none;
+      }
+
+      #qqrm-theme-toggle[data-mode="auto"] .theme-icon--auto,
+      #qqrm-theme-toggle[data-mode="dark"] .theme-icon--dark,
+      #qqrm-theme-toggle[data-mode="light"] .theme-icon--light {
+        display: block;
       }
     </style>
   </head>
 
   <body>
-    <div class="title">chat-gpt-better-experience</div>
+    <div class="header">
+      <div class="title">chat-gpt-better-experience</div>
+      <button id="qqrm-theme-toggle" type="button" aria-label="Toggle theme" data-mode="auto">
+        <svg
+          class="theme-icon theme-icon--auto"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          fill="currentColor"
+        >
+          <path d="M12 3.25a8.75 8.75 0 1 0 8.75 8.75c0-.3-.02-.6-.05-.9a7 7 0 0 1-8.7-7.85Z" />
+          <circle cx="18.5" cy="5.5" r="1.5" />
+        </svg>
+        <svg
+          class="theme-icon theme-icon--dark"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          fill="currentColor"
+        >
+          <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 0 0 11.5 11.5Z" />
+        </svg>
+        <svg
+          class="theme-icon theme-icon--light"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          fill="currentColor"
+        >
+          <path
+            d="M12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0-4a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1Zm0 16a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1Zm9-7a1 1 0 0 1-1 1h-2a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1ZM6 12a1 1 0 0 1-1 1H3a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1Zm12.95-6.95a1 1 0 0 1 0 1.41l-1.42 1.42a1 1 0 1 1-1.41-1.41l1.42-1.42a1 1 0 0 1 1.41 0ZM7.88 16.12a1 1 0 0 1 0 1.41l-1.42 1.42a1 1 0 1 1-1.41-1.41l1.42-1.42a1 1 0 0 1 1.41 0Zm10.66 1.41a1 1 0 0 1-1.41 0l-1.42-1.42a1 1 0 1 1 1.41-1.41l1.42 1.42a1 1 0 0 1 0 1.41ZM7.88 7.88a1 1 0 0 1-1.41 0L5.05 6.46a1 1 0 1 1 1.41-1.41l1.42 1.42a1 1 0 0 1 0 1.41Z"
+          />
+        </svg>
+      </button>
+    </div>
 
     <div class="row">
       <label for="skipKey">Modifier key</label>

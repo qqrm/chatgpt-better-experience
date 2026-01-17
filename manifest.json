@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "chat-gpt-better-experience",
-  "version": "1.0.49",
+  "version": "1.0.51",
   "description": "Auto-sends ChatGPT dictation transcripts, with optional Temporary Chat auto-enable and chat list auto-expand. Hold a configurable modifier key (Shift by default) while clicking the dictation checkmark to skip auto-send.",
   "permissions": ["storage"],
   "host_permissions": ["https://chatgpt.com/*", "https://chat.openai.com/*"],

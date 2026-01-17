@@ -1,10 +1,9 @@
 import { StoragePort } from "../domain/ports/storagePort";
-import { SettingsRecord } from "../domain/settings";
 import { isThenable } from "../lib/utils";
 
 export type StorageAreaLike = {
   get: (
-    keys: SettingsRecord,
+    keys: Record<string, unknown>,
     cb: (res: Record<string, unknown>) => void
   ) => void | Promise<Record<string, unknown>>;
   set: (values: Record<string, unknown>, cb: () => void) => void | Promise<void>;
@@ -39,7 +38,7 @@ export function getStorageArea(storage: StorageApi | null | undefined, preferSyn
   return null;
 }
 
-export async function storageGet<T extends SettingsRecord>(
+export async function storageGet<T extends Record<string, unknown>>(
   defaults: T,
   storage: StorageApi | null | undefined,
   lastError?: () => unknown
