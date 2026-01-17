@@ -17,15 +17,16 @@
   </head>
   <body>
     <main>
-      <button id="temp-chat" aria-label="Turn on temporary chat">Turn on temporary chat</button>
+      <label>
+        <input id="temporary-chat-checkbox" type="checkbox" />
+        <h1 data-testid="temporary-chat-label">Temporary Chat</h1>
+      </label>
     </main>
     <script>
-      const tempChatButton = document.getElementById("temp-chat");
+      const tempChatCheckbox = document.getElementById("temporary-chat-checkbox");
 
-      tempChatButton.addEventListener("click", () => {
-        document.body.dataset.tempChat = "enabled";
-        tempChatButton.setAttribute("aria-label", "Turn off temporary chat");
-        tempChatButton.textContent = "Turn off temporary chat";
+      tempChatCheckbox.addEventListener("change", () => {
+        document.body.dataset.tempChat = tempChatCheckbox.checked ? "enabled" : "disabled";
       });
     </script>
   </body>
