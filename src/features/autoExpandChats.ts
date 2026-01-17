@@ -1,38 +1,21 @@
 import { FeatureContext, FeatureHandle } from "../application/featureContext";
 import { isElementVisible, norm } from "../lib/utils";
 
-const AUTO_EXPAND_LOOP_MS = 400;
-const AUTO_EXPAND_CLICK_COOLDOWN_MS = 1500;
+const AUTO_EXPAND_START_TIMEOUT_MS = 3500;
+const AUTO_EXPAND_NAV_TIMEOUT_MS = 1500;
 
 export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
   const qs = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
     root.querySelector<T>(sel);
 
   const state: {
-    running: boolean;
     started: boolean;
-    completed: boolean;
-    lastClickAtByKey: Map<string, number>;
-    intervalId: number | null;
-    observer: MutationObserver | null;
     domReady: boolean;
+    runId: number;
   } = {
-    running: false,
     started: false,
-    completed: false,
-    lastClickAtByKey: new Map(),
-    intervalId: null,
-    observer: null,
-    domReady: document.readyState !== "loading"
-  };
-
-  const autoExpandCanClick = (key: string) => {
-    const t = state.lastClickAtByKey.get(key) || 0;
-    return Date.now() - t > AUTO_EXPAND_CLICK_COOLDOWN_MS;
-  };
-
-  const autoExpandMarkClick = (key: string) => {
-    state.lastClickAtByKey.set(key, Date.now());
+    domReady: document.readyState !== "loading",
+    runId: 0
   };
 
   const autoExpandDispatchClick = (el: HTMLElement) => {
@@ -43,20 +26,8 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const autoExpandReset = () => {
-    state.running = false;
     state.started = false;
-    state.completed = false;
-    state.lastClickAtByKey.clear();
-  };
-
-  const autoExpandClickIfPossible = (key: string, el: HTMLElement | null, reason: string) => {
-    if (!el) return false;
-    if (!isElementVisible(el)) return false;
-    if (!autoExpandCanClick(key)) return false;
-    autoExpandMarkClick(key);
-    ctx.logger.debug("AUTOEXPAND", `click ${key}`, { preview: reason });
-    autoExpandDispatchClick(el);
-    return true;
+    state.runId += 1;
   };
 
   const autoExpandSidebarEl = () => qs<HTMLElement>("#stage-slideover-sidebar");
@@ -79,7 +50,9 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
   const autoExpandEnsureSidebarOpen = () => {
     if (autoExpandSidebarIsOpen()) return false;
     const btn = autoExpandOpenSidebarButton();
-    return autoExpandClickIfPossible("openSidebar", btn, "sidebar closed by geometry");
+    if (!btn || !isElementVisible(btn)) return false;
+    autoExpandDispatchClick(btn);
+    return true;
   };
 
   const autoExpandChatHistoryNav = () => {
@@ -135,70 +108,83 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
       (sec as HTMLElement).querySelector("button") ||
       (sec as HTMLElement).querySelector('[role="button"]');
 
-    return autoExpandClickIfPossible(
-      "expandYourChats",
-      btn as HTMLElement | null,
-      "section looks collapsed"
-    );
+    if (!btn || !isElementVisible(btn as HTMLElement)) return false;
+
+    autoExpandDispatchClick(btn as HTMLElement);
+    return true;
   };
 
-  const autoExpandTryFinish = () => {
+  const autoExpandWaitForSidebar = async () => {
+    const sidebarSelector = "#stage-slideover-sidebar";
+    const openButtonSelector =
+      '#stage-sidebar-tiny-bar button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"], button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]';
+    const selector = `${sidebarSelector}, ${openButtonSelector}`;
+    return ctx.helpers.waitPresent(selector, document, AUTO_EXPAND_START_TIMEOUT_MS);
+  };
+
+  const autoExpandRunOnce = async (runId: number) => {
+    if (!ctx.settings.autoExpandChats) return;
+
+    const present = await autoExpandWaitForSidebar();
+    if (!present || runId !== state.runId || !ctx.settings.autoExpandChats) {
+      if (runId === state.runId && ctx.settings.autoExpandChats) {
+        ctx.logger.debug("AUTOEXPAND", "sidebar not found on start (timeout)");
+      }
+      return;
+    }
+
+    if (autoExpandSidebarIsOpen()) {
+      const nav = await ctx.helpers.waitPresent(
+        'nav[aria-label="Chat history"]',
+        document,
+        AUTO_EXPAND_NAV_TIMEOUT_MS
+      );
+      if (!nav || runId !== state.runId || !ctx.settings.autoExpandChats) {
+        if (runId === state.runId && ctx.settings.autoExpandChats) {
+          ctx.logger.debug("AUTOEXPAND", "sidebar not found on start (timeout)");
+        }
+        return;
+      }
+
+      const sec = autoExpandFindYourChatsSection(nav);
+      if (sec && !autoExpandSectionCollapsed(sec)) {
+        ctx.logger.debug("AUTOEXPAND", "already expanded on start");
+        return;
+      }
+    }
+
     if (!autoExpandSidebarIsOpen()) {
       autoExpandEnsureSidebarOpen();
-      return false;
     }
 
-    const nav = autoExpandChatHistoryNav();
-    if (!nav || !isElementVisible(nav)) return false;
+    const nav = await ctx.helpers.waitPresent(
+      'nav[aria-label="Chat history"]',
+      document,
+      AUTO_EXPAND_NAV_TIMEOUT_MS
+    );
+    if (!nav || runId !== state.runId || !ctx.settings.autoExpandChats) {
+      if (runId === state.runId && ctx.settings.autoExpandChats) {
+        ctx.logger.debug("AUTOEXPAND", "sidebar not found on start (timeout)");
+      }
+      return;
+    }
 
     const sec = autoExpandFindYourChatsSection(nav);
-    if (!sec) return false;
-
-    if (!autoExpandSectionCollapsed(sec)) return true;
-
-    return autoExpandExpandYourChats();
-  };
-
-  const stopAutoExpand = () => {
-    if (state.intervalId !== null) {
-      window.clearInterval(state.intervalId);
-      state.intervalId = null;
+    if (sec && !autoExpandSectionCollapsed(sec)) {
+      ctx.logger.debug("AUTOEXPAND", "already expanded on start");
+      return;
     }
-    if (state.observer) {
-      state.observer.disconnect();
-      state.observer = null;
-    }
-  };
 
-  const autoExpandTick = () => {
-    if (!ctx.settings.autoExpandChats) return;
-    if (state.completed) return;
-    if (state.running) return;
-    state.running = true;
-    try {
-      const done = autoExpandTryFinish();
-      if (done) {
-        state.completed = true;
-        stopAutoExpand();
-      }
-    } catch (e) {
-      ctx.logger.debug("AUTOEXPAND", "tick error", {
-        preview: String((e && (e as Error).stack) || (e as Error).message || e)
-      });
-    } finally {
-      state.running = false;
+    if (autoExpandExpandYourChats()) {
+      ctx.logger.debug("AUTOEXPAND", "expanded on start");
     }
   };
 
   const startAutoExpand = () => {
     if (state.started) return;
     state.started = true;
-    autoExpandTick();
-
-    state.intervalId = window.setInterval(autoExpandTick, AUTO_EXPAND_LOOP_MS);
-
-    state.observer = new MutationObserver(() => autoExpandTick());
-    state.observer.observe(document.documentElement, { childList: true, subtree: true });
+    const currentRun = state.runId;
+    void autoExpandRunOnce(currentRun);
   };
 
   const ensureStarted = () => {
@@ -222,7 +208,7 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
   return {
     name: "autoExpandChats",
     dispose: () => {
-      stopAutoExpand();
+      state.runId += 1;
     },
     onSettingsChange: (next, prev) => {
       if (!prev.autoExpandChats && next.autoExpandChats) {
@@ -230,7 +216,7 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
         ensureStarted();
       }
       if (prev.autoExpandChats && !next.autoExpandChats) {
-        stopAutoExpand();
+        state.runId += 1;
       }
     },
     getStatus: () => ({ active: ctx.settings.autoExpandChats })
