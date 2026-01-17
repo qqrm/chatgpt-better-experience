@@ -3,8 +3,9 @@ import { isElementVisible } from "../lib/utils";
 
 const TEMP_CHAT_ON_SELECTOR = 'button[aria-label="Turn on temporary chat"]';
 const TEMP_CHAT_OFF_SELECTOR = 'button[aria-label="Turn off temporary chat"]';
-const TEMP_CHAT_MAX_RETRIES = 5;
-const TEMP_CHAT_RETRY_MS = 300;
+const NAVIGATION_EVENT_NAME = "qqrm:navigation";
+const NAVIGATION_FALLBACK_DELAY_MS = 10000;
+const NAVIGATION_FALLBACK_INTERVAL_MS = 2500;
 
 export function initAutoTempChatFeature(ctx: FeatureContext): FeatureHandle {
   const qs = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
@@ -15,20 +16,26 @@ export function initAutoTempChatFeature(ctx: FeatureContext): FeatureHandle {
   const state: {
     started: boolean;
     observer: MutationObserver | null;
-    urlIntervalId: number | null;
     lastPath: string;
-    retries: number;
     domReady: boolean;
+    lastNavigationEventAt: number;
+    fallbackTimeoutId: number | null;
+    fallbackIntervalId: number | null;
+    historyPatched: boolean;
+    originalPushState: History["pushState"] | null;
+    originalReplaceState: History["replaceState"] | null;
   } = {
     started: false,
     observer: null,
-    urlIntervalId: null,
     lastPath: "",
-    retries: 0,
-    domReady: document.readyState !== "loading"
+    domReady: document.readyState !== "loading",
+    lastNavigationEventAt: Date.now(),
+    fallbackTimeoutId: null,
+    fallbackIntervalId: null,
+    historyPatched: false,
+    originalPushState: null,
+    originalReplaceState: null
   };
-
-  let tempChatEnabled = ctx.settings.tempChatEnabled;
 
   const isTempChatActive = () => !!qs(TEMP_CHAT_OFF_SELECTOR);
 
@@ -36,45 +43,75 @@ export function initAutoTempChatFeature(ctx: FeatureContext): FeatureHandle {
     qsa<HTMLElement>(sel).find((el) => isElementVisible(el) && !el.hasAttribute("disabled")) ||
     null;
 
-  const persistTempChatEnabled = (value: boolean) => {
-    tempChatEnabled = value;
-    ctx.settings.tempChatEnabled = value;
-    void ctx.storagePort.set({ tempChatEnabled });
-    ctx.logger.debug("TEMPCHAT", "persist state", { ok: value });
-  };
-
-  const maybeEnableTempChat = () => {
-    if (!ctx.settings.autoTempChat || !tempChatEnabled || isTempChatActive()) {
-      state.retries = 0;
-      return;
-    }
-
+  const ensureTempChatOn = () => {
+    if (isTempChatActive()) return;
     const btn = findVisibleBySelector(TEMP_CHAT_ON_SELECTOR);
     if (!btn) return;
-
     ctx.helpers.humanClick(btn, "tempchat-enable");
-    ctx.logger.debug("TEMPCHAT", "auto-clicked on");
-
-    setTimeout(() => {
-      if (isTempChatActive()) {
-        ctx.logger.debug("TEMPCHAT", "enabled");
-        state.retries = 0;
-      } else if (++state.retries <= TEMP_CHAT_MAX_RETRIES) {
-        ctx.logger.debug("TEMPCHAT", `retry ${state.retries}`);
-        maybeEnableTempChat();
-      } else {
-        ctx.logger.debug("TEMPCHAT", "failed after retries");
-        state.retries = 0;
-      }
-    }, TEMP_CHAT_RETRY_MS);
+    ctx.logger.debug("TEMPCHAT", "forced on");
   };
 
-  const handleTempChatManualToggle = (e: MouseEvent) => {
-    if (!e.isTrusted) return;
-    const target = e.target;
-    if (!(target instanceof Element) || !target.closest) return;
-    if (target.closest(TEMP_CHAT_ON_SELECTOR)) return persistTempChatEnabled(true);
-    if (target.closest(TEMP_CHAT_OFF_SELECTOR)) return persistTempChatEnabled(false);
+  const ensureTempChatOff = () => {
+    if (!isTempChatActive()) return;
+    const btn = findVisibleBySelector(TEMP_CHAT_OFF_SELECTOR);
+    if (!btn) return;
+    ctx.helpers.humanClick(btn, "tempchat-disable");
+    ctx.logger.debug("TEMPCHAT", "forced off");
+  };
+
+  const applyAutoTempChatState = () => {
+    if (ctx.settings.autoTempChat) {
+      ensureTempChatOn();
+    } else {
+      ensureTempChatOff();
+    }
+  };
+
+  const handleNavigationChange = () => {
+    const current = location.pathname + location.search;
+    if (current === state.lastPath) return;
+    state.lastPath = current;
+    applyAutoTempChatState();
+  };
+
+  const scheduleFallbackNavigationCheck = () => {
+    if (state.fallbackTimeoutId !== null) {
+      window.clearTimeout(state.fallbackTimeoutId);
+    }
+    state.fallbackTimeoutId = window.setTimeout(() => {
+      if (Date.now() - state.lastNavigationEventAt < NAVIGATION_FALLBACK_DELAY_MS) return;
+      if (state.fallbackIntervalId !== null) return;
+      state.fallbackIntervalId = window.setInterval(() => {
+        handleNavigationChange();
+      }, NAVIGATION_FALLBACK_INTERVAL_MS);
+    }, NAVIGATION_FALLBACK_DELAY_MS);
+  };
+
+  const handleNavigationEvent = () => {
+    state.lastNavigationEventAt = Date.now();
+    if (state.fallbackIntervalId !== null) {
+      window.clearInterval(state.fallbackIntervalId);
+      state.fallbackIntervalId = null;
+    }
+    scheduleFallbackNavigationCheck();
+    handleNavigationChange();
+  };
+
+  const patchHistory = () => {
+    if (state.historyPatched) return;
+    state.historyPatched = true;
+    state.originalPushState = history.pushState.bind(history);
+    state.originalReplaceState = history.replaceState.bind(history);
+    history.pushState = (...args) => {
+      const result = state.originalPushState?.(...args);
+      window.dispatchEvent(new CustomEvent(NAVIGATION_EVENT_NAME));
+      return result;
+    };
+    history.replaceState = (...args) => {
+      const result = state.originalReplaceState?.(...args);
+      window.dispatchEvent(new CustomEvent(NAVIGATION_EVENT_NAME));
+      return result;
+    };
   };
 
   const startAutoTempChat = () => {
@@ -82,44 +119,52 @@ export function initAutoTempChatFeature(ctx: FeatureContext): FeatureHandle {
     state.started = true;
     state.lastPath = location.pathname + location.search;
 
-    document.addEventListener("click", handleTempChatManualToggle, true);
+    patchHistory();
+    window.addEventListener("popstate", handleNavigationEvent);
+    window.addEventListener(NAVIGATION_EVENT_NAME, handleNavigationEvent);
 
-    state.observer = new MutationObserver(() => maybeEnableTempChat());
+    state.observer = new MutationObserver(() => applyAutoTempChatState());
     state.observer.observe(document.documentElement, { childList: true, subtree: true });
 
-    state.urlIntervalId = window.setInterval(() => {
-      const cur = location.pathname + location.search;
-      if (cur !== state.lastPath) {
-        state.lastPath = cur;
-        state.retries = 0;
-        maybeEnableTempChat();
-      }
-    }, 100);
+    scheduleFallbackNavigationCheck();
 
-    maybeEnableTempChat();
+    applyAutoTempChatState();
   };
 
   const stopAutoTempChat = () => {
     if (!state.started) return;
     state.started = false;
 
-    document.removeEventListener("click", handleTempChatManualToggle, true);
+    window.removeEventListener("popstate", handleNavigationEvent);
+    window.removeEventListener(NAVIGATION_EVENT_NAME, handleNavigationEvent);
 
     if (state.observer) {
       state.observer.disconnect();
       state.observer = null;
     }
-    if (state.urlIntervalId !== null) {
-      window.clearInterval(state.urlIntervalId);
-      state.urlIntervalId = null;
+    if (state.fallbackIntervalId !== null) {
+      window.clearInterval(state.fallbackIntervalId);
+      state.fallbackIntervalId = null;
     }
-    state.retries = 0;
+    if (state.fallbackTimeoutId !== null) {
+      window.clearTimeout(state.fallbackTimeoutId);
+      state.fallbackTimeoutId = null;
+    }
+    if (state.historyPatched) {
+      if (state.originalPushState) {
+        history.pushState = state.originalPushState;
+      }
+      if (state.originalReplaceState) {
+        history.replaceState = state.originalReplaceState;
+      }
+      state.historyPatched = false;
+    }
   };
 
   const ensureStarted = () => {
-    if (!ctx.settings.autoTempChat) return;
     if (state.domReady) {
       startAutoTempChat();
+      applyAutoTempChatState();
       return;
     }
     document.addEventListener(
@@ -127,12 +172,14 @@ export function initAutoTempChatFeature(ctx: FeatureContext): FeatureHandle {
       () => {
         state.domReady = true;
         startAutoTempChat();
+        applyAutoTempChatState();
       },
       { once: true }
     );
   };
 
   ensureStarted();
+  applyAutoTempChatState();
 
   return {
     name: "autoTempChat",
@@ -140,21 +187,16 @@ export function initAutoTempChatFeature(ctx: FeatureContext): FeatureHandle {
       stopAutoTempChat();
     },
     onSettingsChange: (next, prev) => {
-      tempChatEnabled = next.tempChatEnabled;
       if (!prev.autoTempChat && next.autoTempChat) {
         ensureStarted();
-        maybeEnableTempChat();
       }
-      if (prev.autoTempChat && !next.autoTempChat) {
-        stopAutoTempChat();
-      }
-      if (prev.tempChatEnabled !== next.tempChatEnabled) {
-        maybeEnableTempChat();
+      if (prev.autoTempChat !== next.autoTempChat) {
+        applyAutoTempChatState();
       }
     },
     getStatus: () => ({
       active: ctx.settings.autoTempChat,
-      details: tempChatEnabled ? "enabled" : "disabled"
+      details: ctx.settings.autoTempChat ? "enabled" : "disabled"
     })
   };
 }
