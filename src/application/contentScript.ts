@@ -1535,6 +1535,26 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     const st = document.createElement("style");
     st.id = ONE_CLICK_DELETE_STYLE_ID;
     st.textContent = `
+      html{
+        --qqrm-danger: #d13b3b;
+        --qqrm-danger-bg: rgba(209, 59, 59, 0.14);
+        --qqrm-danger-border: rgba(209, 59, 59, 0.35);
+        --qqrm-danger-muted: #6b7280;
+        --qqrm-danger-muted-bg: rgba(107, 114, 128, 0.1);
+        --qqrm-danger-muted-border: rgba(107, 114, 128, 0.28);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        html{
+          --qqrm-danger: #f87171;
+          --qqrm-danger-bg: rgba(248, 113, 113, 0.16);
+          --qqrm-danger-border: rgba(248, 113, 113, 0.35);
+          --qqrm-danger-muted: #9ca3af;
+          --qqrm-danger-muted-bg: rgba(148, 163, 184, 0.14);
+          --qqrm-danger-muted-border: rgba(148, 163, 184, 0.3);
+        }
+      }
+
       ${ONE_CLICK_DELETE_BUTTON_SELECTOR}{
         width: ${ONE_CLICK_DELETE_BTN_W}px !important;
         height: ${ONE_CLICK_DELETE_BTN_H}px !important;
@@ -1570,9 +1590,9 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
         font-size: 18px;
         font-weight: 600;
         line-height: 18px;
-        color: #ff6b6b;
-        background: rgba(255, 90, 90, 0.08);
-        border: 1px solid rgba(255, 90, 90, 0.2);
+        color: var(--qqrm-danger-muted, #6b7280);
+        background: var(--qqrm-danger-muted-bg, rgba(107, 114, 128, 0.1));
+        border: 1px solid var(--qqrm-danger-muted-border, rgba(107, 114, 128, 0.28));
         box-shadow: -1px 0 0 rgba(255, 255, 255, 0.08) inset;
         opacity: 0.0;
         transition: opacity 140ms ease, background 140ms ease, transform 140ms ease;
@@ -1583,21 +1603,10 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:hover > span[${ONE_CLICK_DELETE_X_MARK}="1"],
       ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:focus-visible > span[${ONE_CLICK_DELETE_X_MARK}="1"]{
         opacity: 1.0;
-        background: rgba(255, 90, 90, 0.18);
+        color: var(--qqrm-danger, #d13b3b);
+        background: var(--qqrm-danger-bg, rgba(209, 59, 59, 0.18));
+        border-color: var(--qqrm-danger-border, rgba(209, 59, 59, 0.35));
         transform: translateY(-50%) scale(1.02);
-      }
-
-      @media (prefers-color-scheme: light) {
-        ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"]{
-          color: #d93636;
-          background: rgba(217, 54, 54, 0.08);
-          border-color: rgba(217, 54, 54, 0.25);
-          box-shadow: -1px 0 0 rgba(0, 0, 0, 0.08) inset;
-        }
-        ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:hover > span[${ONE_CLICK_DELETE_X_MARK}="1"],
-        ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:focus-visible > span[${ONE_CLICK_DELETE_X_MARK}="1"]{
-          background: rgba(217, 54, 54, 0.18);
-        }
       }
 
       html[${ONE_CLICK_DELETE_ROOT_FLAG}="1"] div[data-testid="modal-delete-conversation-confirmation"]{

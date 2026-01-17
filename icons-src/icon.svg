@@ -1,0 +1,4 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Chat bubble">
+  <rect x="20" y="18" width="88" height="72" rx="18" fill="#7c8591" />
+  <path d="M38 90H60L44 114Z" fill="#7c8591" />
+</svg>
