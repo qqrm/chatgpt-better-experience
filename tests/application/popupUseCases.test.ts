@@ -4,7 +4,7 @@ import {
   loadPopupSettings,
   savePopupSettings
 } from "../../src/application/popupUseCases";
-import { SETTINGS_DEFAULTS, SettingsRecord } from "../../src/domain/settings";
+import { SETTINGS_DEFAULTS } from "../../src/domain/settings";
 import { StoragePort } from "../../src/domain/ports/storagePort";
 
 describe("buildAutoSendHint", () => {
@@ -38,7 +38,7 @@ describe("popup settings", () => {
       wideChatWidth: 42
     };
     const storagePort: StoragePort = {
-      get: <T extends SettingsRecord>(defaults: T) =>
+      get: <T extends Record<string, unknown>>(defaults: T) =>
         Promise.resolve({ ...defaults, ...seeded } as T),
       set: () => Promise.resolve()
     };
@@ -67,7 +67,7 @@ describe("popup settings", () => {
   it("saves settings and mirrors auto temp chat to tempChatEnabled", async () => {
     let lastPayload: Record<string, unknown> | null = null;
     const storagePort: StoragePort = {
-      get: <T extends SettingsRecord>(defaults: T) => Promise.resolve(defaults),
+      get: <T extends Record<string, unknown>>(defaults: T) => Promise.resolve(defaults),
       set: (values: Record<string, unknown>) => {
         lastPayload = values;
         return Promise.resolve();
