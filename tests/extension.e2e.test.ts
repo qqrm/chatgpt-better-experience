@@ -168,7 +168,7 @@ describe("extension e2e", () => {
       timeout: 5000
     });
 
-    expect(await page.getAttribute("#temp-chat", "aria-label")).toBe("Turn off temporary chat");
+    expect(await page.isChecked("#temporary-chat-checkbox")).toBe(true);
 
     await page.close();
   });
