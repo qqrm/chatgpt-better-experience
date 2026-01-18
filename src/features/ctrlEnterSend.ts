@@ -1,6 +1,8 @@
 import { FeatureContext, FeatureHandle } from "../application/featureContext";
 
 export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
+  const norm = (value: string | null | undefined) => (value || "").trim().toLowerCase();
+
   const findComposerTextarea = () => {
     const selectors = [
       'textarea[data-testid="prompt-textarea"]',
@@ -52,6 +54,87 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     return null;
   };
 
+  const isVisible = (btn: HTMLButtonElement) => btn.offsetParent !== null;
+
+  const isDictationStopButton = (btn: HTMLButtonElement) => {
+    const aria = norm(btn.getAttribute("aria-label"));
+    const title = norm(btn.getAttribute("title"));
+    const dt = norm(btn.getAttribute("data-testid"));
+    const txt = norm(btn.textContent);
+    const hay = `${aria} ${title} ${dt} ${txt}`;
+
+    if (hay.includes("stop generating")) return false;
+    if (dt.includes("stop-generating")) return false;
+
+    if (
+      hay.includes("stop dictation") ||
+      hay.includes("stop recording") ||
+      hay.includes("stop voice") ||
+      hay.includes("stop microphone")
+    )
+      return true;
+
+    if (
+      hay.includes("stop") &&
+      (hay.includes("dictat") ||
+        hay.includes("record") ||
+        hay.includes("microphone") ||
+        hay.includes("voice") ||
+        hay.includes("диктов") ||
+        hay.includes("запис") ||
+        hay.includes("голос") ||
+        hay.includes("микроф"))
+    )
+      return true;
+
+    return false;
+  };
+
+  const findDictationStopButton = () => {
+    const buttons = Array.from(document.querySelectorAll("button")).filter(
+      (btn): btn is HTMLButtonElement => btn instanceof HTMLButtonElement
+    );
+    for (const btn of buttons) {
+      if (!isVisible(btn)) continue;
+      if (btn.disabled) continue;
+      if (isDictationStopButton(btn)) return btn;
+    }
+    return null;
+  };
+
+  const waitForInputToStabilize = (
+    textarea: HTMLTextAreaElement,
+    timeoutMs: number,
+    quietMs: number
+  ) =>
+    new Promise<void>((resolve) => {
+      const t0 = performance.now();
+      let lastValue = textarea.value;
+      let lastChangeAt = performance.now();
+
+      const tick = () => {
+        const cur = textarea.value;
+        if (cur !== lastValue) {
+          lastValue = cur;
+          lastChangeAt = performance.now();
+        }
+
+        if (performance.now() - lastChangeAt >= quietMs) {
+          resolve();
+          return;
+        }
+
+        if (performance.now() - t0 >= timeoutMs) {
+          resolve();
+          return;
+        }
+
+        setTimeout(tick, 60);
+      };
+
+      tick();
+    });
+
   const stopEvent = (e: KeyboardEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -71,13 +154,21 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     const shouldSend = e.ctrlKey || e.metaKey;
     if (shouldSend) {
       stopEvent(e);
-      const btn = findSendButton(target);
-      if (btn && !btn.disabled) {
-        ctx.logger.debug("KEY", "CTRL+ENTER send");
-        btn.click();
-      } else {
-        ctx.logger.debug("KEY", "send button not found");
-      }
+      void (async () => {
+        const stopBtn = findDictationStopButton();
+        if (stopBtn) {
+          ctx.logger.debug("KEY", "CTRL+ENTER stop dictation");
+          stopBtn.click();
+          await waitForInputToStabilize(target, 1500, 250);
+        }
+        const btn = findSendButton(target);
+        if (btn && !btn.disabled) {
+          ctx.logger.debug("KEY", "CTRL+ENTER send");
+          btn.click();
+        } else {
+          ctx.logger.debug("KEY", "send button not found");
+        }
+      })();
       return;
     }
 
