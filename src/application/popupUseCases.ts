@@ -40,6 +40,7 @@ export interface PopupSettingsInput {
   autoExpandChats: boolean;
   autoTempChat: boolean;
   oneClickDelete: boolean;
+  startDictation: boolean;
   wideChatWidth: number;
 }
 

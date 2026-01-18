@@ -80,6 +80,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
           !("editLastMessageOnArrowUp" in changes) &&
           !("autoTempChat" in changes) &&
           !("oneClickDelete" in changes) &&
+          !("startDictation" in changes) &&
           !("wideChatWidth" in changes) &&
           !("tempChatEnabled" in changes))
       ) {

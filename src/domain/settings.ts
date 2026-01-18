@@ -7,6 +7,7 @@ export interface Settings {
   autoTempChat: boolean;
   tempChatEnabled: boolean;
   oneClickDelete: boolean;
+  startDictation: boolean;
   wideChatWidth: number;
 }
 
@@ -21,5 +22,6 @@ export const SETTINGS_DEFAULTS: SettingsRecord = {
   autoTempChat: false,
   tempChatEnabled: false,
   oneClickDelete: false,
+  startDictation: false,
   wideChatWidth: 0
 };
