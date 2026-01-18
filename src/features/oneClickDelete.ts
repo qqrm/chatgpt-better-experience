@@ -16,6 +16,252 @@ const ONE_CLICK_DELETE_WIPE_MS = 4500;
 const ONE_CLICK_DELETE_UNDO_TOTAL_MS = 5000;
 const ONE_CLICK_DELETE_TOOLTIP = "Click to delete";
 
+export const buildOneClickDeleteStyleText = () => `
+  html{
+    --qqrm-danger: #d13b3b;
+    --qqrm-danger-bg: rgba(209, 59, 59, 0.14);
+    --qqrm-danger-border: rgba(209, 59, 59, 0.35);
+    --qqrm-danger-muted: #6b7280;
+    --qqrm-danger-muted-bg: rgba(107, 114, 128, 0.1);
+    --qqrm-danger-muted-border: rgba(107, 114, 128, 0.28);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    html{
+      --qqrm-danger: #f87171;
+      --qqrm-danger-bg: rgba(248, 113, 113, 0.16);
+      --qqrm-danger-border: rgba(248, 113, 113, 0.35);
+      --qqrm-danger-muted: #9ca3af;
+      --qqrm-danger-muted-bg: rgba(148, 163, 184, 0.14);
+      --qqrm-danger-muted-border: rgba(148, 163, 184, 0.3);
+    }
+  }
+
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR}{
+    width: ${ONE_CLICK_DELETE_BTN_W}px !important;
+    height: ${ONE_CLICK_DELETE_BTN_H}px !important;
+    border-radius: 12px !important;
+    opacity: 1 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    position: relative !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > svg{
+    position: absolute !important;
+    left: ${ONE_CLICK_DELETE_DOTS_LEFT}px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    pointer-events: none !important;
+  }
+
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"]{
+    position: absolute;
+    right: ${ONE_CLICK_DELETE_X_RIGHT}px;
+    top: 50%;
+    transform: translate3d(0, -50%, 0);
+    width: ${ONE_CLICK_DELETE_X_SIZE}px;
+    height: ${ONE_CLICK_DELETE_X_SIZE}px;
+    border-radius: 9px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 18px;
+    color: var(--qqrm-danger-muted, #6b7280);
+    background: var(--qqrm-danger-muted-bg, rgba(107, 114, 128, 0.1));
+    border: 1px solid var(--qqrm-danger-muted-border, rgba(107, 114, 128, 0.28));
+    box-shadow: -1px 0 0 rgba(255, 255, 255, 0.08) inset;
+    opacity: 0.0;
+    will-change: opacity, transform;
+    transition: opacity 140ms ease, background 140ms ease;
+    user-select: none;
+    pointer-events: auto;
+    cursor: pointer;
+  }
+
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"] svg{
+    display: block;
+  }
+
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"]::after{
+    content: "${ONE_CLICK_DELETE_TOOLTIP}";
+    position: absolute;
+    right: 0;
+    top: -8px;
+    transform: translateY(-100%);
+    white-space: nowrap;
+    font-size: 12px;
+    line-height: 16px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    color: var(--text-primary, #e5e7eb);
+    background: rgba(17, 24, 39, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease, transform 120ms ease;
+    z-index: 99999;
+  }
+
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"]:hover::after{
+    opacity: 1;
+    transform: translateY(-110%);
+  }
+
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:hover > span[${ONE_CLICK_DELETE_X_MARK}="1"],
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:focus-visible > span[${ONE_CLICK_DELETE_X_MARK}="1"]{
+    opacity: 1.0;
+    color: var(--qqrm-danger, #d13b3b);
+    background: var(--qqrm-danger-bg, rgba(209, 59, 59, 0.18));
+    border-color: var(--qqrm-danger-border, rgba(209, 59, 59, 0.35));
+    transform: translate3d(0, -50%, 0);
+  }
+
+  html[${ONE_CLICK_DELETE_ROOT_FLAG}="1"] div[data-testid="modal-delete-conversation-confirmation"]{
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+  html[${ONE_CLICK_DELETE_ROOT_FLAG}="1"] [role="menu"]{
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+  html[${ONE_CLICK_DELETE_ROOT_FLAG}="1"] [data-radix-popper-content-wrapper]{
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+  html[${ONE_CLICK_DELETE_ROOT_FLAG}="1"] *{
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .group.__menu-item.hoverable.qqrm-oneclick-pending{
+    position: relative !important;
+  }
+
+  .group.__menu-item.hoverable.qqrm-oneclick-pending > *:not(.qqrm-oneclick-undo-overlay){
+    opacity: 0.28 !important;
+  }
+
+  .group.__menu-item.hoverable .qqrm-oneclick-undo-overlay{
+    position: absolute;
+    inset: 0;
+    border-radius: var(--qqrm-row-radius, 14px);
+    overflow: hidden;
+
+    z-index: 999;
+
+    display: grid;
+    place-items: center;
+
+    cursor: pointer;
+    user-select: none;
+
+    background: rgba(0,0,0,0.10);
+    border: 1px solid rgba(255,255,255,0.08);
+    backdrop-filter: blur(1.5px);
+  }
+
+  .group.__menu-item.hoverable .qqrm-oneclick-wipe{
+    position: absolute;
+    inset: 0;
+    border-radius: var(--qqrm-row-radius, 14px);
+    overflow: hidden;
+
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .group.__menu-item.hoverable .qqrm-oneclick-wipe::before{
+    content: "";
+    position: absolute;
+    inset: 0;
+
+    background:
+      linear-gradient(90deg,
+        rgba(239,68,68,0.26),
+        rgba(185,28,28,0.34)
+      ),
+      radial-gradient(circle at 70% 50%, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 60%);
+
+    transform-origin: right center;
+    animation: qqrmOneClickWipeCover var(--qqrm-wipe-ms, 4500ms) linear forwards;
+  }
+
+  @keyframes qqrmOneClickWipeCover{
+    from { transform: scaleX(0); }
+    to   { transform: scaleX(1); }
+  }
+
+  .group.__menu-item.hoverable .qqrm-oneclick-heat{
+    position: absolute;
+    inset: 0;
+    border-radius: var(--qqrm-row-radius, 14px);
+    overflow: hidden;
+
+    z-index: 2;
+    pointer-events: none;
+
+    opacity: 0.75;
+    mix-blend-mode: screen;
+  }
+
+  .group.__menu-item.hoverable .qqrm-oneclick-heat::before{
+    content: "";
+    position: absolute;
+    inset: -35% -35% -35% -35%;
+
+    background:
+      radial-gradient(circle at 30% 70%, rgba(255, 180, 60, 0.14) 0%, rgba(255, 180, 60, 0) 62%),
+      radial-gradient(circle at 55% 90%, rgba(239, 68, 68, 0.12) 0%, rgba(239, 68, 68, 0) 68%),
+      radial-gradient(circle at 75% 55%, rgba(255, 220, 120, 0.10) 0%, rgba(255, 220, 120, 0) 66%);
+
+    filter: blur(12px);
+    animation: qqrmOneClickHeatMove 520ms ease-in-out infinite alternate;
+  }
+
+  @keyframes qqrmOneClickHeatMove{
+    from { transform: translate3d(-1.2%, 0.8%, 0) scale(1.02); opacity: 0.55; }
+    to   { transform: translate3d( 1.2%, -0.8%, 0) scale(1.05); opacity: 0.85; }
+  }
+
+  .group.__menu-item.hoverable .qqrm-oneclick-undo-label{
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+
+    z-index: 3;
+    pointer-events: none;
+
+    font-family: var(--qqrm-row-font-family, inherit);
+    font-size: var(--qqrm-row-font-size, 13px);
+    font-weight: var(--qqrm-row-font-weight, 600);
+    line-height: var(--qqrm-row-line-height, 18px);
+    letter-spacing: var(--qqrm-row-letter-spacing, normal);
+
+    color: var(--text-primary, #e5e7eb);
+    text-shadow: 0 2px 12px rgba(0,0,0,0.35);
+
+    opacity: 0;
+    animation: qqrmUndoIn 180ms ease forwards;
+    animation-delay: 0ms;
+  }
+
+  @keyframes qqrmUndoIn{
+    from{ opacity: 0; transform: translate(-50%, -50%) translateY(1px); }
+    to{ opacity: 1; transform: translate(-50%, -50%) translateY(0); }
+  }
+`;
+
 export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   const qsa = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
     Array.from(root.querySelectorAll<T>(sel));
@@ -76,251 +322,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     if (document.getElementById(ONE_CLICK_DELETE_STYLE_ID)) return;
     const st = document.createElement("style");
     st.id = ONE_CLICK_DELETE_STYLE_ID;
-    st.textContent = `
-      html{
-        --qqrm-danger: #d13b3b;
-        --qqrm-danger-bg: rgba(209, 59, 59, 0.14);
-        --qqrm-danger-border: rgba(209, 59, 59, 0.35);
-        --qqrm-danger-muted: #6b7280;
-        --qqrm-danger-muted-bg: rgba(107, 114, 128, 0.1);
-        --qqrm-danger-muted-border: rgba(107, 114, 128, 0.28);
-      }
-
-      @media (prefers-color-scheme: dark) {
-        html{
-          --qqrm-danger: #f87171;
-          --qqrm-danger-bg: rgba(248, 113, 113, 0.16);
-          --qqrm-danger-border: rgba(248, 113, 113, 0.35);
-          --qqrm-danger-muted: #9ca3af;
-          --qqrm-danger-muted-bg: rgba(148, 163, 184, 0.14);
-          --qqrm-danger-muted-border: rgba(148, 163, 184, 0.3);
-        }
-      }
-
-      ${ONE_CLICK_DELETE_BUTTON_SELECTOR}{
-        width: ${ONE_CLICK_DELETE_BTN_W}px !important;
-        height: ${ONE_CLICK_DELETE_BTN_H}px !important;
-        border-radius: 12px !important;
-        opacity: 1 !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        position: relative !important;
-        padding: 0 !important;
-        overflow: hidden !important;
-      }
-
-      ${ONE_CLICK_DELETE_BUTTON_SELECTOR} svg{
-        position: absolute !important;
-        left: ${ONE_CLICK_DELETE_DOTS_LEFT}px !important;
-        top: 50% !important;
-        transform: translateY(-50%) !important;
-        pointer-events: none !important;
-      }
-
-      ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"]{
-        position: absolute;
-        right: ${ONE_CLICK_DELETE_X_RIGHT}px;
-        top: 50%;
-        transform: translate3d(0, -50%, 0);
-        width: ${ONE_CLICK_DELETE_X_SIZE}px;
-        height: ${ONE_CLICK_DELETE_X_SIZE}px;
-        border-radius: 9px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 18px;
-        font-weight: 600;
-        line-height: 18px;
-        color: var(--qqrm-danger-muted, #6b7280);
-        background: var(--qqrm-danger-muted-bg, rgba(107, 114, 128, 0.1));
-        border: 1px solid var(--qqrm-danger-muted-border, rgba(107, 114, 128, 0.28));
-        box-shadow: -1px 0 0 rgba(255, 255, 255, 0.08) inset;
-        opacity: 0.0;
-        will-change: opacity, transform;
-        transition: opacity 140ms ease, background 140ms ease;
-        user-select: none;
-        pointer-events: auto;
-        cursor: pointer;
-      }
-
-      ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"] svg{
-        display: block;
-      }
-
-      ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"]::after{
-        content: "${ONE_CLICK_DELETE_TOOLTIP}";
-        position: absolute;
-        right: 0;
-        top: -8px;
-        transform: translateY(-100%);
-        white-space: nowrap;
-        font-size: 12px;
-        line-height: 16px;
-        padding: 6px 8px;
-        border-radius: 8px;
-        color: var(--text-primary, #e5e7eb);
-        background: rgba(17, 24, 39, 0.92);
-        border: 1px solid rgba(255, 255, 255, 0.10);
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 120ms ease, transform 120ms ease;
-        z-index: 99999;
-      }
-
-      ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"]:hover::after{
-        opacity: 1;
-        transform: translateY(-110%);
-      }
-
-      ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:hover > span[${ONE_CLICK_DELETE_X_MARK}="1"],
-      ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:focus-visible > span[${ONE_CLICK_DELETE_X_MARK}="1"]{
-        opacity: 1.0;
-        color: var(--qqrm-danger, #d13b3b);
-        background: var(--qqrm-danger-bg, rgba(209, 59, 59, 0.18));
-        border-color: var(--qqrm-danger-border, rgba(209, 59, 59, 0.35));
-        transform: translate3d(0, -50%, 0);
-      }
-
-      html[${ONE_CLICK_DELETE_ROOT_FLAG}="1"] div[data-testid="modal-delete-conversation-confirmation"]{
-        visibility: hidden !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-      }
-      html[${ONE_CLICK_DELETE_ROOT_FLAG}="1"] [role="menu"]{
-        visibility: hidden !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-      }
-      html[${ONE_CLICK_DELETE_ROOT_FLAG}="1"] [data-radix-popper-content-wrapper]{
-        visibility: hidden !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-      }
-      html[${ONE_CLICK_DELETE_ROOT_FLAG}="1"] *{
-        animation-duration: 0.001ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.001ms !important;
-      }
-
-      .group.__menu-item.hoverable.qqrm-oneclick-pending{
-        position: relative !important;
-      }
-
-      .group.__menu-item.hoverable.qqrm-oneclick-pending > *:not(.qqrm-oneclick-undo-overlay){
-        opacity: 0.28 !important;
-      }
-
-      .group.__menu-item.hoverable .qqrm-oneclick-undo-overlay{
-        position: absolute;
-        inset: 0;
-        border-radius: var(--qqrm-row-radius, 14px);
-        overflow: hidden;
-
-        z-index: 999;
-
-        display: grid;
-        place-items: center;
-
-        cursor: pointer;
-        user-select: none;
-
-        background: rgba(0,0,0,0.10);
-        border: 1px solid rgba(255,255,255,0.08);
-        backdrop-filter: blur(1.5px);
-      }
-
-      .group.__menu-item.hoverable .qqrm-oneclick-wipe{
-        position: absolute;
-        inset: 0;
-        border-radius: var(--qqrm-row-radius, 14px);
-        overflow: hidden;
-
-        z-index: 1;
-        pointer-events: none;
-      }
-
-      .group.__menu-item.hoverable .qqrm-oneclick-wipe::before{
-        content: "";
-        position: absolute;
-        inset: 0;
-
-        background:
-          linear-gradient(90deg,
-            rgba(239,68,68,0.26),
-            rgba(185,28,28,0.34)
-          ),
-          radial-gradient(circle at 70% 50%, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 60%);
-
-        transform-origin: right center;
-        animation: qqrmOneClickWipeCover var(--qqrm-wipe-ms, 4500ms) linear forwards;
-      }
-
-      @keyframes qqrmOneClickWipeCover{
-        from { transform: scaleX(0); }
-        to   { transform: scaleX(1); }
-      }
-
-      .group.__menu-item.hoverable .qqrm-oneclick-heat{
-        position: absolute;
-        inset: 0;
-        border-radius: var(--qqrm-row-radius, 14px);
-        overflow: hidden;
-
-        z-index: 2;
-        pointer-events: none;
-
-        opacity: 0.75;
-        mix-blend-mode: screen;
-      }
-
-      .group.__menu-item.hoverable .qqrm-oneclick-heat::before{
-        content: "";
-        position: absolute;
-        inset: -35% -35% -35% -35%;
-
-        background:
-          radial-gradient(circle at 30% 70%, rgba(255, 180, 60, 0.14) 0%, rgba(255, 180, 60, 0) 62%),
-          radial-gradient(circle at 55% 90%, rgba(239, 68, 68, 0.12) 0%, rgba(239, 68, 68, 0) 68%),
-          radial-gradient(circle at 75% 55%, rgba(255, 220, 120, 0.10) 0%, rgba(255, 220, 120, 0) 66%);
-
-        filter: blur(12px);
-        animation: qqrmOneClickHeatMove 520ms ease-in-out infinite alternate;
-      }
-
-      @keyframes qqrmOneClickHeatMove{
-        from { transform: translate3d(-1.2%, 0.8%, 0) scale(1.02); opacity: 0.55; }
-        to   { transform: translate3d( 1.2%, -0.8%, 0) scale(1.05); opacity: 0.85; }
-      }
-
-      .group.__menu-item.hoverable .qqrm-oneclick-undo-label{
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
-
-        z-index: 3;
-        pointer-events: none;
-
-        font-family: var(--qqrm-row-font-family, inherit);
-        font-size: var(--qqrm-row-font-size, 13px);
-        font-weight: var(--qqrm-row-font-weight, 600);
-        line-height: var(--qqrm-row-line-height, 18px);
-        letter-spacing: var(--qqrm-row-letter-spacing, normal);
-
-        color: var(--text-primary, #e5e7eb);
-        text-shadow: 0 2px 12px rgba(0,0,0,0.35);
-
-        opacity: 0;
-        animation: qqrmUndoIn 180ms ease forwards;
-        animation-delay: 0ms;
-      }
-
-      @keyframes qqrmUndoIn{
-        from{ opacity: 0; transform: translate(-50%, -50%) translateY(1px); }
-        to{ opacity: 1; transform: translate(-50%, -50%) translateY(0); }
-      }
-    `;
+    st.textContent = buildOneClickDeleteStyleText();
     const host = document.head ?? document.documentElement;
     if (!host) return;
     host.appendChild(st);
