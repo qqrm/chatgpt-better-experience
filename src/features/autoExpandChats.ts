@@ -10,12 +10,21 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
 
   const state: {
     started: boolean;
-    domReady: boolean;
     runId: number;
   } = {
     started: false,
-    domReady: document.readyState !== "loading",
     runId: 0
+  };
+
+  const waitForDocumentComplete = async (timeoutMs: number): Promise<boolean> => {
+    if (timeoutMs <= 0) return false;
+
+    const start = performance.now();
+    while (document.readyState !== "complete") {
+      if (performance.now() - start > timeoutMs) return false;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return true;
   };
 
   const autoExpandDispatchClick = (el: HTMLElement) => {
@@ -184,23 +193,24 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
     if (state.started) return;
     state.started = true;
     const currentRun = state.runId;
-    void autoExpandRunOnce(currentRun);
+
+    void (async () => {
+      const ok = await waitForDocumentComplete(15000);
+      if (!ok) {
+        if (currentRun === state.runId && ctx.settings.autoExpandChats) {
+          ctx.logger.debug("AUTOEXPAND", "document not complete (timeout), skip auto expand");
+        }
+        return;
+      }
+
+      if (currentRun !== state.runId || !ctx.settings.autoExpandChats) return;
+      await autoExpandRunOnce(currentRun);
+    })();
   };
 
   const ensureStarted = () => {
     if (!ctx.settings.autoExpandChats) return;
-    if (state.domReady) {
-      startAutoExpand();
-      return;
-    }
-    document.addEventListener(
-      "DOMContentLoaded",
-      () => {
-        state.domReady = true;
-        startAutoExpand();
-      },
-      { once: true }
-    );
+    startAutoExpand();
   };
 
   ensureStarted();
