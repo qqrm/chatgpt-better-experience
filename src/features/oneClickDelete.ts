@@ -6,15 +6,14 @@ const ONE_CLICK_DELETE_STYLE_ID = "cgptbe-silent-delete-style";
 const ONE_CLICK_DELETE_ROOT_FLAG = "data-cgptbe-silent-delete";
 const ONE_CLICK_DELETE_BUTTON_SELECTOR =
   'button[data-testid^="history-item-"][data-testid$="-options"]';
-const ONE_CLICK_DELETE_RIGHT_ZONE_PX = 38;
 
 const ONE_CLICK_DELETE_BTN_H = 36;
 const ONE_CLICK_DELETE_BTN_W = 72;
 const ONE_CLICK_DELETE_X_SIZE = 26;
 const ONE_CLICK_DELETE_X_RIGHT = 6;
 const ONE_CLICK_DELETE_DOTS_LEFT = 10;
-const ONE_CLICK_DELETE_TOOLTIP_HINT = "Hold Shift to delete";
-const ONE_CLICK_DELETE_TOOLTIP_DELETE = "Delete chat";
+const ONE_CLICK_DELETE_HOLD_MS = 700;
+const ONE_CLICK_DELETE_TOOLTIP = "Hold to delete";
 
 export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   const qsa = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
@@ -25,11 +24,19 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     deleting: boolean;
     observer: MutationObserver | null;
     intervalId: number | null;
+    holdTimerId: number | null;
+    holdTarget: HTMLElement | null;
+    holdButton: HTMLElement | null;
+    holdPointerId: number | null;
   } = {
     started: false,
     deleting: false,
     observer: null,
-    intervalId: null
+    intervalId: null,
+    holdTimerId: null,
+    holdTarget: null,
+    holdButton: null,
+    holdPointerId: null
   };
 
   const waitPresent = async <T extends Element>(
@@ -126,7 +133,33 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
         opacity: 0.0;
         transition: opacity 140ms ease, background 140ms ease, transform 140ms ease;
         user-select: none;
+        pointer-events: auto;
+        cursor: pointer;
+      }
+
+      ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"]::after{
+        content: "${ONE_CLICK_DELETE_TOOLTIP}";
+        position: absolute;
+        right: 0;
+        top: -8px;
+        transform: translateY(-100%);
+        white-space: nowrap;
+        font-size: 12px;
+        line-height: 16px;
+        padding: 6px 8px;
+        border-radius: 8px;
+        color: var(--text-primary, #e5e7eb);
+        background: rgba(17, 24, 39, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        opacity: 0;
         pointer-events: none;
+        transition: opacity 120ms ease, transform 120ms ease;
+        z-index: 99999;
+      }
+
+      ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"]:hover::after{
+        opacity: 1;
+        transform: translateY(-110%);
       }
 
       ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:hover > span[${ONE_CLICK_DELETE_X_MARK}="1"],
@@ -169,32 +202,15 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     if (st) st.remove();
   };
 
-  const getOneClickDeleteTooltip = () =>
-    ctx.keyState.shift ? ONE_CLICK_DELETE_TOOLTIP_DELETE : ONE_CLICK_DELETE_TOOLTIP_HINT;
-
   const ensureOneClickDeleteXSpan = (btn: HTMLElement) => {
     let x = btn.querySelector<HTMLSpanElement>(`span[${ONE_CLICK_DELETE_X_MARK}="1"]`);
     if (x) return x;
     x = document.createElement("span");
     x.setAttribute(ONE_CLICK_DELETE_X_MARK, "1");
-    const tooltip = getOneClickDeleteTooltip();
-    x.setAttribute("aria-label", tooltip);
-    x.title = tooltip;
+    x.setAttribute("aria-label", ONE_CLICK_DELETE_TOOLTIP);
     x.textContent = "×";
     btn.appendChild(x);
     return x;
-  };
-
-  const updateOneClickDeleteTooltipForAllButtons = () => {
-    if (!ctx.settings.oneClickDelete) return;
-    const tooltip = getOneClickDeleteTooltip();
-    const btns = qsa<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
-    for (const btn of btns) {
-      const x = btn.querySelector<HTMLSpanElement>(`span[${ONE_CLICK_DELETE_X_MARK}="1"]`);
-      if (!x) continue;
-      x.title = tooltip;
-      x.setAttribute("aria-label", tooltip);
-    }
   };
 
   const clearOneClickDeleteButtons = () => {
@@ -214,38 +230,42 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     }
   };
 
+  const clearHoldState = () => {
+    if (state.holdTimerId !== null) {
+      window.clearTimeout(state.holdTimerId);
+      state.holdTimerId = null;
+    }
+    state.holdTarget = null;
+    state.holdButton = null;
+    state.holdPointerId = null;
+  };
+
+  const startHoldDelete = (x: HTMLElement, btn: HTMLElement, pointerId: number | null) => {
+    clearHoldState();
+    state.holdTarget = x;
+    state.holdButton = btn;
+    state.holdPointerId = pointerId;
+    state.holdTimerId = window.setTimeout(() => {
+      const targetBtn = state.holdButton;
+      clearHoldState();
+      if (!targetBtn) return;
+      runOneClickDeleteFlow(targetBtn).catch(() => {});
+    }, ONE_CLICK_DELETE_HOLD_MS);
+  };
+
+  const getDeleteXFromEvent = (target: EventTarget | null) => {
+    if (!(target instanceof Element)) return null;
+    return target.closest<HTMLElement>(`span[${ONE_CLICK_DELETE_X_MARK}="1"]`);
+  };
+
+  const getDeleteButtonFromX = (x: HTMLElement) =>
+    x.closest<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
+
   const hookOneClickDeleteButton = (btn: HTMLElement) => {
     if (!btn || btn.nodeType !== 1) return;
     if (btn.hasAttribute(ONE_CLICK_DELETE_HOOK_MARK)) return;
     btn.setAttribute(ONE_CLICK_DELETE_HOOK_MARK, "1");
     ensureOneClickDeleteXSpan(btn);
-
-    const handlePointerDown = (ev: PointerEvent) => {
-      if (!isOneClickDeleteRightZone(btn, ev)) return;
-      swallowEvent(ev);
-    };
-
-    const handleMouseDown = (ev: MouseEvent) => {
-      if (!isOneClickDeleteRightZone(btn, ev)) return;
-      swallowEvent(ev);
-    };
-
-    const handleClick = (ev: MouseEvent) => {
-      if (!isOneClickDeleteRightZone(btn, ev)) return;
-      swallowEvent(ev);
-      if (!ev.shiftKey) return;
-      runOneClickDeleteFlow(btn).catch(() => {});
-    };
-
-    btn.addEventListener("pointerdown", handlePointerDown, { capture: true });
-    btn.addEventListener("mousedown", handleMouseDown, { capture: true });
-    btn.addEventListener("click", handleClick, { capture: true });
-  };
-
-  const isOneClickDeleteRightZone = (btn: HTMLElement, ev: MouseEvent) => {
-    const rect = btn.getBoundingClientRect();
-    const localX = ev.clientX - rect.left;
-    return localX >= rect.width - ONE_CLICK_DELETE_RIGHT_ZONE_PX;
   };
 
   const runOneClickDeleteFlow = async (btn: HTMLElement) => {
@@ -306,26 +326,62 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     }
   };
 
+  const handlePointerDown = (ev: PointerEvent) => {
+    const x = getDeleteXFromEvent(ev.target);
+    if (!x) return;
+    const btn = getDeleteButtonFromX(x);
+    if (!btn) return;
+    swallowEvent(ev);
+    startHoldDelete(x, btn, ev.pointerId ?? null);
+  };
+
+  const handlePointerUp = (ev: PointerEvent) => {
+    if (!state.holdTarget) return;
+    if (state.holdPointerId !== null && ev.pointerId !== state.holdPointerId) return;
+    swallowEvent(ev);
+    clearHoldState();
+  };
+
+  const handlePointerCancel = (ev: PointerEvent) => {
+    if (!state.holdTarget) return;
+    if (state.holdPointerId !== null && ev.pointerId !== state.holdPointerId) return;
+    swallowEvent(ev);
+    clearHoldState();
+  };
+
+  const handlePointerMove = (ev: PointerEvent) => {
+    if (!state.holdTarget) return;
+    if (state.holdPointerId !== null && ev.pointerId !== state.holdPointerId) return;
+    const el = document.elementFromPoint(ev.clientX, ev.clientY);
+    if (!el || !state.holdTarget.contains(el)) {
+      clearHoldState();
+    }
+  };
+
+  const handleClick = (ev: MouseEvent) => {
+    const x = getDeleteXFromEvent(ev.target);
+    if (!x) return;
+    swallowEvent(ev);
+  };
+
+  const handleBlur = () => clearHoldState();
+
   const refreshOneClickDelete = () => {
     if (!ctx.settings.oneClickDelete) return;
     ensureOneClickDeleteStyle();
     const btns = qsa<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
     for (const btn of btns) hookOneClickDeleteButton(btn);
-    updateOneClickDeleteTooltipForAllButtons();
   };
-
-  const handleKeyStateEvent = (e: KeyboardEvent) => {
-    if (e.key === "Shift") updateOneClickDeleteTooltipForAllButtons();
-  };
-
-  const handleBlur = () => updateOneClickDeleteTooltipForAllButtons();
 
   const startOneClickDelete = () => {
     if (state.started) return;
     state.started = true;
 
-    window.addEventListener("keydown", handleKeyStateEvent, true);
-    window.addEventListener("keyup", handleKeyStateEvent, true);
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("pointerup", handlePointerUp, true);
+    document.addEventListener("pointercancel", handlePointerCancel, true);
+    document.addEventListener("pointermove", handlePointerMove, true);
+    document.addEventListener("click", handleClick, true);
     window.addEventListener("blur", handleBlur, true);
 
     refreshOneClickDelete();
@@ -342,9 +398,13 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     if (!state.started) return;
     state.started = false;
 
-    window.removeEventListener("keydown", handleKeyStateEvent, true);
-    window.removeEventListener("keyup", handleKeyStateEvent, true);
+    document.removeEventListener("pointerdown", handlePointerDown, true);
+    document.removeEventListener("pointerup", handlePointerUp, true);
+    document.removeEventListener("pointercancel", handlePointerCancel, true);
+    document.removeEventListener("pointermove", handlePointerMove, true);
+    document.removeEventListener("click", handleClick, true);
     window.removeEventListener("blur", handleBlur, true);
+    clearHoldState();
 
     if (state.intervalId !== null) {
       window.clearInterval(state.intervalId);
