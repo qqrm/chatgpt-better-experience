@@ -90,23 +90,22 @@
         position: relative;
       }
 
-      .header {
+      .cbeHeader {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 8px;
-        padding-right: 36px;
+        gap: 12px;
+        margin-bottom: 12px;
       }
 
-      .header .title {
-        margin-bottom: 0;
-      }
-
-      .title {
-        font-weight: 600;
-        font-size: 13px;
-        letter-spacing: 0.2px;
-        margin-bottom: 8px;
+      .cbeHeaderTitle {
+        font-weight: 700;
+        font-size: 14px;
+        line-height: 1.1;
+        user-select: none;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
         color: var(--fg);
       }
 
@@ -265,42 +264,38 @@
         line-height: 1.35;
       }
 
-      #qqrm-theme-toggle {
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        width: 30px;
-        height: 30px;
-        border-radius: 50%;
-        border: 1px solid var(--control-border);
-        background: var(--control-bg);
-        color: var(--control-fg);
+      .cbeThemeToggle {
+        width: 28px;
+        height: 28px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        border-radius: 8px;
+        border: 0;
+        background: transparent;
+        color: var(--control-fg);
         cursor: pointer;
+        flex: 0 0 auto;
         transition:
           background 140ms ease,
-          border-color 140ms ease,
           box-shadow 140ms ease,
           transform 140ms ease;
       }
 
-      #qqrm-theme-toggle:hover {
+      .cbeThemeToggle:hover {
         background: var(--control-hover);
       }
 
-      #qqrm-theme-toggle:active {
+      .cbeThemeToggle:active {
         transform: scale(0.98);
       }
 
-      #qqrm-theme-toggle:focus-visible {
+      .cbeThemeToggle:focus-visible {
         outline: none;
-        border-color: var(--accent);
         box-shadow: 0 0 0 3px var(--focus);
       }
 
-      #qqrm-theme-toggle svg {
+      .cbeThemeToggle svg {
         width: 16px;
         height: 16px;
       }
@@ -318,9 +313,15 @@
   </head>
 
   <body>
-    <div class="header">
-      <div class="title">chat-gpt-better-experience</div>
-      <button id="qqrm-theme-toggle" type="button" aria-label="Toggle theme" data-mode="auto">
+    <div class="cbeHeader">
+      <div class="cbeHeaderTitle">ChatGPT Better Experience</div>
+      <button
+        id="qqrm-theme-toggle"
+        class="cbeThemeToggle"
+        type="button"
+        aria-label="Toggle theme"
+        data-mode="auto"
+      >
         <svg
           class="theme-icon theme-icon--auto"
           viewBox="0 0 24 24"
