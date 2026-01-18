@@ -20,22 +20,29 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   const qsa = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
     Array.from(root.querySelectorAll<T>(sel));
 
+  type PendingDelete = {
+    timerId: number;
+    row: HTMLElement;
+    overlay: HTMLElement;
+    optionsBtn: HTMLElement;
+  };
+
   const state: {
     started: boolean;
-    deleting: boolean;
     observer: MutationObserver | null;
     intervalId: number | null;
-    pendingTimerId: number | null;
-    pendingRow: HTMLElement | null;
-    pendingOverlay: HTMLElement | null;
+    pendingByRow: Map<HTMLElement, PendingDelete>;
+    deleteQueue: Promise<void>;
   } = {
     started: false,
-    deleting: false,
     observer: null,
     intervalId: null,
-    pendingTimerId: null,
-    pendingRow: null,
-    pendingOverlay: null
+    pendingByRow: new Map(),
+    deleteQueue: Promise.resolve()
+  };
+
+  const enqueueDelete = (job: () => Promise<void>) => {
+    state.deleteQueue = state.deleteQueue.then(job).catch(() => {});
   };
 
   const waitPresent = async <T extends Element>(
@@ -404,22 +411,30 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     }
   };
 
-  const clearPendingDelete = () => {
-    if (state.pendingTimerId !== null) {
-      window.clearTimeout(state.pendingTimerId);
-      state.pendingTimerId = null;
-    }
+  const clearPendingDeleteForRow = (row: HTMLElement) => {
+    const pending = state.pendingByRow.get(row);
+    if (!pending) return;
 
-    if (state.pendingOverlay && state.pendingOverlay.isConnected) {
-      state.pendingOverlay.remove();
-    }
+    window.clearTimeout(pending.timerId);
 
-    if (state.pendingRow && state.pendingRow.isConnected) {
-      state.pendingRow.classList.remove("qqrm-oneclick-pending");
-    }
+    if (pending.overlay.isConnected) pending.overlay.remove();
+    if (pending.row.isConnected) pending.row.classList.remove("qqrm-oneclick-pending");
 
-    state.pendingOverlay = null;
-    state.pendingRow = null;
+    state.pendingByRow.delete(row);
+  };
+
+  const clearAllPendingDeletes = () => {
+    for (const row of Array.from(state.pendingByRow.keys())) {
+      clearPendingDeleteForRow(row);
+    }
+  };
+
+  const cleanupDetachedPendingRows = () => {
+    for (const [row] of Array.from(state.pendingByRow.entries())) {
+      if (!row.isConnected) {
+        state.pendingByRow.delete(row);
+      }
+    }
   };
 
   const createPendingOverlay = (row: HTMLElement) => {
@@ -445,7 +460,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       "click",
       (ev) => {
         swallowEvent(ev);
-        clearPendingDelete();
+        clearPendingDeleteForRow(row);
       },
       true
     );
@@ -455,27 +470,32 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const startPendingDelete = (optionsBtn: HTMLElement) => {
-    clearPendingDelete();
-
     const row = findChatRowFromOptionsButton(optionsBtn);
     if (!row) {
-      runOneClickDeleteFlow(optionsBtn).catch(() => {});
+      enqueueDelete(() => runOneClickDeleteFlow(optionsBtn));
       return;
     }
 
     applyRowTypographyVars(row);
 
+    if (state.pendingByRow.has(row)) {
+      clearPendingDeleteForRow(row);
+    }
+
     row.classList.add("qqrm-oneclick-pending");
     const overlay = createPendingOverlay(row);
 
-    state.pendingRow = row;
-    state.pendingOverlay = overlay;
-
-    state.pendingTimerId = window.setTimeout(() => {
-      const targetBtn = optionsBtn;
-      clearPendingDelete();
-      runOneClickDeleteFlow(targetBtn).catch(() => {});
+    const timerId = window.setTimeout(() => {
+      clearPendingDeleteForRow(row);
+      enqueueDelete(() => runOneClickDeleteFlow(optionsBtn));
     }, ONE_CLICK_DELETE_UNDO_TOTAL_MS);
+
+    state.pendingByRow.set(row, {
+      timerId,
+      row,
+      overlay,
+      optionsBtn
+    });
   };
 
   const getDeleteXFromEvent = (target: EventTarget | null) => {
@@ -494,8 +514,6 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const runOneClickDeleteFlow = async (btn: HTMLElement) => {
-    if (state.deleting) return;
-    state.deleting = true;
     try {
       setSilentDeleteMode(true);
       ctx.helpers.humanClick(btn, "oneclick-delete-open-menu");
@@ -547,7 +565,6 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     } finally {
       await new Promise((resolve) => setTimeout(resolve, 120));
       setSilentDeleteMode(false);
-      state.deleting = false;
     }
   };
 
@@ -567,7 +584,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const handleBlur = () => {
-    clearPendingDelete();
+    // Do not cancel pending deletes on focus loss
   };
 
   const refreshOneClickDelete = () => {
@@ -575,6 +592,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     ensureOneClickDeleteStyle();
     const btns = qsa<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
     for (const btn of btns) hookOneClickDeleteButton(btn);
+    cleanupDetachedPendingRows();
   };
 
   const startOneClickDelete = () => {
@@ -602,7 +620,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     document.removeEventListener("pointerdown", handlePointerDown, true);
     document.removeEventListener("click", handleClick, true);
     window.removeEventListener("blur", handleBlur, true);
-    clearPendingDelete();
+    clearAllPendingDeletes();
 
     if (state.intervalId !== null) {
       window.clearInterval(state.intervalId);
