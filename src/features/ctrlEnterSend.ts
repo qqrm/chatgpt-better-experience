@@ -2,42 +2,64 @@ import { FeatureContext, FeatureHandle } from "../application/featureContext";
 
 export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
   const norm = (value: string | null | undefined) => (value || "").trim().toLowerCase();
+  type ComposerInput = HTMLTextAreaElement | HTMLElement;
 
-  const findComposerTextarea = () => {
+  const findComposerInput = (): ComposerInput | null => {
     const selectors = [
       'textarea[data-testid="prompt-textarea"]',
+      '[contenteditable="true"][data-testid="prompt-textarea"]',
       "form textarea",
+      'form [contenteditable="true"]',
       "footer textarea"
     ];
     for (const selector of selectors) {
       const el = document.querySelector(selector);
       if (el instanceof HTMLTextAreaElement) return el;
+      if (el instanceof HTMLElement && el.getAttribute("contenteditable") === "true") return el;
     }
     return null;
   };
 
-  const isComposerEventTarget = (e: KeyboardEvent) => {
+  const isComposerEventTarget = (e: Event) => {
     const target = e.target;
-    if (!(target instanceof HTMLTextAreaElement)) return false;
-    const composer = findComposerTextarea();
+    if (!(target instanceof Element)) return false;
+    const composer = findComposerInput();
     if (!composer) return false;
     if (target === composer) return true;
-    const composerForm = composer.closest("form");
-    if (composerForm && target.closest("form") === composerForm) return true;
+    if (composer instanceof HTMLTextAreaElement) {
+      const composerForm = composer.closest("form");
+      if (composerForm && target.closest("form") === composerForm) return true;
+    }
+    if (composer instanceof HTMLElement && composer.contains(target)) return true;
     return false;
   };
 
-  const insertNewlineAtCaret = (textarea: HTMLTextAreaElement) => {
-    const start = textarea.selectionStart ?? textarea.value.length;
-    const end = textarea.selectionEnd ?? textarea.value.length;
-    textarea.value = `${textarea.value.slice(0, start)}\n${textarea.value.slice(end)}`;
-    const nextPos = start + 1;
-    textarea.selectionStart = nextPos;
-    textarea.selectionEnd = nextPos;
-    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  const insertNewlineAtCaret = (input: ComposerInput) => {
+    if (input instanceof HTMLTextAreaElement) {
+      const start = input.selectionStart ?? input.value.length;
+      const end = input.selectionEnd ?? input.value.length;
+      input.value = `${input.value.slice(0, start)}\n${input.value.slice(end)}`;
+      const nextPos = start + 1;
+      input.selectionStart = nextPos;
+      input.selectionEnd = nextPos;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      return;
+    }
+
+    const selection = input.ownerDocument.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    const br = input.ownerDocument.createElement("br");
+    range.insertNode(br);
+    range.setStartAfter(br);
+    range.setEndAfter(br);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
   };
 
-  const findSendButton = (composer?: HTMLTextAreaElement | null) => {
+  const findSendButton = (composer?: ComposerInput | null) => {
     const selectors = [
       'button[data-testid="send-button"]',
       'button[aria-label*="Send" i]',
@@ -102,18 +124,16 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     return null;
   };
 
-  const waitForInputToStabilize = (
-    textarea: HTMLTextAreaElement,
-    timeoutMs: number,
-    quietMs: number
-  ) =>
+  const waitForInputToStabilize = (input: ComposerInput, timeoutMs: number, quietMs: number) =>
     new Promise<void>((resolve) => {
       const t0 = performance.now();
-      let lastValue = textarea.value;
+      const readInputValue = () =>
+        input instanceof HTMLTextAreaElement ? input.value : input.innerText || "";
+      let lastValue = readInputValue();
       let lastChangeAt = performance.now();
 
       const tick = () => {
-        const cur = textarea.value;
+        const cur = readInputValue();
         if (cur !== lastValue) {
           lastValue = cur;
           lastChangeAt = performance.now();
@@ -135,13 +155,16 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       tick();
     });
 
-  const stopEvent = (e: KeyboardEvent) => {
+  const stopEvent = (e: Event) => {
     e.preventDefault();
     e.stopPropagation();
     if (typeof e.stopImmediatePropagation === "function") {
       e.stopImmediatePropagation();
     }
   };
+
+  let lastEnterShouldSendAt = 0;
+  let lastEnterShouldSend = false;
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (!ctx.settings.ctrlEnterSends) return;
@@ -150,10 +173,16 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     if (e.key !== "Enter") return;
     if (!isComposerEventTarget(e)) return;
 
-    const target = e.target as HTMLTextAreaElement;
+    const target = e.target;
+    if (!(target instanceof HTMLTextAreaElement || target instanceof HTMLElement)) return;
     const shouldSend = e.ctrlKey || e.metaKey;
     if (shouldSend) {
+      lastEnterShouldSend = true;
+      lastEnterShouldSendAt = performance.now();
       stopEvent(e);
+      setTimeout(() => {
+        lastEnterShouldSend = false;
+      }, 400);
       void (async () => {
         const stopBtn = findDictationStopButton();
         if (stopBtn) {
@@ -172,17 +201,36 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       return;
     }
 
+    lastEnterShouldSend = false;
     stopEvent(e);
     insertNewlineAtCaret(target);
     ctx.logger.debug("KEY", "ENTER newline");
   };
 
+  const handleBeforeInput = (e: InputEvent) => {
+    if (!ctx.settings.ctrlEnterSends) return;
+    if (e.defaultPrevented) return;
+    if (e.inputType !== "insertParagraph") return;
+    if (!isComposerEventTarget(e)) return;
+
+    const ageMs = performance.now() - lastEnterShouldSendAt;
+    if (lastEnterShouldSend && ageMs < 300) return;
+
+    stopEvent(e);
+    const target = e.target;
+    if (!(target instanceof HTMLTextAreaElement || target instanceof HTMLElement)) return;
+    insertNewlineAtCaret(target);
+    ctx.logger.debug("KEY", "BEFOREINPUT newline");
+  };
+
   window.addEventListener("keydown", handleKeyDown, true);
+  window.addEventListener("beforeinput", handleBeforeInput, true);
 
   return {
     name: "ctrlEnterSend",
     dispose: () => {
       window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("beforeinput", handleBeforeInput, true);
     },
     getStatus: () => ({ active: ctx.settings.ctrlEnterSends })
   };

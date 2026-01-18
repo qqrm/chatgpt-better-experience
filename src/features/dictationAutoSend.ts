@@ -901,6 +901,18 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         return;
       }
 
+      const stopAgeMs = performance.now() - lastDictationStopCauseAt;
+      if (
+        stopAgeMs <= STOP_CAUSE_WINDOW_MS &&
+        (lastDictationStopCause === "hotkey" || lastDictationStopCause === "space")
+      ) {
+        tmLog("TRANSCRIBE", "skip: dictation stopped by keyboard", {
+          stopCause: lastDictationStopCause,
+          ageMs: Math.round(stopAgeMs)
+        });
+        return;
+      }
+
       if (source === "hotkey") {
         tmLog("TRANSCRIBE", "skip: dictation triggered by hotkey");
         return;
