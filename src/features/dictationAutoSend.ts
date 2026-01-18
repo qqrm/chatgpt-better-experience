@@ -18,6 +18,7 @@ interface DictationConfig {
 
 type TranscribeMode = "codex" | "chatgpt";
 type DictationToggleSource = "hotkey" | "button" | "unknown";
+type DictationStopCause = "unknown" | "hotkey" | "space" | "mouse";
 
 interface InputReadResult {
   ok: boolean;
@@ -63,6 +64,7 @@ const DEFAULT_CONFIG: DictationConfig = {
 };
 const DICTATION_COOLDOWN_MS = 400;
 const DICTATION_SOURCE_WINDOW_MS = 2500;
+const STOP_CAUSE_WINDOW_MS = 2500;
 
 export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle {
   const cfg: DictationConfig = { ...DEFAULT_CONFIG };
@@ -77,6 +79,9 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   let lastDictationToggleAt = 0;
   let lastDictationToggleSource: DictationToggleSource = "unknown";
   let lastDictationToggleSourceAt = 0;
+  let dictationRecordingActive = false;
+  let lastDictationStopCause: DictationStopCause = "unknown";
+  let lastDictationStopCauseAt = 0;
 
   const transcribeSnapshots = new Map<
     string,
@@ -405,6 +410,42 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     return false;
   };
 
+  const isDictationMicOrStopButton = (btn: HTMLButtonElement) => {
+    if (isVoiceModeButton(btn)) return false;
+    if (isDictationToggleButton(btn)) return true;
+
+    const aria = norm(btn.getAttribute("aria-label"));
+    const title = norm(btn.getAttribute("title"));
+    const dt = norm(btn.getAttribute("data-testid"));
+    const txt = norm(btn.textContent);
+    const hay = `${aria} ${title} ${dt} ${txt}`;
+
+    if (hay.includes("stop generating")) return false;
+    if (dt.includes("stop-generating")) return false;
+
+    if (
+      hay.includes("stop dictation") ||
+      hay.includes("stop recording") ||
+      hay.includes("stop voice")
+    )
+      return true;
+
+    if (
+      hay.includes("stop") &&
+      (hay.includes("dictat") ||
+        hay.includes("record") ||
+        hay.includes("microphone") ||
+        hay.includes("voice") ||
+        hay.includes("диктов") ||
+        hay.includes("запис") ||
+        hay.includes("микроф") ||
+        hay.includes("голос"))
+    )
+      return true;
+
+    return false;
+  };
+
   const findDictationButton = () => {
     const direct = findDictationButtonIn(document);
     if (direct) return direct;
@@ -441,6 +482,10 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     tmLog("KEY", "dictation button found");
     lastDictationToggleSource = "hotkey";
     lastDictationToggleSourceAt = performance.now();
+    if (dictationRecordingActive) {
+      lastDictationStopCause = "hotkey";
+      lastDictationStopCauseAt = lastDictationToggleSourceAt;
+    }
     btn.click();
     lastDictationToggleAt = lastDictationToggleSourceAt;
     tmLog("KEY", "dictation button clicked");
@@ -1014,6 +1059,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     if (!data.type || !data.id) return;
 
     if (data.type === "start") {
+      dictationRecordingActive = true;
       const snapshot = readInputText();
       const age = performance.now() - lastDictationToggleSourceAt;
       const source = age <= DICTATION_SOURCE_WINDOW_MS ? lastDictationToggleSource : "unknown";
@@ -1022,6 +1068,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     }
 
     if (data.type === "complete") {
+      dictationRecordingActive = false;
       const captured = transcribeSnapshots.get(data.id);
       if (captured) transcribeSnapshots.delete(data.id);
       void runFlowAfterTranscribe({
@@ -1035,6 +1082,12 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
   const handleKeyDown = (e: KeyboardEvent) => {
     updateKeyState(e, true);
+
+    if (e.code === "Space" && !e.ctrlKey && !e.metaKey && dictationRecordingActive) {
+      lastDictationStopCause = "space";
+      lastDictationStopCauseAt = performance.now();
+    }
+
     if (keyMatchesModifier(e)) {
       const graceActive = performance.now() <= graceUntilMs;
       if (graceActive) graceCaptured = true;
@@ -1110,7 +1163,28 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       lastDictationToggleAt = lastDictationToggleSourceAt;
     }
 
+    if (btn instanceof HTMLButtonElement && dictationRecordingActive) {
+      if (isDictationMicOrStopButton(btn)) {
+        lastDictationStopCause = "mouse";
+        lastDictationStopCauseAt = performance.now();
+      }
+    }
+
     if (cfg.enabled && btn instanceof HTMLButtonElement && isSubmitDictationButton(btn)) {
+      const ageMs = performance.now() - lastDictationStopCauseAt;
+      const stopCauseFresh = ageMs <= STOP_CAUSE_WINDOW_MS;
+
+      if (
+        stopCauseFresh &&
+        (lastDictationStopCause === "hotkey" || lastDictationStopCause === "space")
+      ) {
+        tmLog("FLOW", "skip: submit dictation after keyboard stop", {
+          stopCause: lastDictationStopCause,
+          ageMs: Math.round(ageMs)
+        });
+        return;
+      }
+
       void (async () => {
         if (!isCodexPath(location.pathname) || cfg.allowAutoSendInCodex) {
           await runFlowAfterSubmitClick(btnDesc, isModifierHeldFromEvent(e));
