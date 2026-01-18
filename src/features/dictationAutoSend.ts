@@ -59,6 +59,7 @@ const DEFAULT_CONFIG: DictationConfig = {
   logClicks: true,
   logBlur: false
 };
+const DICTATION_COOLDOWN_MS = 400;
 
 export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle {
   const cfg: DictationConfig = { ...DEFAULT_CONFIG };
@@ -70,6 +71,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   let graceUntilMs = 0;
   let graceCaptured = false;
   let lastBlurLogAt = 0;
+  let lastDictationToggleAt = 0;
 
   const transcribeSnapshots = new Map<string, InputReadResult>();
 
@@ -161,6 +163,25 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
     const anyCe = document.querySelector('[contenteditable="true"]');
     if (anyCe instanceof HTMLElement) return anyCe;
+
+    return null;
+  };
+
+  const findComposerInput = () => {
+    const byId = document.getElementById("prompt-textarea");
+    if (byId instanceof HTMLTextAreaElement) return byId;
+    if (byId instanceof HTMLElement && byId.getAttribute("contenteditable") === "true") {
+      return byId;
+    }
+
+    const byTestId = document.querySelector('[data-testid="prompt-textarea"]');
+    if (byTestId instanceof HTMLTextAreaElement) return byTestId;
+    if (byTestId instanceof HTMLElement && byTestId.getAttribute("contenteditable") === "true") {
+      return byTestId;
+    }
+
+    const textarea = document.querySelector("textarea");
+    if (textarea instanceof HTMLTextAreaElement) return textarea;
 
     return null;
   };
@@ -292,6 +313,111 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     const active = document.activeElement;
     if (!(active instanceof HTMLElement)) return false;
     return active === textbox || textbox.contains(active);
+  };
+
+  const isDictationHotkey = (e: KeyboardEvent) => e.code === "Space" && (e.ctrlKey || e.metaKey);
+
+  const swallowKeyEvent = (e: KeyboardEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+  };
+
+  const isSafeToTriggerDictation = () => {
+    const active = document.activeElement;
+    const composerInput = findComposerInput();
+    if (!composerInput || !isElementVisible(composerInput)) return false;
+
+    if (
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement ||
+      (active instanceof HTMLElement && active.isContentEditable)
+    ) {
+      if (active === composerInput) return true;
+      if (composerInput instanceof HTMLElement && composerInput.contains(active)) return true;
+      return false;
+    }
+
+    return true;
+  };
+
+  const isVoiceModeButton = (btn: HTMLButtonElement | null) => {
+    if (!btn) return false;
+    const dt = norm(btn.getAttribute("data-testid"));
+    const aria = norm(btn.getAttribute("aria-label"));
+    if (dt === "composer-speech-button") return true;
+    if (aria.includes("voice mode")) return true;
+    return false;
+  };
+
+  const isDictationButtonVisible = (btn: HTMLButtonElement | null) => {
+    if (!btn) return false;
+    if (btn.offsetParent === null) return false;
+    return isElementVisible(btn);
+  };
+
+  const findDictationButtonIn = (root: Document | Element) => {
+    const direct = root.querySelector<HTMLButtonElement>('button[aria-label="Dictate button"]');
+    if (direct && isDictationButtonVisible(direct) && !isVoiceModeButton(direct)) return direct;
+
+    const fallbackSelectors = [
+      'button[aria-label*="dictat" i]',
+      'button[aria-label*="dictation" i]',
+      'button[aria-label*="диктов" i]',
+      'button[aria-label*="microphone" i]',
+      'button[aria-label*="голос" i]',
+      'button[aria-label*="voice" i]'
+    ];
+
+    const candidates = Array.from(
+      root.querySelectorAll<HTMLButtonElement>(fallbackSelectors.join(","))
+    );
+    for (const btn of candidates) {
+      if (isVoiceModeButton(btn)) continue;
+      if (isDictationButtonVisible(btn)) return btn;
+    }
+
+    return null;
+  };
+
+  const findDictationButton = () => {
+    const direct = findDictationButtonIn(document);
+    if (direct) return direct;
+
+    const footer = document.querySelector('[data-testid="composer-footer-actions"]');
+    if (!footer) return null;
+    return findDictationButtonIn(footer);
+  };
+
+  const waitForDictationButton = (timeoutMs = 1500) =>
+    new Promise<HTMLButtonElement | null>((resolve) => {
+      const t0 = performance.now();
+      const tick = () => {
+        const btn = findDictationButton();
+        if (btn) {
+          resolve(btn);
+          return;
+        }
+        if (performance.now() - t0 > timeoutMs) {
+          resolve(null);
+          return;
+        }
+        setTimeout(tick, 60);
+      };
+      tick();
+    });
+
+  const triggerDictationToggle = async () => {
+    const btn = await waitForDictationButton(1500);
+    if (!btn) {
+      tmLog("KEY", "dictation button not found");
+      return false;
+    }
+    tmLog("KEY", "dictation button found");
+    btn.click();
+    lastDictationToggleAt = performance.now();
+    tmLog("KEY", "dictation button clicked");
+    return true;
   };
 
   const isNonSkipModifierHeld = () => {
@@ -876,6 +1002,25 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       const graceActive = performance.now() <= graceUntilMs;
       if (graceActive) graceCaptured = true;
       tmLog("KEY", "down modifier", { graceActive, graceMs: cfg.modifierGraceMs });
+    }
+
+    if (isDictationHotkey(e)) {
+      tmLog("KEY", "dictation hotkey received");
+      if (!ctx.settings.startDictation) return;
+      if (!isSafeToTriggerDictation()) {
+        tmLog("KEY", "dictation blocked by focus");
+        return;
+      }
+      swallowKeyEvent(e);
+      if (e.repeat) {
+        tmLog("KEY", "dictation hotkey repeat ignored");
+        return;
+      }
+      if (performance.now() - lastDictationToggleAt < DICTATION_COOLDOWN_MS) {
+        tmLog("KEY", "dictation cooldown active");
+        return;
+      }
+      void triggerDictationToggle();
     }
   };
 

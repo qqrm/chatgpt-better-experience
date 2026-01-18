@@ -54,12 +54,8 @@ describe("popup settings", () => {
       autoTempChat: false,
       tempChatEnabled: true,
       oneClickDelete: SETTINGS_DEFAULTS.oneClickDelete,
-      wideChatWidth: 42,
-      enableBottomCopyButton: SETTINGS_DEFAULTS.enableBottomCopyButton,
-      showOnHoverOnly: SETTINGS_DEFAULTS.showOnHoverOnly,
-      buttonSize: SETTINGS_DEFAULTS.buttonSize,
-      edgeOffsetPx: SETTINGS_DEFAULTS.edgeOffsetPx,
-      showCopiedFeedback: SETTINGS_DEFAULTS.showCopiedFeedback
+      startDictation: SETTINGS_DEFAULTS.startDictation,
+      wideChatWidth: 42
     });
     expect(hint).toBe("Auto-send happens only while holding Alt when you accept dictation.");
   });
@@ -82,6 +78,7 @@ describe("popup settings", () => {
       autoExpandChats: false,
       autoTempChat: true,
       oneClickDelete: true,
+      startDictation: false,
       wideChatWidth: 70,
       enableBottomCopyButton: true,
       showOnHoverOnly: false,

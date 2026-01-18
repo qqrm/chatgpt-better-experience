@@ -250,6 +250,15 @@
       .check label {
         color: var(--fg);
         font-weight: 500;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .note {
+        font-size: 12px;
+        color: var(--muted);
+        font-weight: 400;
       }
 
       #wideChatWidthValue {
@@ -405,6 +414,16 @@
     </div>
 
     <div class="row">
+      <div class="check">
+        <input id="startDictation" type="checkbox" />
+        <label for="startDictation">
+          <span>Start dictation</span>
+          <span class="note">Ctrl+Space starts voice dictation</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="row">
       <label for="wideChatWidth">Chat width</label>
       <span id="wideChatWidthValue">0%</span>
     </div>
@@ -416,6 +435,7 @@
     <div class="hint">0 = base width · 100 = 95% of the viewport</div>
 
     <div class="hint" id="hint"></div>
+    <div class="hint" id="dictationHint" hidden>Ctrl+Space: start dictation</div>
     <div class="hint">Press F2 to rename current chat</div>
 
     <script src="dist/popup.js"></script>

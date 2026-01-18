@@ -27,8 +27,10 @@ const editLastMessageEl = mustGetElement<HTMLInputElement>("editLastMessageOnArr
 const autoExpandEl = mustGetElement<HTMLInputElement>("autoExpandChats");
 const autoTempChatEl = mustGetElement<HTMLInputElement>("autoTempChat");
 const oneClickDeleteEl = mustGetElement<HTMLInputElement>("oneClickDelete");
+const startDictationEl = mustGetElement<HTMLInputElement>("startDictation");
 const wideChatWidthEl = mustGetElement<HTMLInputElement>("wideChatWidth");
 const wideChatWidthValueEl = mustGetElement<HTMLElement>("wideChatWidthValue");
+const dictationHintEl = mustGetElement<HTMLElement>("dictationHint");
 const themeToggleEl = mustGetElement<HTMLButtonElement>("qqrm-theme-toggle");
 
 const storageApi = (
@@ -107,10 +109,12 @@ async function load() {
   autoExpandEl.checked = settings.autoExpandChats;
   autoTempChatEl.checked = settings.autoTempChat;
   oneClickDeleteEl.checked = settings.oneClickDelete;
+  startDictationEl.checked = settings.startDictation;
   wideChatWidthEl.value = String(settings.wideChatWidth);
   wideChatWidthValueEl.textContent = `${settings.wideChatWidth}%`;
 
   hintEl.textContent = hint;
+  dictationHintEl.hidden = !settings.startDictation;
 
   applyThemeMode(normalizeThemeMode(themeData.popupThemeMode));
 }
@@ -125,11 +129,13 @@ async function save() {
     autoExpandChats: !!autoExpandEl.checked,
     autoTempChat: !!autoTempChatEl.checked,
     oneClickDelete: !!oneClickDeleteEl.checked,
+    startDictation: !!startDictationEl.checked,
     wideChatWidth
   };
 
   const { hint } = await savePopupSettings(popupDeps, input);
   hintEl.textContent = hint;
+  dictationHintEl.hidden = !startDictationEl.checked;
   wideChatWidthValueEl.textContent = `${wideChatWidth}%`;
 }
 
@@ -140,6 +146,7 @@ editLastMessageEl.addEventListener("change", () => void save().catch(() => {}));
 autoExpandEl.addEventListener("change", () => void save().catch(() => {}));
 autoTempChatEl.addEventListener("change", () => void save().catch(() => {}));
 oneClickDeleteEl.addEventListener("change", () => void save().catch(() => {}));
+startDictationEl.addEventListener("change", () => void save().catch(() => {}));
 wideChatWidthEl.addEventListener("input", () => void save().catch(() => {}));
 themeToggleEl.addEventListener("click", () => void cycleThemeMode().catch(() => {}));
 
