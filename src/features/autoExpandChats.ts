@@ -16,14 +16,20 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
     runId: 0
   };
 
-  const waitForDocumentComplete = async (timeoutMs: number): Promise<boolean> => {
-    if (timeoutMs <= 0) return false;
+  const waitForSpaReady = async (): Promise<boolean> => {
+    const ok1 = await ctx.helpers.waitPresent(
+      '[data-testid="blocking-initial-modals-done"]',
+      document,
+      12000
+    );
+    if (!ok1) return false;
 
-    const start = performance.now();
-    while (document.readyState !== "complete") {
-      if (performance.now() - start > timeoutMs) return false;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+    const ok2 = await ctx.helpers.waitPresent("#stage-slideover-sidebar", document, 12000);
+    if (!ok2) return false;
+
+    const ok3 = await ctx.helpers.waitPresent('nav[aria-label="Chat history"]', document, 12000);
+    if (!ok3) return false;
+
     return true;
   };
 
@@ -131,15 +137,15 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
     return ctx.helpers.waitPresent(selector, document, AUTO_EXPAND_START_TIMEOUT_MS);
   };
 
-  const autoExpandRunOnce = async (runId: number) => {
-    if (!ctx.settings.autoExpandChats) return;
+  const autoExpandRunOnce = async (runId: number): Promise<boolean> => {
+    if (!ctx.settings.autoExpandChats) return false;
 
     const present = await autoExpandWaitForSidebar();
     if (!present || runId !== state.runId || !ctx.settings.autoExpandChats) {
       if (runId === state.runId && ctx.settings.autoExpandChats) {
         ctx.logger.debug("AUTOEXPAND", "sidebar not found on start (timeout)");
       }
-      return;
+      return false;
     }
 
     if (autoExpandSidebarIsOpen()) {
@@ -152,13 +158,13 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
         if (runId === state.runId && ctx.settings.autoExpandChats) {
           ctx.logger.debug("AUTOEXPAND", "sidebar not found on start (timeout)");
         }
-        return;
+        return false;
       }
 
       const sec = autoExpandFindYourChatsSection(nav);
       if (sec && !autoExpandSectionCollapsed(sec)) {
         ctx.logger.debug("AUTOEXPAND", "already expanded on start");
-        return;
+        return true;
       }
     }
 
@@ -175,18 +181,21 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
       if (runId === state.runId && ctx.settings.autoExpandChats) {
         ctx.logger.debug("AUTOEXPAND", "sidebar not found on start (timeout)");
       }
-      return;
+      return false;
     }
 
     const sec = autoExpandFindYourChatsSection(nav);
     if (sec && !autoExpandSectionCollapsed(sec)) {
       ctx.logger.debug("AUTOEXPAND", "already expanded on start");
-      return;
+      return true;
     }
 
     if (autoExpandExpandYourChats()) {
       ctx.logger.debug("AUTOEXPAND", "expanded on start");
+      return true;
     }
+
+    return false;
   };
 
   const startAutoExpand = () => {
@@ -195,16 +204,23 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
     const currentRun = state.runId;
 
     void (async () => {
-      const ok = await waitForDocumentComplete(15000);
-      if (!ok) {
+      if (!ctx.settings.autoExpandChats) return;
+      if (currentRun !== state.runId) return;
+
+      const spaReady = await waitForSpaReady();
+      if (!spaReady) {
         if (currentRun === state.runId && ctx.settings.autoExpandChats) {
-          ctx.logger.debug("AUTOEXPAND", "document not complete (timeout), skip auto expand");
+          ctx.logger.debug("AUTOEXPAND", "spa not ready (timeout), skip");
         }
         return;
       }
 
       if (currentRun !== state.runId || !ctx.settings.autoExpandChats) return;
-      await autoExpandRunOnce(currentRun);
+
+      const done = await autoExpandRunOnce(currentRun);
+      if (!done) {
+        ctx.logger.debug("AUTOEXPAND", "runOnce returned false");
+      }
     })();
   };
 
