@@ -13,6 +13,8 @@ const ONE_CLICK_DELETE_X_SIZE = 26;
 const ONE_CLICK_DELETE_X_RIGHT = 6;
 const ONE_CLICK_DELETE_DOTS_LEFT = 10;
 const ONE_CLICK_DELETE_HOLD_MS = 120;
+const ONE_CLICK_DELETE_WIPE_MS = 4500;
+const ONE_CLICK_DELETE_UNDO_TOTAL_MS = 5000;
 const ONE_CLICK_DELETE_TOOLTIP = "Hold to delete";
 
 export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
@@ -28,6 +30,9 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     holdTarget: HTMLElement | null;
     holdButton: HTMLElement | null;
     holdPointerId: number | null;
+    pendingTimerId: number | null;
+    pendingRow: HTMLElement | null;
+    pendingOverlay: HTMLElement | null;
   } = {
     started: false,
     deleting: false,
@@ -36,7 +41,10 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     holdTimerId: null,
     holdTarget: null,
     holdButton: null,
-    holdPointerId: null
+    holdPointerId: null,
+    pendingTimerId: null,
+    pendingRow: null,
+    pendingOverlay: null
   };
 
   const waitPresent = async <T extends Element>(
@@ -191,6 +199,124 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
         animation-iteration-count: 1 !important;
         transition-duration: 0.001ms !important;
       }
+
+      .group.__menu-item.hoverable.qqrm-oneclick-pending{
+        position: relative !important;
+      }
+
+      .group.__menu-item.hoverable.qqrm-oneclick-pending > *:not(.qqrm-oneclick-undo-overlay){
+        opacity: 0.28 !important;
+      }
+
+      .group.__menu-item.hoverable .qqrm-oneclick-undo-overlay{
+        position: absolute;
+        inset: 0;
+        border-radius: 14px;
+        overflow: hidden;
+
+        z-index: 999;
+
+        display: grid;
+        place-items: center;
+
+        cursor: pointer;
+        user-select: none;
+
+        background: rgba(0,0,0,0.10);
+        border: 1px solid rgba(255,255,255,0.08);
+        backdrop-filter: blur(1.5px);
+      }
+
+      .group.__menu-item.hoverable .qqrm-oneclick-wipe{
+        position: absolute;
+        inset: 0;
+        border-radius: 14px;
+        overflow: hidden;
+
+        z-index: 1;
+        pointer-events: none;
+      }
+
+      .group.__menu-item.hoverable .qqrm-oneclick-wipe::before{
+        content: "";
+        position: absolute;
+        inset: 0;
+
+        background:
+          linear-gradient(90deg,
+            rgba(239,68,68,0.26),
+            rgba(185,28,28,0.34)
+          ),
+          radial-gradient(circle at 70% 50%, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 60%);
+
+        transform-origin: right center;
+        animation: qqrmOneClickWipeCover var(--qqrm-wipe-ms, 4500ms) linear forwards;
+      }
+
+      @keyframes qqrmOneClickWipeCover{
+        from { transform: scaleX(0); }
+        to   { transform: scaleX(1); }
+      }
+
+      .group.__menu-item.hoverable .qqrm-oneclick-heat{
+        position: absolute;
+        inset: 0;
+        border-radius: 14px;
+        overflow: hidden;
+
+        z-index: 2;
+        pointer-events: none;
+
+        opacity: 0.75;
+        mix-blend-mode: screen;
+      }
+
+      .group.__menu-item.hoverable .qqrm-oneclick-heat::before{
+        content: "";
+        position: absolute;
+        inset: -35% -35% -35% -35%;
+
+        background:
+          radial-gradient(circle at 30% 70%, rgba(255, 180, 60, 0.14) 0%, rgba(255, 180, 60, 0) 62%),
+          radial-gradient(circle at 55% 90%, rgba(239, 68, 68, 0.12) 0%, rgba(239, 68, 68, 0) 68%),
+          radial-gradient(circle at 75% 55%, rgba(255, 220, 120, 0.10) 0%, rgba(255, 220, 120, 0) 66%);
+
+        filter: blur(12px);
+        animation: qqrmOneClickHeatMove 520ms ease-in-out infinite alternate;
+      }
+
+      @keyframes qqrmOneClickHeatMove{
+        from { transform: translate3d(-1.2%, 0.8%, 0) scale(1.02); opacity: 0.55; }
+        to   { transform: translate3d( 1.2%, -0.8%, 0) scale(1.05); opacity: 0.85; }
+      }
+
+      .group.__menu-item.hoverable .qqrm-oneclick-undo-label{
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+
+        z-index: 3;
+        pointer-events: none;
+
+        font-family: var(--qqrm-row-font-family, inherit);
+        font-size: var(--qqrm-row-font-size, 13px);
+        font-weight: var(--qqrm-row-font-weight, 600);
+        line-height: var(--qqrm-row-line-height, 18px);
+        letter-spacing: var(--qqrm-row-letter-spacing, normal);
+
+        color: var(--text-primary, #e5e7eb);
+        text-shadow: 0 2px 12px rgba(0,0,0,0.35);
+
+        opacity: 0;
+        animation: qqrmUndoIn 180ms ease forwards;
+        animation-delay: 0ms;
+      }
+
+      @keyframes qqrmUndoIn{
+        from{ opacity: 0; transform: translate(-50%, -50%) translateY(1px); }
+        to{ opacity: 1; transform: translate(-50%, -50%) translateY(0); }
+      }
     `;
     const host = document.head ?? document.documentElement;
     if (!host) return;
@@ -230,6 +356,101 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     }
   };
 
+  const findChatRowFromOptionsButton = (btn: HTMLElement) => {
+    const row = btn.closest<HTMLElement>(".group.__menu-item.hoverable");
+    return row ?? null;
+  };
+
+  const applyRowTypographyVars = (row: HTMLElement) => {
+    try {
+      const titleSpan = row.querySelector<HTMLElement>('.truncate span[dir="auto"]');
+      if (!titleSpan) return;
+      const cs = window.getComputedStyle(titleSpan);
+
+      row.style.setProperty("--qqrm-row-font-family", cs.fontFamily);
+      row.style.setProperty("--qqrm-row-font-size", cs.fontSize);
+      row.style.setProperty("--qqrm-row-font-weight", cs.fontWeight);
+      row.style.setProperty("--qqrm-row-line-height", cs.lineHeight);
+      row.style.setProperty("--qqrm-row-letter-spacing", cs.letterSpacing);
+    } catch {
+      // ignore
+    }
+  };
+
+  const clearPendingDelete = () => {
+    if (state.pendingTimerId !== null) {
+      window.clearTimeout(state.pendingTimerId);
+      state.pendingTimerId = null;
+    }
+
+    if (state.pendingOverlay && state.pendingOverlay.isConnected) {
+      state.pendingOverlay.remove();
+    }
+
+    if (state.pendingRow && state.pendingRow.isConnected) {
+      state.pendingRow.classList.remove("qqrm-oneclick-pending");
+    }
+
+    state.pendingOverlay = null;
+    state.pendingRow = null;
+  };
+
+  const createPendingOverlay = (row: HTMLElement) => {
+    const overlay = document.createElement("div");
+    overlay.className = "qqrm-oneclick-undo-overlay";
+    overlay.style.setProperty("--qqrm-wipe-ms", `${ONE_CLICK_DELETE_WIPE_MS}ms`);
+
+    overlay.innerHTML = `
+    <div class="qqrm-oneclick-wipe"></div>
+    <div class="qqrm-oneclick-heat"></div>
+    <div class="qqrm-oneclick-undo-label">Undo</div>
+  `;
+
+    overlay.addEventListener(
+      "pointerdown",
+      (ev) => {
+        swallowEvent(ev);
+      },
+      true
+    );
+
+    overlay.addEventListener(
+      "click",
+      (ev) => {
+        swallowEvent(ev);
+        clearPendingDelete();
+      },
+      true
+    );
+
+    row.appendChild(overlay);
+    return overlay;
+  };
+
+  const startPendingDelete = (optionsBtn: HTMLElement) => {
+    clearPendingDelete();
+
+    const row = findChatRowFromOptionsButton(optionsBtn);
+    if (!row) {
+      runOneClickDeleteFlow(optionsBtn).catch(() => {});
+      return;
+    }
+
+    applyRowTypographyVars(row);
+
+    row.classList.add("qqrm-oneclick-pending");
+    const overlay = createPendingOverlay(row);
+
+    state.pendingRow = row;
+    state.pendingOverlay = overlay;
+
+    state.pendingTimerId = window.setTimeout(() => {
+      const targetBtn = optionsBtn;
+      clearPendingDelete();
+      runOneClickDeleteFlow(targetBtn).catch(() => {});
+    }, ONE_CLICK_DELETE_UNDO_TOTAL_MS);
+  };
+
   const clearHoldState = () => {
     if (state.holdTimerId !== null) {
       window.clearTimeout(state.holdTimerId);
@@ -249,7 +470,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       const targetBtn = state.holdButton;
       clearHoldState();
       if (!targetBtn) return;
-      runOneClickDeleteFlow(targetBtn).catch(() => {});
+      startPendingDelete(targetBtn);
     }, ONE_CLICK_DELETE_HOLD_MS);
   };
 
@@ -364,7 +585,10 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     swallowEvent(ev);
   };
 
-  const handleBlur = () => clearHoldState();
+  const handleBlur = () => {
+    clearHoldState();
+    clearPendingDelete();
+  };
 
   const refreshOneClickDelete = () => {
     if (!ctx.settings.oneClickDelete) return;
@@ -405,6 +629,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     document.removeEventListener("click", handleClick, true);
     window.removeEventListener("blur", handleBlur, true);
     clearHoldState();
+    clearPendingDelete();
 
     if (state.intervalId !== null) {
       window.clearInterval(state.intervalId);
