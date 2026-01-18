@@ -17,6 +17,7 @@ interface DictationConfig {
 }
 
 type TranscribeMode = "codex" | "chatgpt";
+type DictationToggleSource = "hotkey" | "button" | "unknown";
 
 interface InputReadResult {
   ok: boolean;
@@ -43,6 +44,7 @@ interface TranscribeFlowArgs {
   mode: TranscribeMode;
   beforeText: string;
   beforeInputOk: boolean;
+  source: DictationToggleSource;
 }
 
 const TRANSCRIBE_HOOK_SOURCE = "tm-dictation-transcribe";
@@ -60,6 +62,7 @@ const DEFAULT_CONFIG: DictationConfig = {
   logBlur: false
 };
 const DICTATION_COOLDOWN_MS = 400;
+const DICTATION_SOURCE_WINDOW_MS = 2500;
 
 export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle {
   const cfg: DictationConfig = { ...DEFAULT_CONFIG };
@@ -72,8 +75,13 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   let graceCaptured = false;
   let lastBlurLogAt = 0;
   let lastDictationToggleAt = 0;
+  let lastDictationToggleSource: DictationToggleSource = "unknown";
+  let lastDictationToggleSourceAt = 0;
 
-  const transcribeSnapshots = new Map<string, InputReadResult>();
+  const transcribeSnapshots = new Map<
+    string,
+    { snapshot: InputReadResult; source: DictationToggleSource }
+  >();
 
   const tmLog = (scope: string, msg: string, fields?: LogFields) => {
     ctx.logger.debug(scope, msg, fields);
@@ -380,6 +388,23 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     return null;
   };
 
+  const isDictationToggleButton = (btn: HTMLButtonElement) => {
+    if (isVoiceModeButton(btn)) return false;
+    const aria = norm(btn.getAttribute("aria-label"));
+    const title = norm(btn.getAttribute("title"));
+    const dt = norm(btn.getAttribute("data-testid"));
+    if (aria === "dictate button") return true;
+    if (aria.includes("dictat") || aria.includes("диктов")) return true;
+    if (aria.includes("microphone") || aria.includes("voice") || aria.includes("голос"))
+      return true;
+    if (title.includes("dictat") || title.includes("диктов")) return true;
+    if (title.includes("microphone") || title.includes("voice") || title.includes("голос"))
+      return true;
+    if (dt.includes("dictat") || dt.includes("dictation")) return true;
+    if (dt.includes("microphone") || dt.includes("voice")) return true;
+    return false;
+  };
+
   const findDictationButton = () => {
     const direct = findDictationButtonIn(document);
     if (direct) return direct;
@@ -414,8 +439,10 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       return false;
     }
     tmLog("KEY", "dictation button found");
+    lastDictationToggleSource = "hotkey";
+    lastDictationToggleSourceAt = performance.now();
     btn.click();
-    lastDictationToggleAt = performance.now();
+    lastDictationToggleAt = lastDictationToggleSourceAt;
     tmLog("KEY", "dictation button clicked");
     return true;
   };
@@ -810,7 +837,8 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   const runFlowAfterTranscribe = async ({
     mode,
     beforeText,
-    beforeInputOk
+    beforeInputOk,
+    source
   }: TranscribeFlowArgs) => {
     if (inFlight) {
       tmLog("TRANSCRIBE", "skip: submit flow in progress");
@@ -825,6 +853,11 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     try {
       if (!cfg.enabled) {
         tmLog("TRANSCRIBE", "auto-send disabled");
+        return;
+      }
+
+      if (source === "hotkey") {
+        tmLog("TRANSCRIBE", "skip: dictation triggered by hotkey");
         return;
       }
 
@@ -981,17 +1014,21 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     if (!data.type || !data.id) return;
 
     if (data.type === "start") {
-      transcribeSnapshots.set(data.id, readInputText());
+      const snapshot = readInputText();
+      const age = performance.now() - lastDictationToggleSourceAt;
+      const source = age <= DICTATION_SOURCE_WINDOW_MS ? lastDictationToggleSource : "unknown";
+      transcribeSnapshots.set(data.id, { snapshot, source });
       return;
     }
 
     if (data.type === "complete") {
-      const snapshot = transcribeSnapshots.get(data.id);
-      if (snapshot) transcribeSnapshots.delete(data.id);
+      const captured = transcribeSnapshots.get(data.id);
+      if (captured) transcribeSnapshots.delete(data.id);
       void runFlowAfterTranscribe({
         mode: transcribeMode,
-        beforeText: snapshot?.text ?? "",
-        beforeInputOk: snapshot?.ok ?? false
+        beforeText: captured?.snapshot.text ?? "",
+        beforeInputOk: captured?.snapshot.ok ?? false,
+        source: captured?.source ?? "unknown"
       });
     }
   };
@@ -1060,6 +1097,17 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         preview: cur.text,
         graceActive: performance.now() <= graceUntilMs
       });
+    }
+
+    if (
+      btn instanceof HTMLButtonElement &&
+      !isSubmitDictationButton(btn) &&
+      isDictationButtonVisible(btn) &&
+      isDictationToggleButton(btn)
+    ) {
+      lastDictationToggleSource = "button";
+      lastDictationToggleSourceAt = performance.now();
+      lastDictationToggleAt = lastDictationToggleSourceAt;
     }
 
     if (cfg.enabled && btn instanceof HTMLButtonElement && isSubmitDictationButton(btn)) {
