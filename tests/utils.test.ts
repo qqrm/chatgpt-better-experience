@@ -33,6 +33,7 @@ describe("utils", () => {
       tempChatEnabled: SETTINGS_DEFAULTS.tempChatEnabled,
       oneClickDelete: SETTINGS_DEFAULTS.oneClickDelete,
       startDictation: SETTINGS_DEFAULTS.startDictation,
+      ctrlEnterSends: SETTINGS_DEFAULTS.ctrlEnterSends,
       wideChatWidth: 100
     });
   });

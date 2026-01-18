@@ -41,6 +41,7 @@ export interface PopupSettingsInput {
   autoTempChat: boolean;
   oneClickDelete: boolean;
   startDictation: boolean;
+  ctrlEnterSends: boolean;
   wideChatWidth: number;
 }
 

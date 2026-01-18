@@ -48,6 +48,8 @@ export function normalizeSettings(value: Record<string, unknown> | null | undefi
       typeof data.oneClickDelete === "boolean" ? data.oneClickDelete : base.oneClickDelete,
     startDictation:
       typeof data.startDictation === "boolean" ? data.startDictation : base.startDictation,
+    ctrlEnterSends:
+      typeof data.ctrlEnterSends === "boolean" ? data.ctrlEnterSends : base.ctrlEnterSends,
     wideChatWidth
   };
 }

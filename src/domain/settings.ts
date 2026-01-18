@@ -8,6 +8,7 @@ export interface Settings {
   tempChatEnabled: boolean;
   oneClickDelete: boolean;
   startDictation: boolean;
+  ctrlEnterSends: boolean;
   wideChatWidth: number;
 }
 
@@ -23,5 +24,6 @@ export const SETTINGS_DEFAULTS: SettingsRecord = {
   tempChatEnabled: false,
   oneClickDelete: false,
   startDictation: false,
+  ctrlEnterSends: true,
   wideChatWidth: 0
 };

@@ -55,6 +55,7 @@ describe("popup settings", () => {
       tempChatEnabled: true,
       oneClickDelete: SETTINGS_DEFAULTS.oneClickDelete,
       startDictation: SETTINGS_DEFAULTS.startDictation,
+      ctrlEnterSends: SETTINGS_DEFAULTS.ctrlEnterSends,
       wideChatWidth: 42
     });
     expect(hint).toBe("Auto-send happens only while holding Alt when you accept dictation.");
@@ -79,6 +80,7 @@ describe("popup settings", () => {
       autoTempChat: true,
       oneClickDelete: true,
       startDictation: false,
+      ctrlEnterSends: true,
       wideChatWidth: 70,
       enableBottomCopyButton: true,
       showOnHoverOnly: false,
