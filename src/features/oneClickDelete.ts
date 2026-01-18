@@ -115,7 +115,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
         position: absolute;
         right: ${ONE_CLICK_DELETE_X_RIGHT}px;
         top: 50%;
-        transform: translateY(-50%);
+        transform: translate3d(0, -50%, 0);
         width: ${ONE_CLICK_DELETE_X_SIZE}px;
         height: ${ONE_CLICK_DELETE_X_SIZE}px;
         border-radius: 9px;
@@ -130,10 +130,15 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
         border: 1px solid var(--qqrm-danger-muted-border, rgba(107, 114, 128, 0.28));
         box-shadow: -1px 0 0 rgba(255, 255, 255, 0.08) inset;
         opacity: 0.0;
-        transition: opacity 140ms ease, background 140ms ease, transform 140ms ease;
+        will-change: opacity, transform;
+        transition: opacity 140ms ease, background 140ms ease;
         user-select: none;
         pointer-events: auto;
         cursor: pointer;
+      }
+
+      ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"] svg{
+        display: block;
       }
 
       ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"]::after{
@@ -167,7 +172,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
         color: var(--qqrm-danger, #d13b3b);
         background: var(--qqrm-danger-bg, rgba(209, 59, 59, 0.18));
         border-color: var(--qqrm-danger-border, rgba(209, 59, 59, 0.35));
-        transform: translateY(-50%) scale(1.02);
+        transform: translate3d(0, -50%, 0);
       }
 
       html[${ONE_CLICK_DELETE_ROOT_FLAG}="1"] div[data-testid="modal-delete-conversation-confirmation"]{
@@ -325,7 +330,17 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     x = document.createElement("span");
     x.setAttribute(ONE_CLICK_DELETE_X_MARK, "1");
     x.setAttribute("aria-label", ONE_CLICK_DELETE_TOOLTIP);
-    x.textContent = "×";
+    x.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M18 6L6 18M6 6l12 12"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+        />
+      </svg>
+    `;
     btn.appendChild(x);
     return x;
   };
