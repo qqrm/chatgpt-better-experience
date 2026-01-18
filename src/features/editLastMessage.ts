@@ -73,28 +73,70 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
     return null;
   };
 
-  const triggerRenameActiveChat = async () => {
-    const activeChat = qs<HTMLElement>('a[data-sidebar-item="true"][data-active]');
-    if (!activeChat) return false;
-    const optionsBtn = activeChat.querySelector<HTMLButtonElement>(
-      'button[data-testid^="history-item-"][data-testid$="-options"]'
+  const logRenameStep = (step: string, ok: boolean) => {
+    ctx.logger.debug("KEY", "rename chat", { step, ok });
+  };
+
+  const findActiveChat = () => {
+    const selectors = [
+      'a[data-sidebar-item="true"][data-active]',
+      'a[data-sidebar-item="true"][aria-current="page"]',
+      "a[data-active]",
+      'nav[aria-label="Chat history"] a[aria-current="page"]'
+    ];
+    for (const selector of selectors) {
+      const el = qs<HTMLElement>(selector);
+      if (el) return el;
+    }
+    return null;
+  };
+
+  const findOptionsButton = (activeChat: HTMLElement) => {
+    const optionsSelector = 'button[data-testid^="history-item-"][data-testid$="-options"]';
+    return (
+      activeChat.querySelector<HTMLButtonElement>(optionsSelector) ??
+      activeChat.parentElement?.querySelector<HTMLButtonElement>(optionsSelector) ??
+      activeChat.closest("li, div")?.querySelector<HTMLButtonElement>(optionsSelector) ??
+      null
     );
-    if (!optionsBtn) return false;
+  };
+
+  const triggerRenameActiveChat = async (activeChatOverride?: HTMLElement) => {
+    const activeChat = activeChatOverride ?? findActiveChat();
+    if (!activeChat) {
+      logRenameStep("activeChat not found", false);
+      return false;
+    }
+    const optionsBtn = findOptionsButton(activeChat);
+    if (!optionsBtn) {
+      logRenameStep("optionsBtn not found", false);
+      return false;
+    }
     ctx.helpers.humanClick(optionsBtn, "open chat options");
 
     const menu = await waitForVisibleRadixMenu(2000);
-    if (!menu) return false;
+    if (!menu) {
+      logRenameStep("menu not found", false);
+      return false;
+    }
 
     const renameItem = findRenameMenuItem(menu);
-    if (!renameItem) return false;
+    if (!renameItem) {
+      logRenameStep("renameItem not found", false);
+      return false;
+    }
     ctx.helpers.humanClick(renameItem, "rename chat");
 
     const input = await waitForRenameInput(activeChat, 2000);
-    if (!input) return false;
+    if (!input) {
+      logRenameStep("input not found", false);
+      return false;
+    }
     try {
       input.focus();
       if (typeof input.select === "function") input.select();
     } catch (_) {}
+    logRenameStep("ok", true);
     return true;
   };
 
@@ -195,16 +237,12 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
       const targetEl = e.target instanceof Element ? e.target : null;
       const activeEl = document.activeElement instanceof Element ? document.activeElement : null;
       if (!isEditableElement(targetEl) && !isEditableElement(activeEl)) {
-        const activeChat = qs<HTMLElement>('a[data-sidebar-item="true"][data-active]');
-        const optionsBtn = activeChat?.querySelector<HTMLButtonElement>(
-          'button[data-testid^="history-item-"][data-testid$="-options"]'
-        );
-        if (activeChat && optionsBtn) {
+        const activeChat = findActiveChat();
+        if (activeChat) {
           e.preventDefault();
           e.stopPropagation();
           void (async () => {
-            const ok = await triggerRenameActiveChat();
-            ctx.logger.debug("KEY", "rename chat", { ok });
+            await triggerRenameActiveChat(activeChat);
           })();
           return;
         }
