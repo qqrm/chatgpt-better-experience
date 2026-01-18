@@ -202,7 +202,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       .group.__menu-item.hoverable .qqrm-oneclick-undo-overlay{
         position: absolute;
         inset: 0;
-        border-radius: 14px;
+        border-radius: var(--qqrm-row-radius, 14px);
         overflow: hidden;
 
         z-index: 999;
@@ -221,7 +221,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       .group.__menu-item.hoverable .qqrm-oneclick-wipe{
         position: absolute;
         inset: 0;
-        border-radius: 14px;
+        border-radius: var(--qqrm-row-radius, 14px);
         overflow: hidden;
 
         z-index: 1;
@@ -252,7 +252,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       .group.__menu-item.hoverable .qqrm-oneclick-heat{
         position: absolute;
         inset: 0;
-        border-radius: 14px;
+        border-radius: var(--qqrm-row-radius, 14px);
         overflow: hidden;
 
         z-index: 2;
@@ -355,14 +355,35 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   const applyRowTypographyVars = (row: HTMLElement) => {
     try {
       const titleSpan = row.querySelector<HTMLElement>('.truncate span[dir="auto"]');
-      if (!titleSpan) return;
-      const cs = window.getComputedStyle(titleSpan);
+      if (titleSpan) {
+        const cs = window.getComputedStyle(titleSpan);
 
-      row.style.setProperty("--qqrm-row-font-family", cs.fontFamily);
-      row.style.setProperty("--qqrm-row-font-size", cs.fontSize);
-      row.style.setProperty("--qqrm-row-font-weight", cs.fontWeight);
-      row.style.setProperty("--qqrm-row-line-height", cs.lineHeight);
-      row.style.setProperty("--qqrm-row-letter-spacing", cs.letterSpacing);
+        row.style.setProperty("--qqrm-row-font-family", cs.fontFamily);
+        row.style.setProperty("--qqrm-row-font-size", cs.fontSize);
+        row.style.setProperty("--qqrm-row-font-weight", cs.fontWeight);
+        row.style.setProperty("--qqrm-row-line-height", cs.lineHeight);
+        row.style.setProperty("--qqrm-row-letter-spacing", cs.letterSpacing);
+      }
+
+      const pickNativeRowBorderRadius = () => {
+        const candidates: HTMLElement[] = [row];
+
+        const first = row.firstElementChild;
+        if (first instanceof HTMLElement) candidates.push(first);
+
+        const inner = row.querySelector<HTMLElement>("a, button, [role='button'], div");
+        if (inner) candidates.push(inner);
+
+        for (const el of candidates) {
+          const br = window.getComputedStyle(el).borderRadius;
+          const n = Number.parseFloat(br || "0");
+          if (Number.isFinite(n) && n > 0.5) return br;
+        }
+
+        return "14px";
+      };
+
+      row.style.setProperty("--qqrm-row-radius", pickNativeRowBorderRadius());
     } catch {
       // ignore
     }
