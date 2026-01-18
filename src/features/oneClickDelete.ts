@@ -12,7 +12,7 @@ const ONE_CLICK_DELETE_BTN_W = 72;
 const ONE_CLICK_DELETE_X_SIZE = 26;
 const ONE_CLICK_DELETE_X_RIGHT = 6;
 const ONE_CLICK_DELETE_DOTS_LEFT = 10;
-const ONE_CLICK_DELETE_HOLD_MS = 700;
+const ONE_CLICK_DELETE_HOLD_MS = 120;
 const ONE_CLICK_DELETE_TOOLTIP = "Hold to delete";
 
 export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
