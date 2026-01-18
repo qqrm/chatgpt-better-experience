@@ -8,6 +8,7 @@ import { initOneClickDeleteFeature } from "../features/oneClickDelete";
 import { initAutoTempChatFeature } from "../features/autoTempChat";
 import { initAutoExpandChatsFeature } from "../features/autoExpandChats";
 import { initWideChatFeature } from "../features/wideChat";
+import { initCtrlEnterSendFeature } from "../features/ctrlEnterSend";
 
 declare global {
   interface Window {
@@ -51,7 +52,8 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       initAutoExpandChatsFeature(ctx),
       initAutoTempChatFeature(ctx),
       initOneClickDeleteFeature(ctx),
-      initWideChatFeature(ctx)
+      initWideChatFeature(ctx),
+      initCtrlEnterSendFeature(ctx)
     ];
 
     if (ctx.logger.isEnabled) {
@@ -81,6 +83,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
           !("autoTempChat" in changes) &&
           !("oneClickDelete" in changes) &&
           !("startDictation" in changes) &&
+          !("ctrlEnterSends" in changes) &&
           !("wideChatWidth" in changes) &&
           !("tempChatEnabled" in changes))
       ) {

@@ -424,6 +424,16 @@
     </div>
 
     <div class="row">
+      <div class="check">
+        <input id="ctrlEnterSends" type="checkbox" />
+        <label for="ctrlEnterSends">
+          <span>Ctrl+Enter sends</span>
+          <span class="note">Enter inserts newline, Ctrl+Enter sends</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="row">
       <label for="wideChatWidth">Chat width</label>
       <span id="wideChatWidthValue">0%</span>
     </div>
@@ -436,6 +446,7 @@
 
     <div class="hint" id="hint"></div>
     <div class="hint" id="dictationHint" hidden>Ctrl+Space: start dictation</div>
+    <div class="hint" id="ctrlEnterHint" hidden>Ctrl+Enter: send</div>
     <div class="hint">Press F2 to rename current chat</div>
 
     <script src="dist/popup.js"></script>
