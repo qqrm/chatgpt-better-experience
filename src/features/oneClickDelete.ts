@@ -12,10 +12,9 @@ const ONE_CLICK_DELETE_BTN_W = 72;
 const ONE_CLICK_DELETE_X_SIZE = 26;
 const ONE_CLICK_DELETE_X_RIGHT = 6;
 const ONE_CLICK_DELETE_DOTS_LEFT = 10;
-const ONE_CLICK_DELETE_HOLD_MS = 120;
 const ONE_CLICK_DELETE_WIPE_MS = 4500;
 const ONE_CLICK_DELETE_UNDO_TOTAL_MS = 5000;
-const ONE_CLICK_DELETE_TOOLTIP = "Hold to delete";
+const ONE_CLICK_DELETE_TOOLTIP = "Click to delete";
 
 export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   const qsa = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
@@ -26,10 +25,6 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     deleting: boolean;
     observer: MutationObserver | null;
     intervalId: number | null;
-    holdTimerId: number | null;
-    holdTarget: HTMLElement | null;
-    holdButton: HTMLElement | null;
-    holdPointerId: number | null;
     pendingTimerId: number | null;
     pendingRow: HTMLElement | null;
     pendingOverlay: HTMLElement | null;
@@ -38,10 +33,6 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     deleting: false,
     observer: null,
     intervalId: null,
-    holdTimerId: null,
-    holdTarget: null,
-    holdButton: null,
-    holdPointerId: null,
     pendingTimerId: null,
     pendingRow: null,
     pendingOverlay: null
@@ -451,29 +442,6 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     }, ONE_CLICK_DELETE_UNDO_TOTAL_MS);
   };
 
-  const clearHoldState = () => {
-    if (state.holdTimerId !== null) {
-      window.clearTimeout(state.holdTimerId);
-      state.holdTimerId = null;
-    }
-    state.holdTarget = null;
-    state.holdButton = null;
-    state.holdPointerId = null;
-  };
-
-  const startHoldDelete = (x: HTMLElement, btn: HTMLElement, pointerId: number | null) => {
-    clearHoldState();
-    state.holdTarget = x;
-    state.holdButton = btn;
-    state.holdPointerId = pointerId;
-    state.holdTimerId = window.setTimeout(() => {
-      const targetBtn = state.holdButton;
-      clearHoldState();
-      if (!targetBtn) return;
-      startPendingDelete(targetBtn);
-    }, ONE_CLICK_DELETE_HOLD_MS);
-  };
-
   const getDeleteXFromEvent = (target: EventTarget | null) => {
     if (!(target instanceof Element)) return null;
     return target.closest<HTMLElement>(`span[${ONE_CLICK_DELETE_X_MARK}="1"]`);
@@ -553,30 +521,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     const btn = getDeleteButtonFromX(x);
     if (!btn) return;
     swallowEvent(ev);
-    startHoldDelete(x, btn, ev.pointerId ?? null);
-  };
-
-  const handlePointerUp = (ev: PointerEvent) => {
-    if (!state.holdTarget) return;
-    if (state.holdPointerId !== null && ev.pointerId !== state.holdPointerId) return;
-    swallowEvent(ev);
-    clearHoldState();
-  };
-
-  const handlePointerCancel = (ev: PointerEvent) => {
-    if (!state.holdTarget) return;
-    if (state.holdPointerId !== null && ev.pointerId !== state.holdPointerId) return;
-    swallowEvent(ev);
-    clearHoldState();
-  };
-
-  const handlePointerMove = (ev: PointerEvent) => {
-    if (!state.holdTarget) return;
-    if (state.holdPointerId !== null && ev.pointerId !== state.holdPointerId) return;
-    const el = document.elementFromPoint(ev.clientX, ev.clientY);
-    if (!el || !state.holdTarget.contains(el)) {
-      clearHoldState();
-    }
+    startPendingDelete(btn);
   };
 
   const handleClick = (ev: MouseEvent) => {
@@ -586,7 +531,6 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const handleBlur = () => {
-    clearHoldState();
     clearPendingDelete();
   };
 
@@ -602,9 +546,6 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     state.started = true;
 
     document.addEventListener("pointerdown", handlePointerDown, true);
-    document.addEventListener("pointerup", handlePointerUp, true);
-    document.addEventListener("pointercancel", handlePointerCancel, true);
-    document.addEventListener("pointermove", handlePointerMove, true);
     document.addEventListener("click", handleClick, true);
     window.addEventListener("blur", handleBlur, true);
 
@@ -623,12 +564,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     state.started = false;
 
     document.removeEventListener("pointerdown", handlePointerDown, true);
-    document.removeEventListener("pointerup", handlePointerUp, true);
-    document.removeEventListener("pointercancel", handlePointerCancel, true);
-    document.removeEventListener("pointermove", handlePointerMove, true);
     document.removeEventListener("click", handleClick, true);
     window.removeEventListener("blur", handleBlur, true);
-    clearHoldState();
     clearPendingDelete();
 
     if (state.intervalId !== null) {
