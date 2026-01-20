@@ -91,7 +91,7 @@ export function createLogger(debugEnabled: boolean) {
     if (fields && typeof fields === "object") {
       const allow = [
         "heldDuring",
-        "holdToSend",
+        "autoSendEnabled",
         "shouldSend",
         "ok",
         "changed",

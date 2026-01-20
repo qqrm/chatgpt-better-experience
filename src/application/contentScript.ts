@@ -76,8 +76,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       if (
         !changes ||
         (!("autoExpandChats" in changes) &&
-          !("skipKey" in changes) &&
-          !("holdToSend" in changes) &&
+          !("autoSend" in changes) &&
           !("allowAutoSendInCodex" in changes) &&
           !("editLastMessageOnArrowUp" in changes) &&
           !("autoTempChat" in changes) &&

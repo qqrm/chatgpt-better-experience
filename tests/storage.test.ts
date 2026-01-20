@@ -30,18 +30,18 @@ const createMemoryArea = (initial: Record<string, unknown>, shouldSucceed = true
 
 describe("storage helpers", () => {
   it("reads from sync and merges defaults", async () => {
-    const sync = createMemoryArea({ holdToSend: true });
+    const sync = createMemoryArea({ autoSend: false });
     const storage: StorageApi = { sync: sync.area };
 
     const res = await storageGet(SETTINGS_DEFAULTS, storage, () => null);
 
-    expect(res.holdToSend).toBe(true);
-    expect(res.skipKey).toBe(SETTINGS_DEFAULTS.skipKey);
+    expect(res.autoSend).toBe(false);
+    expect(res.allowAutoSendInCodex).toBe(SETTINGS_DEFAULTS.allowAutoSendInCodex);
   });
 
   it("falls back to local when sync read fails", async () => {
-    const sync = createMemoryArea({ holdToSend: true });
-    const local = createMemoryArea({ skipKey: "Alt" });
+    const sync = createMemoryArea({ autoSend: false });
+    const local = createMemoryArea({ autoSend: true });
     const storage: StorageApi = { sync: sync.area, local: local.area };
 
     const errors: Array<unknown> = [new Error("sync failed"), null];
@@ -49,8 +49,8 @@ describe("storage helpers", () => {
 
     const res = await storageGet(SETTINGS_DEFAULTS, storage, lastError);
 
-    expect(res.skipKey).toBe("Alt");
-    expect(res.holdToSend).toBe(SETTINGS_DEFAULTS.holdToSend);
+    expect(res.autoSend).toBe(true);
+    expect(res.allowAutoSendInCodex).toBe(SETTINGS_DEFAULTS.allowAutoSendInCodex);
   });
 
   it("writes to local when sync set fails", async () => {
@@ -61,10 +61,10 @@ describe("storage helpers", () => {
     const errors: Array<unknown> = [new Error("sync failed"), null];
     const lastError = () => errors.shift() ?? null;
 
-    await storageSet({ holdToSend: true }, storage, lastError);
+    await storageSet({ autoSend: false }, storage, lastError);
 
-    expect(sync.data.holdToSend).toBeUndefined();
-    expect(local.data.holdToSend).toBe(true);
+    expect(sync.data.autoSend).toBeUndefined();
+    expect(local.data.autoSend).toBe(false);
   });
 
   it("returns defaults when storage is unavailable", async () => {

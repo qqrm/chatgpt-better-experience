@@ -20,8 +20,7 @@ function mustGetElement<T extends HTMLElement>(id: string) {
 type ThemeMode = "auto" | "dark" | "light";
 
 const hintEl = mustGetElement<HTMLElement>("hint");
-const selectEl = mustGetElement<HTMLSelectElement>("skipKey");
-const holdEl = mustGetElement<HTMLInputElement>("holdToSend");
+const autoSendEl = mustGetElement<HTMLInputElement>("autoSend");
 const allowCodexEl = mustGetElement<HTMLInputElement>("allowAutoSendInCodex");
 const editLastMessageEl = mustGetElement<HTMLInputElement>("editLastMessageOnArrowUp");
 const autoExpandEl = mustGetElement<HTMLInputElement>("autoExpandChats");
@@ -104,8 +103,7 @@ async function load() {
     storagePort.get({ popupThemeMode: "auto" as ThemeMode })
   ]);
 
-  selectEl.value = settings.skipKey;
-  holdEl.checked = settings.holdToSend;
+  autoSendEl.checked = settings.autoSend;
   allowCodexEl.checked = settings.allowAutoSendInCodex;
   editLastMessageEl.checked = settings.editLastMessageOnArrowUp;
   autoExpandEl.checked = settings.autoExpandChats;
@@ -126,8 +124,7 @@ async function load() {
 async function save() {
   const wideChatWidth = Math.min(100, Math.max(0, Number(wideChatWidthEl.value) || 0));
   const input = {
-    skipKey: selectEl.value,
-    holdToSend: !!holdEl.checked,
+    autoSend: !!autoSendEl.checked,
     allowAutoSendInCodex: !!allowCodexEl.checked,
     editLastMessageOnArrowUp: !!editLastMessageEl.checked,
     autoExpandChats: !!autoExpandEl.checked,
@@ -145,8 +142,7 @@ async function save() {
   wideChatWidthValueEl.textContent = `${wideChatWidth}%`;
 }
 
-selectEl.addEventListener("change", () => void save().catch(() => {}));
-holdEl.addEventListener("change", () => void save().catch(() => {}));
+autoSendEl.addEventListener("change", () => void save().catch(() => {}));
 allowCodexEl.addEventListener("change", () => void save().catch(() => {}));
 editLastMessageEl.addEventListener("change", () => void save().catch(() => {}));
 autoExpandEl.addEventListener("change", () => void save().catch(() => {}));

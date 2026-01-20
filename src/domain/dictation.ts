@@ -2,8 +2,7 @@ export type DictationInputKind = "textarea" | "contenteditable" | "none";
 
 export interface DictationConfig {
   enabled: boolean;
-  holdToSend: boolean;
-  modifierKey: string | null;
+  autoSendEnabled: boolean;
   modifierGraceMs: number;
   finalTextTimeoutMs: number;
   finalTextQuietMs: number;

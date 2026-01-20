@@ -21,36 +21,73 @@ export function isElementVisible(el: Element | null) {
   return true;
 }
 
-export function normalizeSettings(value: Record<string, unknown> | null | undefined): Settings {
+export function normalizeSettings(data: Record<string, unknown>): Settings {
   const base = SETTINGS_DEFAULTS;
-  const data = value ?? {};
-  const wideChatWidth =
-    typeof data.wideChatWidth === "number" && Number.isFinite(data.wideChatWidth)
-      ? Math.min(100, Math.max(0, Math.round(data.wideChatWidth)))
-      : base.wideChatWidth;
+
+  const legacySkipKey =
+    typeof (data as { skipKey?: unknown }).skipKey === "string"
+      ? ((data as { skipKey?: unknown }).skipKey as string)
+      : null;
+
+  const legacyHoldToSend =
+    typeof (data as { holdToSend?: unknown }).holdToSend === "boolean"
+      ? ((data as { holdToSend?: unknown }).holdToSend as boolean)
+      : null;
+  void legacyHoldToSend;
+
+  const autoSend =
+    typeof (data as { autoSend?: unknown }).autoSend === "boolean"
+      ? ((data as { autoSend?: unknown }).autoSend as boolean)
+      : legacySkipKey === "None"
+        ? false
+        : true;
+
   return {
-    skipKey: typeof data.skipKey === "string" ? data.skipKey : base.skipKey,
-    holdToSend: typeof data.holdToSend === "boolean" ? data.holdToSend : base.holdToSend,
+    autoSend,
     allowAutoSendInCodex:
-      typeof data.allowAutoSendInCodex === "boolean"
-        ? data.allowAutoSendInCodex
+      typeof (data as { allowAutoSendInCodex?: unknown }).allowAutoSendInCodex === "boolean"
+        ? ((data as { allowAutoSendInCodex?: unknown }).allowAutoSendInCodex as boolean)
         : base.allowAutoSendInCodex,
+
     editLastMessageOnArrowUp:
-      typeof data.editLastMessageOnArrowUp === "boolean"
-        ? data.editLastMessageOnArrowUp
+      typeof (data as { editLastMessageOnArrowUp?: unknown }).editLastMessageOnArrowUp === "boolean"
+        ? ((data as { editLastMessageOnArrowUp?: unknown }).editLastMessageOnArrowUp as boolean)
         : base.editLastMessageOnArrowUp,
+
     autoExpandChats:
-      typeof data.autoExpandChats === "boolean" ? data.autoExpandChats : base.autoExpandChats,
-    autoTempChat: typeof data.autoTempChat === "boolean" ? data.autoTempChat : base.autoTempChat,
+      typeof (data as { autoExpandChats?: unknown }).autoExpandChats === "boolean"
+        ? ((data as { autoExpandChats?: unknown }).autoExpandChats as boolean)
+        : base.autoExpandChats,
+
+    autoTempChat:
+      typeof (data as { autoTempChat?: unknown }).autoTempChat === "boolean"
+        ? ((data as { autoTempChat?: unknown }).autoTempChat as boolean)
+        : base.autoTempChat,
+
     tempChatEnabled:
-      typeof data.tempChatEnabled === "boolean" ? data.tempChatEnabled : base.tempChatEnabled,
+      typeof (data as { tempChatEnabled?: unknown }).tempChatEnabled === "boolean"
+        ? ((data as { tempChatEnabled?: unknown }).tempChatEnabled as boolean)
+        : base.tempChatEnabled,
+
     oneClickDelete:
-      typeof data.oneClickDelete === "boolean" ? data.oneClickDelete : base.oneClickDelete,
+      typeof (data as { oneClickDelete?: unknown }).oneClickDelete === "boolean"
+        ? ((data as { oneClickDelete?: unknown }).oneClickDelete as boolean)
+        : base.oneClickDelete,
+
     startDictation:
-      typeof data.startDictation === "boolean" ? data.startDictation : base.startDictation,
+      typeof (data as { startDictation?: unknown }).startDictation === "boolean"
+        ? ((data as { startDictation?: unknown }).startDictation as boolean)
+        : base.startDictation,
+
     ctrlEnterSends:
-      typeof data.ctrlEnterSends === "boolean" ? data.ctrlEnterSends : base.ctrlEnterSends,
-    wideChatWidth
+      typeof (data as { ctrlEnterSends?: unknown }).ctrlEnterSends === "boolean"
+        ? ((data as { ctrlEnterSends?: unknown }).ctrlEnterSends as boolean)
+        : base.ctrlEnterSends,
+
+    wideChatWidth:
+      typeof (data as { wideChatWidth?: unknown }).wideChatWidth === "number"
+        ? Math.min(100, Math.max(0, (data as { wideChatWidth?: unknown }).wideChatWidth as number))
+        : base.wideChatWidth
   };
 }
 

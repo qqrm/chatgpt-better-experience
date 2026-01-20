@@ -1,17 +1,17 @@
 import { AutoSendDecision } from "../domain/autoSend";
 
 export interface AutoSendDecisionInput {
-  holdToSend: boolean;
+  autoSendEnabled: boolean;
   heldDuring: boolean;
 }
 
 export function decideAutoSend({
-  holdToSend,
+  autoSendEnabled,
   heldDuring
 }: AutoSendDecisionInput): AutoSendDecision {
   return {
-    holdToSend,
+    autoSendEnabled,
     heldDuring,
-    shouldSend: holdToSend ? heldDuring : !heldDuring
+    shouldSend: autoSendEnabled && !heldDuring
   };
 }

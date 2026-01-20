@@ -1,6 +1,6 @@
 {
   "summary": {
-    "en-US": "Auto-sends ChatGPT dictation transcripts when you accept them. Supports a configurable modifier key, optional Temporary Chat auto-enable, and auto-expanding the chat list."
+    "en-US": "Auto-sends ChatGPT dictation transcripts when you accept them. Hold Shift to skip auto-send, with optional Temporary Chat auto-enable and auto-expanding the chat list."
   },
   "categories": ["other"],
   "version": {
