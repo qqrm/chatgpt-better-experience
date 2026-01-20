@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { initCtrlEnterSendFeature } from "../../src/features/ctrlEnterSend";
 import { SETTINGS_DEFAULTS, Settings } from "../../src/domain/settings";
 import { FeatureContext } from "../../src/application/featureContext";
@@ -40,10 +40,12 @@ const createContext = (overrides: Partial<Settings> = {}): FeatureContext => {
 
 afterEach(() => {
   document.body.innerHTML = "";
+  vi.useRealTimers();
 });
 
 describe("ctrl-enter send", () => {
   it("sends with Ctrl+Enter in the composer", () => {
+    vi.useFakeTimers();
     const ctx = createContext({ ctrlEnterSends: true });
     const feature = initCtrlEnterSendFeature(ctx);
 
@@ -69,6 +71,7 @@ describe("ctrl-enter send", () => {
   });
 
   it("inserts newline on Enter without Ctrl", () => {
+    vi.useFakeTimers();
     const ctx = createContext({ ctrlEnterSends: true });
     const feature = initCtrlEnterSendFeature(ctx);
 
@@ -88,6 +91,7 @@ describe("ctrl-enter send", () => {
   });
 
   it("sends with Ctrl+Enter in edit mode", () => {
+    vi.useFakeTimers();
     const ctx = createContext({ ctrlEnterSends: true });
     const feature = initCtrlEnterSendFeature(ctx);
 
@@ -127,6 +131,30 @@ describe("ctrl-enter send", () => {
 
     expect(saveClicked).toBe(true);
     expect(composerSendClicked).toBe(false);
+    feature.dispose();
+  });
+
+  it("ignores keydown events outside composer targets", () => {
+    vi.useFakeTimers();
+    const ctx = createContext({ ctrlEnterSends: true });
+    const feature = initCtrlEnterSendFeature(ctx);
+
+    let sendClicked = false;
+    const sendBtn = document.createElement("button");
+    sendBtn.setAttribute("data-testid", "send-button");
+    sendBtn.addEventListener("click", () => {
+      sendClicked = true;
+    });
+    document.body.appendChild(sendBtn);
+
+    const unrelated = document.createElement("div");
+    document.body.appendChild(unrelated);
+
+    unrelated.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true })
+    );
+
+    expect(sendClicked).toBe(false);
     feature.dispose();
   });
 });

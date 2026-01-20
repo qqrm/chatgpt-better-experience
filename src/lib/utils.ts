@@ -84,10 +84,13 @@ export function normalizeSettings(data: Record<string, unknown>): Settings {
         ? ((data as { ctrlEnterSends?: unknown }).ctrlEnterSends as boolean)
         : base.ctrlEnterSends,
 
-    wideChatWidth:
-      typeof (data as { wideChatWidth?: unknown }).wideChatWidth === "number"
-        ? Math.min(100, Math.max(0, (data as { wideChatWidth?: unknown }).wideChatWidth as number))
-        : base.wideChatWidth
+    wideChatWidth: (() => {
+      const rawWidth = (data as { wideChatWidth?: unknown }).wideChatWidth;
+      if (typeof rawWidth !== "number" || !Number.isFinite(rawWidth)) {
+        return base.wideChatWidth;
+      }
+      return Math.min(100, Math.max(0, rawWidth));
+    })()
   };
 }
 

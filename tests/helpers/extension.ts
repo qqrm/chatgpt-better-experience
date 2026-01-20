@@ -12,8 +12,9 @@ const extensionPath = path.resolve(process.cwd(), "dist");
 
 export async function launchExtensionContext(): Promise<ExtensionLaunch> {
   const userDataDir = await mkdtemp(path.join(tmpdir(), "playwright-extension-"));
+  const headless = process.env.CI === "true" || !process.env.DISPLAY;
   const context = await chromium.launchPersistentContext(userDataDir, {
-    headless: false,
+    headless,
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
     ignoreDefaultArgs: ["--disable-extensions"]
   });

@@ -1,8 +1,9 @@
 import { FeatureContext, FeatureHandle } from "../application/featureContext";
+import { findEditSubmitButton, ComposerInput } from "./chatgptEditor";
+import { routeKeyCombos } from "./keyCombos";
 
 export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
   const norm = (value: string | null | undefined) => (value || "").trim().toLowerCase();
-  type ComposerInput = HTMLTextAreaElement | HTMLElement;
 
   const findComposerInput = (): ComposerInput | null => {
     const selectors = [
@@ -64,72 +65,6 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     selection.removeAllRanges();
     selection.addRange(range);
     input.dispatchEvent(new Event("input", { bubbles: true }));
-  };
-
-  const findEditSubmitButton = (composer: ComposerInput) => {
-    const closestForm = composer.closest("form");
-    if (closestForm) {
-      const submitBtn = closestForm.querySelector('button[type="submit"]');
-      if (submitBtn instanceof HTMLButtonElement) return submitBtn;
-    }
-
-    const searchRoots: Array<Element | null> = [
-      composer.closest('[role="dialog"], [role="alertdialog"]'),
-      composer.closest("article"),
-      composer.closest("[data-message-author-role]"),
-      composer.closest('[data-testid*="message" i]'),
-      composer.closest("div")
-    ];
-
-    const root = searchRoots.find((x): x is Element => !!x) ?? null;
-    if (!root) return null;
-
-    const buttons = Array.from(root.querySelectorAll("button")).filter(
-      (btn): btn is HTMLButtonElement => btn instanceof HTMLButtonElement
-    );
-
-    const positive = [
-      "save",
-      "save and submit",
-      "submit",
-      "apply",
-      "update",
-      "done",
-      "ok",
-      "сохранить",
-      "сохран",
-      "применить",
-      "готово"
-    ];
-
-    const negative = ["cancel", "close", "dismiss", "отмена", "отменить"];
-
-    const candidates = buttons
-      .filter((btn) => {
-        if (btn.disabled) return false;
-        const aria = norm(btn.getAttribute("aria-label"));
-        const title = norm(btn.getAttribute("title"));
-        const dt = norm(btn.getAttribute("data-testid"));
-        const txt = norm(btn.textContent);
-        const hay = `${aria} ${title} ${dt} ${txt}`;
-        if (negative.some((x) => hay.includes(x))) return false;
-        return positive.some((x) => hay.includes(x));
-      })
-      .filter((btn) => btn.offsetParent !== null);
-
-    if (candidates.length > 0) return candidates[0];
-
-    const byTestId = buttons.find((btn) => {
-      const dt = norm(btn.getAttribute("data-testid"));
-      if (!dt) return false;
-      if (dt.includes("save")) return true;
-      if (dt.includes("submit")) return true;
-      if (dt.includes("apply")) return true;
-      if (dt.includes("update")) return true;
-      return false;
-    });
-
-    return byTestId ?? null;
   };
 
   const findSendButton = (composer?: ComposerInput | null) => {
@@ -244,6 +179,37 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
   let lastEnterShouldSendAt = 0;
   let lastEnterShouldSend = false;
 
+  const handleCtrlEnter = (e: KeyboardEvent, target: ComposerInput) => {
+    lastEnterShouldSend = true;
+    lastEnterShouldSendAt = performance.now();
+    stopEvent(e);
+    setTimeout(() => {
+      lastEnterShouldSend = false;
+    }, 400);
+    void (async () => {
+      const stopBtn = findDictationStopButton();
+      if (stopBtn) {
+        ctx.logger.debug("KEY", "CTRL+ENTER stop dictation");
+        stopBtn.click();
+        await waitForInputToStabilize(target, 1500, 250);
+      }
+      const btn = findSendButton(target);
+      if (btn && !btn.disabled) {
+        ctx.logger.debug("KEY", "CTRL+ENTER send");
+        btn.click();
+      } else {
+        ctx.logger.debug("KEY", "send button not found");
+      }
+    })();
+  };
+
+  const handlePlainEnter = (e: KeyboardEvent, target: ComposerInput) => {
+    lastEnterShouldSend = false;
+    stopEvent(e);
+    insertNewlineAtCaret(target);
+    ctx.logger.debug("KEY", "ENTER newline");
+  };
+
   const handleKeyDown = (e: KeyboardEvent) => {
     if (!ctx.settings.ctrlEnterSends) return;
     if (e.defaultPrevented) return;
@@ -253,36 +219,18 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
 
     const target = e.target;
     if (!(target instanceof HTMLTextAreaElement || target instanceof HTMLElement)) return;
-    const shouldSend = e.ctrlKey || e.metaKey;
-    if (shouldSend) {
-      lastEnterShouldSend = true;
-      lastEnterShouldSendAt = performance.now();
-      stopEvent(e);
-      setTimeout(() => {
-        lastEnterShouldSend = false;
-      }, 400);
-      void (async () => {
-        const stopBtn = findDictationStopButton();
-        if (stopBtn) {
-          ctx.logger.debug("KEY", "CTRL+ENTER stop dictation");
-          stopBtn.click();
-          await waitForInputToStabilize(target, 1500, 250);
-        }
-        const btn = findSendButton(target);
-        if (btn && !btn.disabled) {
-          ctx.logger.debug("KEY", "CTRL+ENTER send");
-          btn.click();
-        } else {
-          ctx.logger.debug("KEY", "send button not found");
-        }
-      })();
-      return;
-    }
 
-    lastEnterShouldSend = false;
-    stopEvent(e);
-    insertNewlineAtCaret(target);
-    ctx.logger.debug("KEY", "ENTER newline");
+    routeKeyCombos(e, [
+      { key: "Enter", ctrl: true, priority: 2, handler: () => handleCtrlEnter(e, target) },
+      { key: "Enter", meta: true, priority: 2, handler: () => handleCtrlEnter(e, target) },
+      {
+        key: "Enter",
+        ctrl: false,
+        meta: false,
+        priority: 1,
+        handler: () => handlePlainEnter(e, target)
+      }
+    ]);
   };
 
   const handleBeforeInput = (e: InputEvent) => {

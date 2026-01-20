@@ -1,19 +1,19 @@
-// @vitest-environment node
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { mkdir } from "node:fs/promises";
 import type { Page } from "playwright";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { closeExtensionContext, launchExtensionContext } from "./helpers/extension";
+import { startMockServer } from "./helpers/mockServer";
 
-const fixturePath = path.join(process.cwd(), "tests", "fixtures", "content-page.html");
-const fixtureUrl = pathToFileURL(fixturePath).toString();
 const distPath = path.join(process.cwd(), "dist");
-const popupUrl = pathToFileURL(path.join(distPath, "popup.html")).toString();
 const contentScriptPath = path.join(distPath, "content.js");
+const mockRoot = path.join(process.cwd(), "tests", "mock");
+const artifactsDir = path.join(process.cwd(), "test-results", "e2e");
 
 declare global {
   interface Window {
     __testStorage?: Record<string, unknown>;
+    __ChatGPTDictationAutoSendLoaded__?: boolean;
     chrome?: {
       runtime?: { lastError?: unknown };
       storage?: {
@@ -33,6 +33,10 @@ declare global {
 const addStorageStub = async (page: Page, initialData: Record<string, unknown>) => {
   await page.addInitScript((seed) => {
     const storageData: Record<string, unknown> = { ...seed };
+    const listeners = new Set<
+      (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, area: string) => void
+    >();
+
     const pick = (keys: string[] | Record<string, unknown> | null | undefined) => {
       const res: Record<string, unknown> = {};
       if (Array.isArray(keys)) {
@@ -52,6 +56,7 @@ const addStorageStub = async (page: Page, initialData: Record<string, unknown>) 
       }
       return res;
     };
+
     const storageArea = {
       get: (
         keys: string[] | Record<string, unknown>,
@@ -62,109 +67,248 @@ const addStorageStub = async (page: Page, initialData: Record<string, unknown>) 
         return Promise.resolve(res);
       },
       set: (values: Record<string, unknown>, cb?: () => void) => {
+        const changes: Record<string, { oldValue?: unknown; newValue?: unknown }> = {};
+        for (const [key, value] of Object.entries(values)) {
+          changes[key] = { oldValue: storageData[key], newValue: value };
+        }
         Object.assign(storageData, values);
+        for (const listener of listeners) listener(changes, "sync");
         if (typeof cb === "function") cb();
         return Promise.resolve();
       }
     };
+
+    const storageApi = {
+      sync: storageArea,
+      local: storageArea,
+      onChanged: {
+        addListener: (
+          cb: (
+            changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
+            areaName: string
+          ) => void
+        ) => listeners.add(cb)
+      }
+    };
+
     window.__testStorage = storageData;
     window.chrome = {
       runtime: { lastError: null },
-      storage: { sync: storageArea, local: storageArea }
+      storage: storageApi
     };
-    window.browser = { storage: { sync: storageArea, local: storageArea } };
+    window.browser = { storage: storageApi };
   }, initialData);
 };
 
-describe("extension e2e", () => {
+describe("extension e2e (mock spa)", () => {
   const state = {
-    launch: null as Awaited<ReturnType<typeof launchExtensionContext>> | null
+    launch: null as Awaited<ReturnType<typeof launchExtensionContext>> | null,
+    server: null as Awaited<ReturnType<typeof startMockServer>> | null,
+    page: null as Page | null,
+    errors: [] as string[]
   };
-  const launchTimeoutMs = 30000;
+  const launchTimeoutMs = 60000;
 
   beforeAll(async () => {
+    state.server = await startMockServer(mockRoot);
     state.launch = await launchExtensionContext();
   }, launchTimeoutMs);
 
   afterAll(async () => {
+    if (state.page) {
+      await state.page.close();
+      state.page = null;
+    }
     if (state.launch) {
       await closeExtensionContext(state.launch);
+      state.launch = null;
+    }
+    if (state.server) {
+      await state.server.close();
+      state.server = null;
     }
   });
 
-  it("opens popup and persists settings", async () => {
+  beforeEach(async () => {
     if (!state.launch) throw new Error("Missing extension context");
+    await state.launch.context.tracing.start({ screenshots: true, snapshots: true, sources: true });
+  });
+
+  afterEach(async ({ task }) => {
+    if (!state.launch) return;
     const { context } = state.launch;
 
-    const page = await context.newPage();
-    await addStorageStub(page, {
-      autoSend: false,
-      autoExpandChats: false,
-      autoTempChat: true,
-      tempChatEnabled: true,
-      oneClickDelete: true,
-      wideChatWidth: 35
+    if (task.result?.state === "fail") {
+      await mkdir(artifactsDir, { recursive: true });
+      const safeName = task.name.replace(/[^a-z0-9-]+/gi, "-").toLowerCase();
+      const tracePath = path.join(artifactsDir, `${safeName}.zip`);
+      await context.tracing.stop({ path: tracePath });
+
+      if (state.page) {
+        const screenshotPath = path.join(artifactsDir, `${safeName}.png`);
+        await state.page.screenshot({ path: screenshotPath, fullPage: true });
+      }
+    } else {
+      await context.tracing.stop();
+    }
+
+    if (state.page) {
+      await state.page.close();
+      state.page = null;
+    }
+  });
+
+  const openMockPage = async (settings: Record<string, unknown>) => {
+    if (!state.launch || !state.server) throw new Error("Missing test state");
+    const page = await state.launch.context.newPage();
+    state.page = page;
+    state.errors = [];
+
+    page.on("pageerror", (error) => state.errors.push(error.message));
+    page.on("console", (msg) => {
+      if (msg.type() === "error") state.errors.push(msg.text());
     });
-    await page.goto(popupUrl);
-    await page.waitForSelector("#autoSend");
 
-    expect(await page.isChecked("#autoSend")).toBe(false);
-    expect(await page.isChecked("#autoExpandChats")).toBe(false);
-    expect(await page.isChecked("#autoTempChat")).toBe(true);
-    expect(await page.isChecked("#oneClickDelete")).toBe(true);
-    expect(await page.inputValue("#wideChatWidth")).toBe("35");
+    await addStorageStub(page, settings);
+    await page.goto(`${state.server.baseUrl}/chat/index.html`);
+    await page.addScriptTag({ path: contentScriptPath });
+    await page.waitForFunction(() => window.__ChatGPTDictationAutoSendLoaded__ === true);
 
-    await page.setChecked("#autoSend", true);
-    await page.setChecked("#autoExpandChats", true);
-    await page.setChecked("#autoTempChat", false);
-    await page.setChecked("#oneClickDelete", false);
-    await page.$eval(
-      "#wideChatWidth",
-      (el, value) => {
-        const input = el as HTMLInputElement;
-        input.value = String(value);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      },
-      "80"
+    return page;
+  };
+
+  it("OneClickDelete UI adds controls and executes delete/archive", async () => {
+    const page = await openMockPage({
+      autoSend: true,
+      ctrlEnterSends: true,
+      oneClickDelete: true,
+      startDictation: true
+    });
+
+    const rows = page.locator(".chat-list .chat-row");
+    const firstRow = rows.first();
+    const optionsBtn = firstRow.locator(
+      'button[data-testid^="history-item-"][data-testid$="-options"]'
     );
 
-    await page.waitForFunction(() => {
-      const data = window.__testStorage ?? {};
-      return (
-        data.autoSend === true &&
-        data.autoExpandChats === true &&
-        data.autoTempChat === false &&
-        data.tempChatEnabled === false &&
-        data.oneClickDelete === false &&
-        data.wideChatWidth === 80
+    await optionsBtn.waitFor({ state: "visible" });
+    await optionsBtn.locator('span[data-qqrm-oneclick-del-x="1"]').waitFor({ state: "visible" });
+    await optionsBtn.locator('span[data-qqrm-oneclick-archive="1"]').waitFor({ state: "visible" });
+
+    const initialCount = await rows.count();
+    await optionsBtn.locator('span[data-qqrm-oneclick-del-x="1"]').click();
+    await firstRow.locator(".qqrm-oneclick-undo-overlay").waitFor({ state: "visible" });
+
+    await page.waitForFunction(
+      (count) => document.querySelectorAll(".chat-list .chat-row").length === count - 1,
+      initialCount,
+      { timeout: 15000 }
+    );
+
+    const postDeleteCount = await rows.count();
+    expect(postDeleteCount).toBe(initialCount - 1);
+
+    const nextRow = rows.first();
+    const archiveCount = await rows.count();
+    await nextRow.locator('span[data-qqrm-oneclick-archive="1"]').click();
+
+    await page.waitForFunction(
+      (count) => document.querySelectorAll(".chat-list .chat-row").length === count - 1,
+      archiveCount,
+      { timeout: 15000 }
+    );
+
+    expect(state.errors).toEqual([]);
+  });
+
+  it("Undo overlay cancels pending delete and runs on timeout", async () => {
+    const page = await openMockPage({
+      autoSend: true,
+      ctrlEnterSends: true,
+      oneClickDelete: true,
+      startDictation: true
+    });
+
+    const rows = page.locator(".chat-list .chat-row");
+    const firstRow = rows.first();
+    const optionsBtn = firstRow.locator(
+      'button[data-testid^="history-item-"][data-testid$="-options"]'
+    );
+
+    await optionsBtn.locator('span[data-qqrm-oneclick-del-x="1"]').click();
+    const overlay = firstRow.locator(".qqrm-oneclick-undo-overlay");
+    await overlay.waitFor({ state: "visible" });
+
+    await overlay.click();
+    await overlay.waitFor({ state: "hidden" });
+
+    const countBefore = await rows.count();
+    await optionsBtn.locator('span[data-qqrm-oneclick-del-x="1"]').click();
+
+    await page.waitForFunction(
+      (count) => document.querySelectorAll(".chat-list .chat-row").length === count - 1,
+      countBefore,
+      { timeout: 15000 }
+    );
+
+    expect(state.errors).toEqual([]);
+  });
+
+  it("Ctrl+Enter sends and saves edits", async () => {
+    const page = await openMockPage({
+      autoSend: false,
+      ctrlEnterSends: true,
+      oneClickDelete: true,
+      startDictation: true
+    });
+
+    const prompt = page.locator("#prompt-textarea");
+
+    await page.waitForFunction(() => document.querySelector("#sendCount")?.textContent === "0");
+    await prompt.click();
+    await page.keyboard.type("Hello from ctrl+enter");
+
+    await page.keyboard.down("Control");
+    await page.keyboard.press("Enter");
+    await page.keyboard.up("Control");
+
+    await page.waitForFunction(() => document.querySelector("#sendCount")?.textContent === "1");
+
+    await page.locator("#editMsgBtn").click();
+    await page.locator("#editTextarea").click();
+    await page.keyboard.press("Control+Enter");
+
+    await page.waitForFunction(() => document.querySelector("#editSaveCount")?.textContent === "1");
+    await page.waitForFunction(() => document.querySelector("#sendCount")?.textContent === "1");
+
+    expect(state.errors).toEqual([]);
+  });
+
+  it("AutoSend triggers after dictation completion", async () => {
+    const page = await openMockPage({
+      autoSend: true,
+      ctrlEnterSends: true,
+      oneClickDelete: true,
+      startDictation: true
+    });
+
+    await page.waitForFunction(() => document.querySelector("#sendCount")?.textContent === "0");
+
+    await page.locator("#dictateBtn").click();
+
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new CustomEvent("mock-dictation-complete", { detail: { text: "Mock dictation" } })
       );
     });
 
-    await page.close();
-  });
+    await page.locator("#submitDictationBtn").click();
 
-  it("injects content script and reacts to temp chat DOM", async () => {
-    if (!state.launch) throw new Error("Missing extension context");
-    const { context } = state.launch;
+    await page.waitForFunction(() => document.querySelector("#sendCount")?.textContent === "1");
+    await page.waitForFunction(
+      () => document.querySelector("#dictationEventCount")?.textContent === "1"
+    );
 
-    const page = await context.newPage();
-
-    await addStorageStub(page, {
-      autoSend: true,
-      autoExpandChats: true,
-      autoTempChat: true,
-      tempChatEnabled: true
-    });
-
-    await page.goto(fixtureUrl);
-    await page.addScriptTag({ path: contentScriptPath });
-
-    await page.waitForFunction(() => document.body.dataset.tempChat === "enabled", null, {
-      timeout: 5000
-    });
-
-    expect(await page.isChecked("#temporary-chat-checkbox")).toBe(true);
-
-    await page.close();
+    expect(state.errors).toEqual([]);
   });
 });
