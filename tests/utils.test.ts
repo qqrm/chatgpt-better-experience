@@ -36,6 +36,16 @@ describe("utils", () => {
     });
   });
 
+  it("falls back to defaults for non-finite width values", () => {
+    const input = {
+      wideChatWidth: Number.NaN
+    } as Record<string, unknown>;
+
+    const normalized = normalizeSettings(input);
+
+    expect(normalized.wideChatWidth).toBe(SETTINGS_DEFAULTS.wideChatWidth);
+  });
+
   it("checks visibility based on bounding box", () => {
     const el = document.createElement("div");
     el.getBoundingClientRect = () => ({ width: 10, height: 10 }) as DOMRect;

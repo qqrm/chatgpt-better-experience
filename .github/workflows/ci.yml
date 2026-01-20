@@ -6,6 +6,10 @@ on:
       - main
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,26 +24,45 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
       - name: Install dependencies
         run: npm ci
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Lint
-        run: npm run lint
-
       - name: Format check
-        run: npm run format:check
+        run: npm run verify -- --step=format:check
+
+      - name: Lint
+        run: npm run verify -- --step=lint
 
       - name: Typecheck
-        run: npm run typecheck
+        run: npm run verify -- --step=typecheck
 
-      - name: Test
-        run: npm test
+      - name: Unit tests
+        run: npm run verify -- --step=test
 
       - name: Build
-        run: npm run build
+        run: npm run verify -- --step=build
+
+      - name: E2E tests
+        run: npm run verify -- --step=test:e2e
+
+      - name: Upload e2e artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: test-results/e2e
+          if-no-files-found: ignore
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

@@ -225,13 +225,14 @@
         font-weight: 600;
       }
 
-      .menu button {
+      .menu [role="menuitem"] {
         width: 100%;
         display: flex;
         align-items: center;
         justify-content: space-between;
         padding: 10px 10px;
         border-radius: 14px;
+        cursor: pointer;
       }
 
       .modal {
@@ -331,6 +332,19 @@
         padding: 0;
       }
 
+      .metrics {
+        margin: 12px 0 16px;
+        display: grid;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .metrics .value {
+        color: var(--text);
+        font-weight: 600;
+      }
+
       .dots {
         width: 18px;
         height: 18px;
@@ -425,6 +439,12 @@
           </div>
         </label>
 
+        <div class="metrics" aria-label="mock-metrics">
+          <div>Send count: <span id="sendCount" class="value">0</span></div>
+          <div>Edit saves: <span id="editSaveCount" class="value">0</span></div>
+          <div>Dictation events: <span id="dictationEventCount" class="value">0</span></div>
+        </div>
+
         <h1>Chats</h1>
         <div class="chat-list" id="chatList"></div>
       </aside>
@@ -514,19 +534,20 @@
 
     <div class="menu" id="optionsMenu" role="menu" aria-label="Chat menu">
       <h2>Chat actions</h2>
-      <button id="menuArchive" role="menuitem" data-testid="archive-chat-menu-item">
+      <div id="menuArchive" role="menuitem" data-testid="archive-chat-menu-item" tabindex="0">
         <span>Archive</span>
         <span class="tiny">Moves chat to archive</span>
-      </button>
-      <button
+      </div>
+      <div
         id="menuDelete"
         role="menuitem"
         data-testid="delete-chat-menu-item"
         class="btn-danger"
+        tabindex="0"
       >
         <span>Delete</span>
         <span class="tiny">Removes chat</span>
-      </button>
+      </div>
     </div>
 
     <div
@@ -562,6 +583,11 @@
         menuOpenForChatId: null,
         dictationActive: false,
         lastDictationText: "",
+        sendCount: 0,
+        editSaveCount: 0,
+        dictationEventCount: 0,
+        pendingDeleteId: null,
+        nextDictationText: null,
         chats: Array.from({ length: 10 }).map((_, i) => ({
           id: String(i + 1),
           title: i === 0 ? "Pinned mock chat" : `Mock chat ${i + 1}`,
@@ -619,13 +645,14 @@
       };
 
       $("#menuDelete").addEventListener("click", () => {
+        state.pendingDeleteId = state.menuOpenForChatId;
         closeMenu();
         openDeleteModal();
       });
 
       $("#menuArchive").addEventListener("click", () => {
-        closeMenu();
         const id = state.menuOpenForChatId;
+        closeMenu();
         if (!id) return;
         state.chats = state.chats.filter((c) => c.id !== id);
         renderChats();
@@ -634,7 +661,8 @@
       $("#deleteCancelBtn").addEventListener("click", closeDeleteModal);
 
       $("#deleteConfirmBtn").addEventListener("click", () => {
-        const id = state.menuOpenForChatId;
+        const id = state.pendingDeleteId;
+        state.pendingDeleteId = null;
         closeDeleteModal();
         if (!id) return;
         state.chats = state.chats.filter((c) => c.id !== id);
@@ -670,6 +698,13 @@
         }
       };
 
+      const bumpMetric = (id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const next = Number(el.textContent || "0") + 1;
+        el.textContent = String(next);
+      };
+
       dictateBtn.addEventListener("click", () => {
         // Toggle dictation start or stop.
         setDictationUi(!state.dictationActive);
@@ -688,7 +723,8 @@
         // Simulate the state when user accepted dictation.
         // The extension watches this click and then waits for stable final text.
         setDictationUi(false);
-        const value = "Hello from mock dictation";
+        const value = state.nextDictationText || "Hello from mock dictation";
+        state.nextDictationText = null;
         state.lastDictationText = value;
         setTimeout(() => {
           prompt.textContent = value;
@@ -707,6 +743,9 @@
         msg.innerHTML = `<div class="role">user</div><div class="content"></div>`;
         msg.querySelector(".content").textContent = txt;
         container.appendChild(msg);
+
+        state.sendCount += 1;
+        $("#sendCount").textContent = String(state.sendCount);
 
         prompt.textContent = "";
         prompt.dispatchEvent(new Event("input", { bubbles: true }));
@@ -732,6 +771,8 @@
       cancelEditBtn.addEventListener("click", closeEdit);
       saveEditBtn.addEventListener("click", () => {
         $("#userMsg1Content").textContent = editTextarea.value;
+        state.editSaveCount += 1;
+        $("#editSaveCount").textContent = String(state.editSaveCount);
         closeEdit();
       });
 
@@ -741,6 +782,15 @@
         document.body.dataset.tempChat = tempCheckbox.checked ? "enabled" : "disabled";
       });
       document.body.dataset.tempChat = "disabled";
+
+      window.addEventListener("mock-dictation-complete", (event) => {
+        const detail = event.detail || {};
+        const value = detail.text || "Hello from mock dictation";
+        state.lastDictationText = value;
+        state.nextDictationText = value;
+        state.dictationEventCount += 1;
+        $("#dictationEventCount").textContent = String(state.dictationEventCount);
+      });
 
       renderChats();
       prompt.focus();
