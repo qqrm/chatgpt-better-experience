@@ -68,7 +68,7 @@ describe("dictation auto-send", () => {
     feature.dispose();
   });
 
-  it("auto-sends on submit dictation click", async () => {
+  it("does not auto-send on untrusted submit dictation click", async () => {
     vi.useFakeTimers();
     const ctx = createContext({ autoSend: true });
     const feature = initDictationAutoSendFeature(ctx);
@@ -98,7 +98,7 @@ describe("dictation auto-send", () => {
 
     await vi.advanceTimersByTimeAsync(1000);
 
-    expect(sendClicked).toBe(true);
+    expect(sendClicked).toBe(false);
     feature.dispose();
   });
 

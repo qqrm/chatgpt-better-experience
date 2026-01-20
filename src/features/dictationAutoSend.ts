@@ -54,7 +54,6 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   let graceCaptured = false;
   let lastBlurLogAt = 0;
   let lastDictationToggleAt = 0;
-  let dictationRecordingActive = false;
 
   const tmLog = (scope: string, msg: string, fields?: LogFields) => {
     ctx.logger.debug(scope, msg, fields);
@@ -660,26 +659,17 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     if (data.source !== TRANSCRIBE_HOOK_SOURCE) return;
     if (!data.type || !data.id) return;
 
-    if (data.type === "start") {
-      dictationRecordingActive = true;
-      return;
-    }
-
-    if (data.type === "complete") {
-      dictationRecordingActive = false;
-    }
+    if (data.type === "start") return;
+    if (data.type === "complete") return;
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
     updateKeyState(e, true);
 
-    if (
-      ctx.settings.ctrlEnterSends &&
-      e.code === "Space" &&
-      !e.ctrlKey &&
-      !e.metaKey &&
-      dictationRecordingActive
-    ) {
+    const submitDictationVisible = !!findSubmitDictationButton();
+
+    // Пока видна галочка "принять диктовку", пробел не должен ничего нажимать
+    if (e.code === "Space" && !e.ctrlKey && !e.metaKey && submitDictationVisible) {
       swallowKeyEvent(e);
       return;
     }
@@ -697,7 +687,9 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         tmLog("KEY", "dictation blocked by focus");
         return;
       }
+
       swallowKeyEvent(e);
+
       if (e.repeat) {
         tmLog("KEY", "dictation hotkey repeat ignored");
         return;
@@ -706,6 +698,16 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         tmLog("KEY", "dictation cooldown active");
         return;
       }
+
+      // Если сейчас открыт UI подтверждения диктовки, Ctrl+Space завершает диктовку через галочку
+      const submitBtn = findSubmitDictationButton();
+      if (submitBtn) {
+        tmLog("KEY", "dictation submit via hotkey", { btn: describeEl(submitBtn) });
+        ctx.helpers.humanClick(submitBtn, "submit dictation via hotkey");
+        return;
+      }
+
+      // Иначе Ctrl+Space стартует диктовку
       void triggerDictationToggle();
     }
   };
@@ -758,6 +760,16 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     }
 
     if (btn instanceof HTMLButtonElement && isSubmitDictationButton(btn)) {
+      // Автосенд только для настоящего клика мышью по галочке
+      if (!e.isTrusted) {
+        tmLog("FLOW", "submit dictation click ignored: untrusted", { btn: btnDesc });
+        return;
+      }
+      if (e.detail === 0) {
+        tmLog("FLOW", "submit dictation click ignored: keyboard", { btn: btnDesc });
+        return;
+      }
+
       void (async () => {
         if (!isCodexPath(location.pathname) || cfg.allowAutoSendInCodex) {
           await runFlowAfterSubmitClick(btnDesc, isModifierHeldFromEvent(e));
@@ -766,6 +778,17 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         }
       })();
     }
+  };
+
+  const findSubmitDictationButton = () => {
+    const btns = qsa<HTMLButtonElement>("button");
+    for (const b of btns) {
+      if (!(b instanceof HTMLButtonElement)) continue;
+      if (!isSubmitDictationButton(b)) continue;
+      if (!isVisible(b)) continue;
+      return b;
+    }
+    return null;
   };
 
   applySettings();

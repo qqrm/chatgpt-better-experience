@@ -67,42 +67,69 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const findEditSubmitButton = (composer: ComposerInput) => {
-    const form = composer.closest("form");
-    if (form) {
-      const submitBtn = form.querySelector('button[type="submit"]');
+    const closestForm = composer.closest("form");
+    if (closestForm) {
+      const submitBtn = closestForm.querySelector('button[type="submit"]');
       if (submitBtn instanceof HTMLButtonElement) return submitBtn;
     }
 
-    const container =
-      composer.closest("[data-message-author-role]") ??
-      composer.closest('[data-testid*="message" i]') ??
-      composer.closest("div");
+    const searchRoots: Array<Element | null> = [
+      composer.closest('[role="dialog"], [role="alertdialog"]'),
+      composer.closest("article"),
+      composer.closest("[data-message-author-role]"),
+      composer.closest('[data-testid*="message" i]'),
+      composer.closest("div")
+    ];
 
-    if (!container) return null;
+    const root = searchRoots.find((x): x is Element => !!x) ?? null;
+    if (!root) return null;
 
-    const buttons = Array.from(container.querySelectorAll("button")).filter(
+    const buttons = Array.from(root.querySelectorAll("button")).filter(
       (btn): btn is HTMLButtonElement => btn instanceof HTMLButtonElement
     );
 
-    const labelVariants = [
+    const positive = [
       "save",
+      "save and submit",
       "submit",
       "apply",
       "update",
+      "done",
+      "ok",
       "сохранить",
+      "сохран",
       "применить",
-      "отправить"
+      "готово"
     ];
 
-    return (
-      buttons.find((btn) => {
+    const negative = ["cancel", "close", "dismiss", "отмена", "отменить"];
+
+    const candidates = buttons
+      .filter((btn) => {
+        if (btn.disabled) return false;
         const aria = norm(btn.getAttribute("aria-label"));
         const title = norm(btn.getAttribute("title"));
+        const dt = norm(btn.getAttribute("data-testid"));
         const txt = norm(btn.textContent);
-        const hay = `${aria} ${title} ${txt}`;
-        return labelVariants.some((label) => hay.includes(label));
-      }) ?? null
-    );
+        const hay = `${aria} ${title} ${dt} ${txt}`;
+        if (negative.some((x) => hay.includes(x))) return false;
+        return positive.some((x) => hay.includes(x));
+      })
+      .filter((btn) => btn.offsetParent !== null);
+
+    if (candidates.length > 0) return candidates[0];
+
+    const byTestId = buttons.find((btn) => {
+      const dt = norm(btn.getAttribute("data-testid"));
+      if (!dt) return false;
+      if (dt.includes("save")) return true;
+      if (dt.includes("submit")) return true;
+      if (dt.includes("apply")) return true;
+      if (dt.includes("update")) return true;
+      return false;
+    });
+
+    return byTestId ?? null;
   };
 
   const findSendButton = (composer?: ComposerInput | null) => {

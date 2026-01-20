@@ -30,8 +30,6 @@ const startDictationEl = mustGetElement<HTMLInputElement>("startDictation");
 const ctrlEnterSendsEl = mustGetElement<HTMLInputElement>("ctrlEnterSends");
 const wideChatWidthEl = mustGetElement<HTMLInputElement>("wideChatWidth");
 const wideChatWidthValueEl = mustGetElement<HTMLElement>("wideChatWidthValue");
-const dictationHintEl = mustGetElement<HTMLElement>("dictationHint");
-const ctrlEnterHintEl = mustGetElement<HTMLElement>("ctrlEnterHint");
 const themeToggleEl = mustGetElement<HTMLButtonElement>("qqrm-theme-toggle");
 
 const storageApi = (
@@ -115,8 +113,6 @@ async function load() {
   wideChatWidthValueEl.textContent = `${settings.wideChatWidth}%`;
 
   hintEl.textContent = hint;
-  dictationHintEl.hidden = !settings.startDictation;
-  ctrlEnterHintEl.hidden = !settings.ctrlEnterSends;
 
   applyThemeMode(normalizeThemeMode(themeData.popupThemeMode));
 }
@@ -137,8 +133,6 @@ async function save() {
 
   const { hint } = await savePopupSettings(popupDeps, input);
   hintEl.textContent = hint;
-  dictationHintEl.hidden = !startDictationEl.checked;
-  ctrlEnterHintEl.hidden = !ctrlEnterSendsEl.checked;
   wideChatWidthValueEl.textContent = `${wideChatWidth}%`;
 }
 

@@ -215,6 +215,12 @@ export const buildOneClickDeleteStyleText = () => `
     border-radius: var(--qqrm-row-radius, 14px);
     overflow: hidden;
 
+    --qqrm-wipe-a: rgba(239,68,68,0.26);
+    --qqrm-wipe-b: rgba(185,28,28,0.34);
+    --qqrm-heat-1: rgba(255, 180, 60, 0.14);
+    --qqrm-heat-2: rgba(239, 68, 68, 0.12);
+    --qqrm-heat-3: rgba(255, 220, 120, 0.10);
+
     z-index: 999;
 
     display: grid;
@@ -226,6 +232,14 @@ export const buildOneClickDeleteStyleText = () => `
     background: rgba(0,0,0,0.10);
     border: 1px solid rgba(255,255,255,0.08);
     backdrop-filter: blur(1.5px);
+  }
+
+  .group.__menu-item.hoverable .qqrm-oneclick-undo-overlay.qqrm-archive{
+    --qqrm-wipe-a: rgba(59,130,246,0.22);
+    --qqrm-wipe-b: rgba(37,99,235,0.32);
+    --qqrm-heat-1: rgba(96,165,250,0.16);
+    --qqrm-heat-2: rgba(59,130,246,0.14);
+    --qqrm-heat-3: rgba(147,197,253,0.12);
   }
 
   .group.__menu-item.hoverable .qqrm-oneclick-wipe{
@@ -245,8 +259,8 @@ export const buildOneClickDeleteStyleText = () => `
 
     background:
       linear-gradient(90deg,
-        rgba(239,68,68,0.26),
-        rgba(185,28,28,0.34)
+        var(--qqrm-wipe-a, rgba(239,68,68,0.26)),
+        var(--qqrm-wipe-b, rgba(185,28,28,0.34))
       ),
       radial-gradient(circle at 70% 50%, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 60%);
 
@@ -278,9 +292,9 @@ export const buildOneClickDeleteStyleText = () => `
     inset: -35% -35% -35% -35%;
 
     background:
-      radial-gradient(circle at 30% 70%, rgba(255, 180, 60, 0.14) 0%, rgba(255, 180, 60, 0) 62%),
-      radial-gradient(circle at 55% 90%, rgba(239, 68, 68, 0.12) 0%, rgba(239, 68, 68, 0) 68%),
-      radial-gradient(circle at 75% 55%, rgba(255, 220, 120, 0.10) 0%, rgba(255, 220, 120, 0) 66%);
+      radial-gradient(circle at 30% 70%, var(--qqrm-heat-1, rgba(255, 180, 60, 0.14)) 0%, rgba(255, 180, 60, 0) 62%),
+      radial-gradient(circle at 55% 90%, var(--qqrm-heat-2, rgba(239, 68, 68, 0.12)) 0%, rgba(239, 68, 68, 0) 68%),
+      radial-gradient(circle at 75% 55%, var(--qqrm-heat-3, rgba(255, 220, 120, 0.10)) 0%, rgba(255, 220, 120, 0) 66%);
 
     filter: blur(12px);
     animation: qqrmOneClickHeatMove 520ms ease-in-out infinite alternate;
@@ -324,18 +338,21 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   const qsa = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
     Array.from(root.querySelectorAll<T>(sel));
 
-  type PendingDelete = {
+  type PendingActionKind = "delete" | "archive";
+
+  type PendingAction = {
     timerId: number;
     row: HTMLElement;
     overlay: HTMLElement;
     optionsBtn: HTMLElement;
+    kind: PendingActionKind;
   };
 
   const state: {
     started: boolean;
     observer: MutationObserver | null;
     intervalId: number | null;
-    pendingByRow: Map<HTMLElement, PendingDelete>;
+    pendingByRow: Map<HTMLElement, PendingAction>;
     deleteQueue: Promise<void>;
   } = {
     started: false,
@@ -523,7 +540,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     }
   };
 
-  const clearPendingDeleteForRow = (row: HTMLElement) => {
+  const clearPendingActionForRow = (row: HTMLElement) => {
     const pending = state.pendingByRow.get(row);
     if (!pending) return;
 
@@ -535,9 +552,9 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     state.pendingByRow.delete(row);
   };
 
-  const clearAllPendingDeletes = () => {
+  const clearAllPendingActions = () => {
     for (const row of Array.from(state.pendingByRow.keys())) {
-      clearPendingDeleteForRow(row);
+      clearPendingActionForRow(row);
     }
   };
 
@@ -549,9 +566,12 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     }
   };
 
-  const createPendingOverlay = (row: HTMLElement) => {
+  const createPendingOverlay = (row: HTMLElement, kind: PendingActionKind) => {
     const overlay = document.createElement("div");
     overlay.className = "qqrm-oneclick-undo-overlay";
+    if (kind === "archive") {
+      overlay.classList.add("qqrm-archive");
+    }
     overlay.style.setProperty("--qqrm-wipe-ms", `${ONE_CLICK_DELETE_WIPE_MS}ms`);
 
     overlay.innerHTML = `
@@ -572,7 +592,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       "click",
       (ev) => {
         swallowEvent(ev);
-        clearPendingDeleteForRow(row);
+        clearPendingActionForRow(row);
       },
       true
     );
@@ -581,33 +601,47 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     return overlay;
   };
 
-  const startPendingDelete = (optionsBtn: HTMLElement) => {
+  const runPendingAction = (kind: PendingActionKind, optionsBtn: HTMLElement) => {
+    if (kind === "archive") return runOneClickArchiveFlow(optionsBtn);
+    return runOneClickDeleteFlow(optionsBtn);
+  };
+
+  const startPendingAction = (optionsBtn: HTMLElement, kind: PendingActionKind) => {
     const row = findChatRowFromOptionsButton(optionsBtn);
     if (!row) {
-      enqueueDelete(() => runOneClickDeleteFlow(optionsBtn));
+      enqueueDelete(() => runPendingAction(kind, optionsBtn));
       return;
     }
 
     applyRowTypographyVars(row);
 
     if (state.pendingByRow.has(row)) {
-      clearPendingDeleteForRow(row);
+      clearPendingActionForRow(row);
     }
 
     row.classList.add("qqrm-oneclick-pending");
-    const overlay = createPendingOverlay(row);
+    const overlay = createPendingOverlay(row, kind);
 
     const timerId = window.setTimeout(() => {
-      clearPendingDeleteForRow(row);
-      enqueueDelete(() => runOneClickDeleteFlow(optionsBtn));
+      clearPendingActionForRow(row);
+      enqueueDelete(() => runPendingAction(kind, optionsBtn));
     }, ONE_CLICK_DELETE_UNDO_TOTAL_MS);
 
     state.pendingByRow.set(row, {
       timerId,
       row,
       overlay,
-      optionsBtn
+      optionsBtn,
+      kind
     });
+  };
+
+  const startPendingDelete = (optionsBtn: HTMLElement) => {
+    startPendingAction(optionsBtn, "delete");
+  };
+
+  const startPendingArchive = (optionsBtn: HTMLElement) => {
+    startPendingAction(optionsBtn, "archive");
   };
 
   const getDeleteXFromEvent = (target: EventTarget | null) => {
@@ -771,7 +805,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       const btn = getOptionsButtonFromArchive(archive);
       if (!btn) return;
       swallowEvent(ev);
-      enqueueDelete(() => runOneClickArchiveFlow(btn));
+      startPendingArchive(btn);
       return;
     }
 
@@ -832,7 +866,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     document.removeEventListener("pointerdown", handlePointerDown, true);
     document.removeEventListener("click", handleClick, true);
     window.removeEventListener("blur", handleBlur, true);
-    clearAllPendingDeletes();
+    clearAllPendingActions();
 
     if (state.intervalId !== null) {
       window.clearInterval(state.intervalId);

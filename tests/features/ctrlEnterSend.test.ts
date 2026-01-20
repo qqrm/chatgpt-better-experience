@@ -107,6 +107,7 @@ describe("ctrl-enter send", () => {
     const saveBtn = document.createElement("button");
     saveBtn.type = "button";
     saveBtn.setAttribute("aria-label", "Save");
+    saveBtn.setAttribute("data-testid", "save-edit");
     saveBtn.textContent = "Save";
 
     let saveClicked = false;
