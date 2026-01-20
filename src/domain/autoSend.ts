@@ -1,7 +1,7 @@
 export interface AutoSendDecision {
   shouldSend: boolean;
   heldDuring: boolean;
-  holdToSend: boolean;
+  autoSendEnabled: boolean;
 }
 
 export interface AutoSendRequestedEvent {

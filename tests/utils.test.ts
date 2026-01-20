@@ -10,8 +10,7 @@ describe("utils", () => {
 
   it("normalizes settings with defaults", () => {
     const input = {
-      skipKey: "Alt",
-      holdToSend: true,
+      autoSend: false,
       allowAutoSendInCodex: "no",
       editLastMessageOnArrowUp: "no",
       autoExpandChats: "no",
@@ -24,8 +23,7 @@ describe("utils", () => {
     const normalized = normalizeSettings(input);
 
     expect(normalized).toEqual({
-      skipKey: "Alt",
-      holdToSend: true,
+      autoSend: false,
       allowAutoSendInCodex: SETTINGS_DEFAULTS.allowAutoSendInCodex,
       editLastMessageOnArrowUp: SETTINGS_DEFAULTS.editLastMessageOnArrowUp,
       autoExpandChats: SETTINGS_DEFAULTS.autoExpandChats,

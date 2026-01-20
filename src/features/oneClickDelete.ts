@@ -1,6 +1,8 @@
 import { FeatureContext, FeatureHandle } from "../application/featureContext";
 
 const ONE_CLICK_DELETE_HOOK_MARK = "data-qqrm-oneclick-del-hooked";
+const ONE_CLICK_DELETE_ARCHIVE_MARK = "data-qqrm-oneclick-archive";
+const ONE_CLICK_DELETE_NATIVE_DOTS_MARK = "data-qqrm-native-dots";
 const ONE_CLICK_DELETE_X_MARK = "data-qqrm-oneclick-del-x";
 const ONE_CLICK_DELETE_STYLE_ID = "cgptbe-silent-delete-style";
 const ONE_CLICK_DELETE_ROOT_FLAG = "data-cgptbe-silent-delete";
@@ -8,13 +10,18 @@ const ONE_CLICK_DELETE_BUTTON_SELECTOR =
   'button[data-testid^="history-item-"][data-testid$="-options"]';
 
 const ONE_CLICK_DELETE_BTN_H = 36;
-const ONE_CLICK_DELETE_BTN_W = 72;
+const ONE_CLICK_DELETE_BTN_W = 118;
 const ONE_CLICK_DELETE_X_SIZE = 26;
 const ONE_CLICK_DELETE_X_RIGHT = 6;
+const ONE_CLICK_DELETE_GAP = 6;
+const ONE_CLICK_DELETE_ARCHIVE_SIZE = 26;
+const ONE_CLICK_DELETE_ARCHIVE_RIGHT =
+  ONE_CLICK_DELETE_X_RIGHT + ONE_CLICK_DELETE_X_SIZE + ONE_CLICK_DELETE_GAP;
 const ONE_CLICK_DELETE_DOTS_LEFT = 10;
 const ONE_CLICK_DELETE_WIPE_MS = 4500;
 const ONE_CLICK_DELETE_UNDO_TOTAL_MS = 5000;
 const ONE_CLICK_DELETE_TOOLTIP = "Click to delete";
+const ONE_CLICK_DELETE_ARCHIVE_TOOLTIP = "Archive";
 
 export const buildOneClickDeleteStyleText = () => `
   html{
@@ -24,6 +31,12 @@ export const buildOneClickDeleteStyleText = () => `
     --qqrm-danger-muted: #6b7280;
     --qqrm-danger-muted-bg: rgba(107, 114, 128, 0.1);
     --qqrm-danger-muted-border: rgba(107, 114, 128, 0.28);
+    --qqrm-archive: #2563eb;
+    --qqrm-archive-bg: rgba(37, 99, 235, 0.14);
+    --qqrm-archive-border: rgba(37, 99, 235, 0.35);
+    --qqrm-archive-muted: #6b7280;
+    --qqrm-archive-muted-bg: rgba(107, 114, 128, 0.1);
+    --qqrm-archive-muted-border: rgba(107, 114, 128, 0.28);
   }
 
   @media (prefers-color-scheme: dark) {
@@ -34,6 +47,12 @@ export const buildOneClickDeleteStyleText = () => `
       --qqrm-danger-muted: #9ca3af;
       --qqrm-danger-muted-bg: rgba(148, 163, 184, 0.14);
       --qqrm-danger-muted-border: rgba(148, 163, 184, 0.3);
+      --qqrm-archive: #60a5fa;
+      --qqrm-archive-bg: rgba(96, 165, 250, 0.16);
+      --qqrm-archive-border: rgba(96, 165, 250, 0.35);
+      --qqrm-archive-muted: #9ca3af;
+      --qqrm-archive-muted-bg: rgba(148, 163, 184, 0.14);
+      --qqrm-archive-muted-border: rgba(148, 163, 184, 0.3);
     }
   }
 
@@ -50,12 +69,42 @@ export const buildOneClickDeleteStyleText = () => `
     overflow: hidden !important;
   }
 
-  ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > svg{
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR} svg[${ONE_CLICK_DELETE_NATIVE_DOTS_MARK}="1"]{
     position: absolute !important;
     left: ${ONE_CLICK_DELETE_DOTS_LEFT}px !important;
     top: 50% !important;
     transform: translateY(-50%) !important;
     pointer-events: none !important;
+  }
+
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]{
+    position: absolute;
+    right: ${ONE_CLICK_DELETE_ARCHIVE_RIGHT}px;
+    top: 50%;
+    transform: translate3d(0, -50%, 0);
+    width: ${ONE_CLICK_DELETE_ARCHIVE_SIZE}px;
+    height: ${ONE_CLICK_DELETE_ARCHIVE_SIZE}px;
+    border-radius: 9px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 18px;
+    color: var(--qqrm-archive-muted, #6b7280);
+    background: var(--qqrm-archive-muted-bg, rgba(107, 114, 128, 0.1));
+    border: 1px solid var(--qqrm-archive-muted-border, rgba(107, 114, 128, 0.28));
+    box-shadow: -1px 0 0 rgba(255, 255, 255, 0.08) inset;
+    opacity: 0.0;
+    will-change: opacity, transform;
+    transition: opacity 140ms ease, background 140ms ease;
+    user-select: none;
+    pointer-events: auto;
+    cursor: pointer;
+  }
+
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"] svg{
+    display: block;
   }
 
   ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"]{
@@ -111,6 +160,15 @@ export const buildOneClickDeleteStyleText = () => `
   ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"]:hover::after{
     opacity: 1;
     transform: translateY(-110%);
+  }
+
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:hover > span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"],
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:focus-visible > span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]{
+    opacity: 1.0;
+    color: var(--qqrm-archive, #2563eb);
+    background: var(--qqrm-archive-bg, rgba(37, 99, 235, 0.18));
+    border-color: var(--qqrm-archive-border, rgba(37, 99, 235, 0.35));
+    transform: translate3d(0, -50%, 0);
   }
 
   ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:hover > span[${ONE_CLICK_DELETE_X_MARK}="1"],
@@ -313,6 +371,14 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     );
   };
 
+  const findButtonByTextVariants = (root: ParentNode, variants: string[]) => {
+    for (const variant of variants) {
+      const match = findButtonByExactText(root, variant);
+      if (match) return match;
+    }
+    return null;
+  };
+
   const setSilentDeleteMode = (on: boolean) => {
     if (on) document.documentElement.setAttribute(ONE_CLICK_DELETE_ROOT_FLAG, "1");
     else document.documentElement.removeAttribute(ONE_CLICK_DELETE_ROOT_FLAG);
@@ -354,12 +420,56 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     return x;
   };
 
+  const ensureOneClickArchiveSpan = (btn: HTMLElement) => {
+    let archive = btn.querySelector<HTMLSpanElement>(`span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]`);
+    if (archive) return archive;
+    archive = document.createElement("span");
+    archive.setAttribute(ONE_CLICK_DELETE_ARCHIVE_MARK, "1");
+    archive.setAttribute("aria-label", ONE_CLICK_DELETE_ARCHIVE_TOOLTIP);
+    archive.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M12 3v10m0 0l4-4m-4 4l-4-4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <path
+          d="M4 17v3h16v-3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    `;
+    btn.appendChild(archive);
+    return archive;
+  };
+
+  const ensureNativeDotsMark = (btn: HTMLElement) => {
+    const svgs = Array.from(btn.querySelectorAll("svg"));
+    const native = svgs.find(
+      (svg) =>
+        !svg.closest(`span[${ONE_CLICK_DELETE_X_MARK}="1"]`) &&
+        !svg.closest(`span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]`)
+    );
+    if (native) native.setAttribute(ONE_CLICK_DELETE_NATIVE_DOTS_MARK, "1");
+  };
+
   const clearOneClickDeleteButtons = () => {
     const btns = qsa<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
     for (const btn of btns) {
       btn.removeAttribute(ONE_CLICK_DELETE_HOOK_MARK);
       const x = btn.querySelector(`span[${ONE_CLICK_DELETE_X_MARK}="1"]`);
       if (x) x.remove();
+      const archive = btn.querySelector(`span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]`);
+      if (archive) archive.remove();
+      const dots = btn.querySelector(`svg[${ONE_CLICK_DELETE_NATIVE_DOTS_MARK}="1"]`);
+      if (dots) dots.removeAttribute(ONE_CLICK_DELETE_NATIVE_DOTS_MARK);
     }
   };
 
@@ -505,14 +615,24 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     return target.closest<HTMLElement>(`span[${ONE_CLICK_DELETE_X_MARK}="1"]`);
   };
 
+  const getArchiveFromEvent = (target: EventTarget | null) => {
+    if (!(target instanceof Element)) return null;
+    return target.closest<HTMLElement>(`span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]`);
+  };
+
   const getDeleteButtonFromX = (x: HTMLElement) =>
     x.closest<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
+
+  const getOptionsButtonFromArchive = (archive: HTMLElement) =>
+    archive.closest<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
 
   const hookOneClickDeleteButton = (btn: HTMLElement) => {
     if (!btn || btn.nodeType !== 1) return;
     if (btn.hasAttribute(ONE_CLICK_DELETE_HOOK_MARK)) return;
     btn.setAttribute(ONE_CLICK_DELETE_HOOK_MARK, "1");
     ensureOneClickDeleteXSpan(btn);
+    ensureOneClickArchiveSpan(btn);
+    ensureNativeDotsMark(btn);
   };
 
   const runOneClickDeleteFlow = async (btn: HTMLElement) => {
@@ -570,7 +690,91 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     }
   };
 
+  const runOneClickArchiveFlow = async (btn: HTMLElement) => {
+    try {
+      setSilentDeleteMode(true);
+      ctx.helpers.humanClick(btn, "oneclick-archive-open-menu");
+
+      const archiveItem = await (async () => {
+        const archiveTextVariants = [
+          "Archive",
+          "Archive chat",
+          "Move to archive",
+          "Архив",
+          "Архивировать"
+        ];
+        const archiveSelectors = [
+          'div[role="menuitem"][data-testid="archive-chat-menu-item"]',
+          'div[role="menuitem"][data-testid="archive-chat-menuitem"]',
+          'div[role="menuitem"][data-testid*="archive" i]'
+        ];
+
+        const t0 = performance.now();
+        while (performance.now() - t0 < 1500) {
+          const menus = qsa('[role="menu"]');
+          for (const menu of menus) {
+            for (const selector of archiveSelectors) {
+              const item = menu.querySelector<HTMLElement>(selector);
+              if (item) return item;
+            }
+            const byText = findButtonByTextVariants(menu, archiveTextVariants);
+            if (byText) return byText;
+          }
+          for (const selector of archiveSelectors) {
+            const fallback = document.querySelector<HTMLElement>(selector);
+            if (fallback) return fallback;
+          }
+          const fallbackText = findButtonByTextVariants(document, archiveTextVariants);
+          if (fallbackText) return fallbackText;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        return null;
+      })();
+
+      if (!archiveItem) return;
+      ctx.helpers.humanClick(archiveItem, "oneclick-archive-menu");
+
+      const modal = await waitPresent<HTMLElement>(
+        '[role="dialog"], [role="alertdialog"]',
+        document,
+        1200
+      );
+      if (!modal) return;
+
+      const confirmTexts = [
+        "Archive",
+        "Move to archive",
+        "Confirm",
+        "Yes",
+        "OK",
+        "Сохранить",
+        "Применить",
+        "Отправить"
+      ];
+
+      const confirmBtn =
+        modal.querySelector<HTMLElement>('button[data-testid*="confirm" i]') ??
+        modal.querySelector<HTMLElement>('button[data-testid*="archive" i]') ??
+        findButtonByTextVariants(modal, confirmTexts);
+
+      if (!confirmBtn) return;
+      ctx.helpers.humanClick(confirmBtn, "oneclick-archive-confirm");
+    } finally {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      setSilentDeleteMode(false);
+    }
+  };
+
   const handlePointerDown = (ev: PointerEvent) => {
+    const archive = getArchiveFromEvent(ev.target);
+    if (archive) {
+      const btn = getOptionsButtonFromArchive(archive);
+      if (!btn) return;
+      swallowEvent(ev);
+      enqueueDelete(() => runOneClickArchiveFlow(btn));
+      return;
+    }
+
     const x = getDeleteXFromEvent(ev.target);
     if (!x) return;
     const btn = getDeleteButtonFromX(x);
@@ -580,6 +784,12 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const handleClick = (ev: MouseEvent) => {
+    const archive = getArchiveFromEvent(ev.target);
+    if (archive) {
+      swallowEvent(ev);
+      return;
+    }
+
     const x = getDeleteXFromEvent(ev.target);
     if (!x) return;
     swallowEvent(ev);

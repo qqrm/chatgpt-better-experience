@@ -98,8 +98,7 @@ describe("extension e2e", () => {
 
     const page = await context.newPage();
     await addStorageStub(page, {
-      skipKey: "Alt",
-      holdToSend: true,
+      autoSend: false,
       autoExpandChats: false,
       autoTempChat: true,
       tempChatEnabled: true,
@@ -107,17 +106,15 @@ describe("extension e2e", () => {
       wideChatWidth: 35
     });
     await page.goto(popupUrl);
-    await page.waitForSelector("#skipKey");
+    await page.waitForSelector("#autoSend");
 
-    expect(await page.inputValue("#skipKey")).toBe("Alt");
-    expect(await page.isChecked("#holdToSend")).toBe(true);
+    expect(await page.isChecked("#autoSend")).toBe(false);
     expect(await page.isChecked("#autoExpandChats")).toBe(false);
     expect(await page.isChecked("#autoTempChat")).toBe(true);
     expect(await page.isChecked("#oneClickDelete")).toBe(true);
     expect(await page.inputValue("#wideChatWidth")).toBe("35");
 
-    await page.selectOption("#skipKey", "Shift");
-    await page.setChecked("#holdToSend", false);
+    await page.setChecked("#autoSend", true);
     await page.setChecked("#autoExpandChats", true);
     await page.setChecked("#autoTempChat", false);
     await page.setChecked("#oneClickDelete", false);
@@ -134,8 +131,7 @@ describe("extension e2e", () => {
     await page.waitForFunction(() => {
       const data = window.__testStorage ?? {};
       return (
-        data.skipKey === "Shift" &&
-        data.holdToSend === false &&
+        data.autoSend === true &&
         data.autoExpandChats === true &&
         data.autoTempChat === false &&
         data.tempChatEnabled === false &&
@@ -154,8 +150,7 @@ describe("extension e2e", () => {
     const page = await context.newPage();
 
     await addStorageStub(page, {
-      skipKey: "Shift",
-      holdToSend: false,
+      autoSend: true,
       autoExpandChats: true,
       autoTempChat: true,
       tempChatEnabled: true

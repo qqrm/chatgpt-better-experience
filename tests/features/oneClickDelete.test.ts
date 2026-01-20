@@ -6,7 +6,7 @@ describe("one-click delete styles", () => {
     const cssText = buildOneClickDeleteStyleText();
     const selector = 'button[data-testid^="history-item-"][data-testid$="-options"]';
 
-    expect(cssText).toContain(`${selector} > svg{`);
-    expect(cssText).not.toContain(`${selector} svg{`);
+    expect(cssText).toContain(`${selector} svg[data-qqrm-native-dots="1"]{`);
+    expect(cssText).not.toContain(`${selector} > svg{`);
   });
 });

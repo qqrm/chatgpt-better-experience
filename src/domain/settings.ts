@@ -1,6 +1,5 @@
 export interface Settings {
-  skipKey: string;
-  holdToSend: boolean;
+  autoSend: boolean;
   allowAutoSendInCodex: boolean;
   editLastMessageOnArrowUp: boolean;
   autoExpandChats: boolean;
@@ -15,8 +14,7 @@ export interface Settings {
 export type SettingsRecord = Settings & Record<string, unknown>;
 
 export const SETTINGS_DEFAULTS: SettingsRecord = {
-  skipKey: "Shift",
-  holdToSend: false,
+  autoSend: true,
   allowAutoSendInCodex: false,
   editLastMessageOnArrowUp: true,
   autoExpandChats: true,

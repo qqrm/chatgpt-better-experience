@@ -11,16 +11,10 @@ export interface PopupSettingsState {
   hint: string;
 }
 
-export function buildAutoSendHint(skipKey: string, holdToSend: boolean): string {
-  if (skipKey === "None") {
-    return holdToSend
-      ? "Auto-send is disabled because no modifier key is selected."
-      : "Auto-send always happens when you accept dictation.";
-  }
-
-  return holdToSend
-    ? `Auto-send happens only while holding ${skipKey} when you accept dictation.`
-    : `Hold ${skipKey} while accepting dictation to skip auto-send.`;
+export function buildAutoSendHint(autoSendEnabled: boolean): string {
+  return autoSendEnabled
+    ? "Hold Shift while accepting dictation to skip auto-send."
+    : "Auto-send is disabled.";
 }
 
 export async function loadPopupSettings({ storagePort }: PopupStorageDeps) {
@@ -28,13 +22,12 @@ export async function loadPopupSettings({ storagePort }: PopupStorageDeps) {
   const settings = normalizeSettings(data);
   return {
     settings,
-    hint: buildAutoSendHint(settings.skipKey, settings.holdToSend)
+    hint: buildAutoSendHint(settings.autoSend)
   } satisfies PopupSettingsState;
 }
 
 export interface PopupSettingsInput {
-  skipKey: string;
-  holdToSend: boolean;
+  autoSend: boolean;
   allowAutoSendInCodex: boolean;
   editLastMessageOnArrowUp: boolean;
   autoExpandChats: boolean;
@@ -55,6 +48,6 @@ export async function savePopupSettings(
   });
 
   return {
-    hint: buildAutoSendHint(input.skipKey, input.holdToSend)
+    hint: buildAutoSendHint(input.autoSend)
   };
 }

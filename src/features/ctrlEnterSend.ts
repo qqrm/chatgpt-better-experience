@@ -20,10 +20,17 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     return null;
   };
 
+  const findActiveEditableTarget = (): ComposerInput | null => {
+    const active = document.activeElement;
+    if (active instanceof HTMLTextAreaElement) return active;
+    if (active instanceof HTMLElement && active.isContentEditable) return active;
+    return findComposerInput();
+  };
+
   const isComposerEventTarget = (e: Event) => {
     const target = e.target;
     if (!(target instanceof Element)) return false;
-    const composer = findComposerInput();
+    const composer = findActiveEditableTarget();
     if (!composer) return false;
     if (target === composer) return true;
     if (composer instanceof HTMLTextAreaElement) {
@@ -59,7 +66,51 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     input.dispatchEvent(new Event("input", { bubbles: true }));
   };
 
+  const findEditSubmitButton = (composer: ComposerInput) => {
+    const form = composer.closest("form");
+    if (form) {
+      const submitBtn = form.querySelector('button[type="submit"]');
+      if (submitBtn instanceof HTMLButtonElement) return submitBtn;
+    }
+
+    const container =
+      composer.closest("[data-message-author-role]") ??
+      composer.closest('[data-testid*="message" i]') ??
+      composer.closest("div");
+
+    if (!container) return null;
+
+    const buttons = Array.from(container.querySelectorAll("button")).filter(
+      (btn): btn is HTMLButtonElement => btn instanceof HTMLButtonElement
+    );
+
+    const labelVariants = [
+      "save",
+      "submit",
+      "apply",
+      "update",
+      "сохранить",
+      "применить",
+      "отправить"
+    ];
+
+    return (
+      buttons.find((btn) => {
+        const aria = norm(btn.getAttribute("aria-label"));
+        const title = norm(btn.getAttribute("title"));
+        const txt = norm(btn.textContent);
+        const hay = `${aria} ${title} ${txt}`;
+        return labelVariants.some((label) => hay.includes(label));
+      }) ?? null
+    );
+  };
+
   const findSendButton = (composer?: ComposerInput | null) => {
+    if (composer) {
+      const editBtn = findEditSubmitButton(composer);
+      if (editBtn) return editBtn;
+    }
+
     const selectors = [
       'button[data-testid="send-button"]',
       'button[aria-label*="Send" i]',

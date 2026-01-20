@@ -8,27 +8,21 @@ import { SETTINGS_DEFAULTS } from "../../src/domain/settings";
 import { StoragePort } from "../../src/domain/ports/storagePort";
 
 describe("buildAutoSendHint", () => {
-  it("explains always-on behavior when no modifier is selected", () => {
-    const hint = buildAutoSendHint("None", false);
-    expect(hint).toBe("Auto-send always happens when you accept dictation.");
+  it("explains enabled behavior", () => {
+    const hint = buildAutoSendHint(true);
+    expect(hint).toBe("Hold Shift while accepting dictation to skip auto-send.");
   });
 
-  it("explains disabled behavior when hold-to-send is enabled without a modifier", () => {
-    const hint = buildAutoSendHint("None", true);
-    expect(hint).toBe("Auto-send is disabled because no modifier key is selected.");
-  });
-
-  it("explains hold-to-send behavior for a modifier", () => {
-    const hint = buildAutoSendHint("Shift", true);
-    expect(hint).toBe("Auto-send happens only while holding Shift when you accept dictation.");
+  it("explains disabled behavior", () => {
+    const hint = buildAutoSendHint(false);
+    expect(hint).toBe("Auto-send is disabled.");
   });
 });
 
 describe("popup settings", () => {
   it("loads settings and normalizes defaults", async () => {
     const seeded = {
-      skipKey: "Alt",
-      holdToSend: true,
+      autoSend: false,
       allowAutoSendInCodex: "nope",
       editLastMessageOnArrowUp: "nope",
       autoExpandChats: "yes",
@@ -46,8 +40,7 @@ describe("popup settings", () => {
     const { settings, hint } = await loadPopupSettings({ storagePort });
 
     expect(settings).toEqual({
-      skipKey: "Alt",
-      holdToSend: true,
+      autoSend: false,
       allowAutoSendInCodex: SETTINGS_DEFAULTS.allowAutoSendInCodex,
       editLastMessageOnArrowUp: SETTINGS_DEFAULTS.editLastMessageOnArrowUp,
       autoExpandChats: SETTINGS_DEFAULTS.autoExpandChats,
@@ -58,7 +51,7 @@ describe("popup settings", () => {
       ctrlEnterSends: SETTINGS_DEFAULTS.ctrlEnterSends,
       wideChatWidth: 42
     });
-    expect(hint).toBe("Auto-send happens only while holding Alt when you accept dictation.");
+    expect(hint).toBe("Auto-send is disabled.");
   });
 
   it("saves settings and mirrors auto temp chat to tempChatEnabled", async () => {
@@ -72,8 +65,7 @@ describe("popup settings", () => {
     };
 
     const input = {
-      skipKey: "Shift",
-      holdToSend: false,
+      autoSend: true,
       allowAutoSendInCodex: true,
       editLastMessageOnArrowUp: true,
       autoExpandChats: false,

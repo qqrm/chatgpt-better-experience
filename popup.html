@@ -362,21 +362,13 @@
     </div>
 
     <div class="row">
-      <label for="skipKey">Modifier key</label>
-      <select id="skipKey">
-        <option value="Shift">Shift</option>
-        <option value="Control">Control</option>
-        <option value="Alt">Alt</option>
-        <option value="None">None</option>
-      </select>
-    </div>
-
-    <div class="row">
       <div class="check">
-        <input id="holdToSend" type="checkbox" />
-        <label for="holdToSend">Hold key to send</label>
+        <input id="autoSend" type="checkbox" />
+        <label for="autoSend">Auto-send</label>
       </div>
     </div>
+
+    <div class="hint" id="hint"></div>
 
     <div class="row">
       <div class="check">
@@ -417,8 +409,7 @@
       <div class="check">
         <input id="startDictation" type="checkbox" />
         <label for="startDictation">
-          <span>Start dictation</span>
-          <span class="note">Ctrl+Space starts voice dictation</span>
+          <span>Ctrl+Space toggle voice dictation</span>
         </label>
       </div>
     </div>
@@ -444,8 +435,7 @@
 
     <div class="hint">0 = base width · 100 = 95% of the viewport</div>
 
-    <div class="hint" id="hint"></div>
-    <div class="hint" id="dictationHint" hidden>Ctrl+Space: start dictation</div>
+    <div class="hint" id="dictationHint" hidden>Ctrl+Space: toggle dictation</div>
     <div class="hint" id="ctrlEnterHint" hidden>Ctrl+Enter: send</div>
     <div class="hint">Press F2 to rename current chat</div>
 
