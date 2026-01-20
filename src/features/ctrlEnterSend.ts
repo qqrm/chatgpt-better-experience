@@ -190,6 +190,45 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     return false;
   };
 
+  const isSubmitDictationButton = (btn: HTMLButtonElement) => {
+    const aria = norm(btn.getAttribute("aria-label"));
+    const title = norm(btn.getAttribute("title"));
+    const dt = norm(btn.getAttribute("data-testid"));
+    const txt = norm(btn.textContent);
+
+    if (aria === "submit") {
+      if (btn.classList.contains("composer-submit-btn")) return false;
+      let p: HTMLElement | null = btn.parentElement;
+      for (let i = 0; i < 8 && p; i += 1) {
+        const hasDictateButton = !!p.querySelector('button[aria-label="Dictate button"]');
+        if (hasDictateButton) return true;
+        p = p.parentElement;
+      }
+    }
+
+    if (aria.includes("submit dictation")) return true;
+    if (
+      aria.includes("dictation") &&
+      (aria.includes("submit") || aria.includes("accept") || aria.includes("confirm"))
+    )
+      return true;
+
+    if (aria.includes("готово")) return true;
+    if (aria.includes("подтверд")) return true;
+    if (aria.includes("принять")) return true;
+
+    if (
+      dt.includes("dictation") &&
+      (dt.includes("submit") || dt.includes("done") || dt.includes("finish"))
+    )
+      return true;
+
+    if (title.includes("submit dictation")) return true;
+    if (txt.includes("submit dictation")) return true;
+
+    return false;
+  };
+
   const findDictationStopButton = () => {
     const buttons = Array.from(document.querySelectorAll("button")).filter(
       (btn): btn is HTMLButtonElement => btn instanceof HTMLButtonElement
@@ -198,6 +237,18 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       if (!isVisible(btn)) continue;
       if (btn.disabled) continue;
       if (isDictationStopButton(btn)) return btn;
+    }
+    return null;
+  };
+
+  const findSubmitDictationButton = () => {
+    const buttons = Array.from(document.querySelectorAll("button")).filter(
+      (btn): btn is HTMLButtonElement => btn instanceof HTMLButtonElement
+    );
+    for (const btn of buttons) {
+      if (!isVisible(btn)) continue;
+      if (btn.disabled) continue;
+      if (isSubmitDictationButton(btn)) return btn;
     }
     return null;
   };
@@ -262,11 +313,24 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
         lastEnterShouldSend = false;
       }, 400);
       void (async () => {
-        const stopBtn = findDictationStopButton();
-        if (stopBtn) {
-          ctx.logger.debug("KEY", "CTRL+ENTER stop dictation");
-          stopBtn.click();
+        const submitBtnBefore = findSubmitDictationButton();
+        if (submitBtnBefore) {
+          ctx.logger.debug("KEY", "CTRL+ENTER submit dictation");
+          submitBtnBefore.click();
           await waitForInputToStabilize(target, 1500, 250);
+        } else {
+          const stopBtn = findDictationStopButton();
+          if (stopBtn) {
+            ctx.logger.debug("KEY", "CTRL+ENTER stop dictation");
+            stopBtn.click();
+            await waitForInputToStabilize(target, 1500, 250);
+          }
+          const submitBtnAfter = findSubmitDictationButton();
+          if (submitBtnAfter) {
+            ctx.logger.debug("KEY", "CTRL+ENTER submit dictation after stop");
+            submitBtnAfter.click();
+            await waitForInputToStabilize(target, 1500, 250);
+          }
         }
         const btn = findSendButton(target);
         if (btn && !btn.disabled) {
