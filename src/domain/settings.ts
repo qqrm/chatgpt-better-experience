@@ -15,7 +15,7 @@ export type SettingsRecord = Settings & Record<string, unknown>;
 
 export const SETTINGS_DEFAULTS: SettingsRecord = {
   autoSend: true,
-  allowAutoSendInCodex: false,
+  allowAutoSendInCodex: true,
   editLastMessageOnArrowUp: true,
   autoExpandChats: true,
   autoTempChat: false,
