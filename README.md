@@ -6,6 +6,10 @@ Better experience like in n mobile app
 
 Firefox Add-ons: https://addons.mozilla.org/en-US/firefox/addon/chatgpt-better-expierience/
 
+## Documentation
+
+- [AutoSend + CtrlEnterSend specification](docs/auto-send-spec.md)
+
 ## How to release
 
 1. Ensure the working tree is clean and checks pass:

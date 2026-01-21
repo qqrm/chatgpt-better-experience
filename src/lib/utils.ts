@@ -21,6 +21,15 @@ export function isElementVisible(el: Element | null) {
   return true;
 }
 
+export function isDisabled(el: HTMLElement | null) {
+  if (!el) return true;
+  if (el instanceof HTMLButtonElement && el.disabled) return true;
+  if (el.hasAttribute("disabled")) return true;
+  const ariaDisabled = el.getAttribute("aria-disabled");
+  if (ariaDisabled && ariaDisabled !== "false") return true;
+  return false;
+}
+
 export function normalizeSettings(data: Record<string, unknown>): Settings {
   const base = SETTINGS_DEFAULTS;
 

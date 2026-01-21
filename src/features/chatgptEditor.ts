@@ -1,12 +1,31 @@
+import { isDisabled } from "../lib/utils";
+
 export type ComposerInput = HTMLTextAreaElement | HTMLElement;
 
 const norm = (value: string | null | undefined) => (value || "").trim().toLowerCase();
 
-export const findEditSubmitButton = (composer: ComposerInput) => {
+const isMainComposer = (composer: ComposerInput) => {
+  if (composer instanceof HTMLElement) {
+    if (composer.id === "prompt-textarea") return true;
+    if (composer.getAttribute("data-testid") === "prompt-textarea") return true;
+  }
+  return false;
+};
+
+export const findEditSubmitButton = (composer: ComposerInput): HTMLElement | null => {
+  if (isMainComposer(composer)) return null;
   const closestForm = composer.closest("form");
   if (closestForm) {
-    const submitBtn = closestForm.querySelector('button[type="submit"]');
-    if (submitBtn instanceof HTMLButtonElement) return submitBtn;
+    const submitBtn = closestForm.querySelector(
+      'button[type="submit"], [role="button"][type="submit"]'
+    );
+    if (
+      submitBtn instanceof HTMLElement &&
+      !isDisabled(submitBtn) &&
+      submitBtn.offsetParent !== null
+    ) {
+      return submitBtn;
+    }
   }
 
   const searchRoots: Array<Element | null> = [
@@ -20,8 +39,8 @@ export const findEditSubmitButton = (composer: ComposerInput) => {
   const root = searchRoots.find((x): x is Element => !!x) ?? null;
   if (!root) return null;
 
-  const buttons = Array.from(root.querySelectorAll("button")).filter(
-    (btn): btn is HTMLButtonElement => btn instanceof HTMLButtonElement
+  const buttons = Array.from(root.querySelectorAll("button, [role='button']")).filter(
+    (btn): btn is HTMLElement => btn instanceof HTMLElement
   );
 
   const positive = [
@@ -42,7 +61,7 @@ export const findEditSubmitButton = (composer: ComposerInput) => {
 
   const candidates = buttons
     .filter((btn) => {
-      if (btn.disabled) return false;
+      if (isDisabled(btn)) return false;
       const aria = norm(btn.getAttribute("aria-label"));
       const title = norm(btn.getAttribute("title"));
       const dt = norm(btn.getAttribute("data-testid"));
@@ -56,6 +75,7 @@ export const findEditSubmitButton = (composer: ComposerInput) => {
   if (candidates.length > 0) return candidates[0];
 
   const byTestId = buttons.find((btn) => {
+    if (isDisabled(btn)) return false;
     const dt = norm(btn.getAttribute("data-testid"));
     if (!dt) return false;
     if (dt.includes("save")) return true;
