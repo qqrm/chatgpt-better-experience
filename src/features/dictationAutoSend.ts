@@ -28,6 +28,8 @@ interface WaitForFinalTextResult extends InputReadResult {
   inputOk: boolean;
 }
 
+type DictationUiState = "NONE" | "STOP" | "SUBMIT";
+
 const TRANSCRIBE_HOOK_SOURCE = "tm-dictation-transcribe";
 
 const DEFAULT_CONFIG: DictationConfig = {
@@ -153,24 +155,10 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     qs<HTMLElement>("#composer-submit-button") ||
     qs<HTMLElement>("button.composer-submit-btn") ||
     qs<HTMLElement>("form button[type='submit']") ||
-    qs<HTMLElement>('button[aria-label="Submit"]') ||
-    qs<HTMLElement>('[role="button"][aria-label="Submit"]') ||
     qs<HTMLElement>('button[aria-label*="Send"]') ||
     qs<HTMLElement>('[role="button"][aria-label*="Send"]') ||
     qs<HTMLElement>('button[aria-label*="Отправ"]') ||
     null;
-
-  const hasDictationButtonNearby = (btn: Element) => {
-    let p: HTMLElement | null = btn.parentElement;
-    for (let i = 0; i < 8 && p; i += 1) {
-      const hasDictateButton = !!p.querySelector(
-        'button[aria-label="Dictate button"], [role="button"][aria-label="Dictate button"]'
-      );
-      if (hasDictateButton) return true;
-      p = p.parentElement;
-    }
-    return false;
-  };
 
   const isSubmitDictationButton = (btn: Element | null) => {
     if (!btn) return false;
@@ -210,6 +198,26 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     if (t.includes("submit dictation")) return true;
     if (txt.includes("submit dictation")) return true;
 
+    return false;
+  };
+
+  const isSendButton = (btn: Element | null) => {
+    if (!btn) return false;
+    const sendBtn = findSendButton();
+    if (sendBtn && btn === sendBtn) return true;
+    if (btn instanceof HTMLButtonElement) {
+      const type = norm(btn.getAttribute("type"));
+      if (type === "submit") return true;
+      if (btn.closest("form")) return true;
+    }
+    const dt = norm(btn.getAttribute("data-testid"));
+    const aria = norm(btn.getAttribute("aria-label"));
+    const title = norm(btn.getAttribute("title"));
+    if (dt.includes("send")) return true;
+    if (aria.includes("send")) return true;
+    if (aria.includes("отправ")) return true;
+    if (title.includes("send")) return true;
+    if (title.includes("отправ")) return true;
     return false;
   };
 
@@ -297,6 +305,44 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     return isElementVisible(btn);
   };
 
+  const findDictationButtonsIn = (root: Document | Element) => {
+    const found: HTMLElement[] = [];
+    const direct = Array.from(
+      root.querySelectorAll<HTMLElement>(
+        'button[aria-label="Dictate button"], [role="button"][aria-label="Dictate button"]'
+      )
+    );
+    for (const btn of direct) {
+      if (isDictationButtonVisible(btn) && !isVoiceModeButton(btn)) {
+        found.push(btn);
+      }
+    }
+
+    const fallbackSelectors = [
+      '[role="button"][aria-label*="dictat" i]',
+      '[role="button"][aria-label*="dictation" i]',
+      '[role="button"][aria-label*="диктов" i]',
+      '[role="button"][aria-label*="microphone" i]',
+      '[role="button"][aria-label*="голос" i]',
+      '[role="button"][aria-label*="voice" i]',
+      'button[aria-label*="dictat" i]',
+      'button[aria-label*="dictation" i]',
+      'button[aria-label*="диктов" i]',
+      'button[aria-label*="microphone" i]',
+      'button[aria-label*="голос" i]',
+      'button[aria-label*="voice" i]'
+    ];
+
+    const candidates = Array.from(root.querySelectorAll<HTMLElement>(fallbackSelectors.join(",")));
+    for (const btn of candidates) {
+      if (found.includes(btn)) continue;
+      if (isVoiceModeButton(btn)) continue;
+      if (isDictationButtonVisible(btn)) found.push(btn);
+    }
+
+    return found;
+  };
+
   const findDictationButtonIn = (root: Document | Element) => {
     const direct = root.querySelector<HTMLElement>(
       'button[aria-label="Dictate button"], [role="button"][aria-label="Dictate button"]'
@@ -342,6 +388,107 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     if (dt.includes("dictat") || dt.includes("dictation")) return true;
     if (dt.includes("microphone") || dt.includes("voice")) return true;
     return false;
+  };
+
+  const hasDictationButtonNearby = (btn: Element) => {
+    let p: HTMLElement | null = btn.parentElement;
+    for (let i = 0; i < 8 && p; i += 1) {
+      const candidates = Array.from(p.querySelectorAll<HTMLElement>("button, [role='button']"));
+      if (candidates.some((candidate) => isDictationToggleButton(candidate))) return true;
+      p = p.parentElement;
+    }
+    return false;
+  };
+
+  const findDictationActionContainers = () => {
+    const buttons = findDictationButtonsIn(document);
+    const containers = new Set<HTMLElement>();
+    for (const btn of buttons) {
+      let p: HTMLElement | null = btn.parentElement;
+      for (let i = 0; i < 8 && p; i += 1) {
+        const actionButtons = p.querySelectorAll("button, [role='button']");
+        if (actionButtons.length >= 2) {
+          containers.add(p);
+          break;
+        }
+        p = p.parentElement;
+      }
+      if (p && !containers.has(p)) {
+        containers.add(p);
+      }
+    }
+    return Array.from(containers);
+  };
+
+  const isStopDictationButton = (btn: Element | null) => {
+    if (!btn) return false;
+    const aria = norm(btn.getAttribute("aria-label"));
+    const title = norm(btn.getAttribute("title"));
+    const dt = norm(btn.getAttribute("data-testid"));
+    const text = norm(btn.textContent);
+    const hasStop =
+      aria.includes("stop") ||
+      title.includes("stop") ||
+      text.includes("stop") ||
+      aria.includes("останов") ||
+      title.includes("останов") ||
+      text.includes("останов");
+    if (!hasStop) return false;
+    const hasDictation =
+      aria.includes("dictation") ||
+      aria.includes("record") ||
+      title.includes("dictation") ||
+      title.includes("record") ||
+      text.includes("dictation") ||
+      text.includes("record") ||
+      aria.includes("диктов") ||
+      title.includes("диктов") ||
+      text.includes("диктов") ||
+      dt.includes("dictation") ||
+      dt.includes("record");
+    return hasDictation;
+  };
+
+  const findStopDictationButton = (): HTMLElement | null => {
+    const containers = findDictationActionContainers();
+    const roots: Array<Document | Element> = containers.length > 0 ? containers : [document];
+    for (const root of roots) {
+      const btns = qsa<HTMLElement>("button, [role='button']", root);
+      for (const b of btns) {
+        if (!isStopDictationButton(b)) continue;
+        if (!isVisible(b)) continue;
+        return b;
+      }
+    }
+    return null;
+  };
+
+  const findSubmitDictationButton = (): HTMLElement | null => {
+    const containers = findDictationActionContainers();
+    const roots: Array<Document | Element> = containers.length > 0 ? containers : [document];
+    for (const root of roots) {
+      const btns = qsa<HTMLElement>("button, [role='button']", root);
+      for (const b of btns) {
+        if (!(b instanceof HTMLElement)) continue;
+        if (b instanceof HTMLButtonElement) {
+          const type = norm(b.getAttribute("type"));
+          if (type === "submit") continue;
+        }
+        if (b === findSendButton()) continue;
+        if (!isSubmitDictationButton(b)) continue;
+        if (isSendButton(b)) continue;
+        if (!hasDictationButtonNearby(b)) continue;
+        if (!isVisible(b)) continue;
+        return b;
+      }
+    }
+    return null;
+  };
+
+  const getDictationUiState = (): DictationUiState => {
+    if (findStopDictationButton()) return "STOP";
+    if (findSubmitDictationButton()) return "SUBMIT";
+    return "NONE";
   };
 
   const findDictationButton = () => {
@@ -543,6 +690,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     const handleShiftKey = (event: KeyboardEvent) => {
       if (event.key === "Shift") {
         cancelByShift = true;
+        tmLog("FLOW", "shift cancel received");
       }
     };
     window.addEventListener("keydown", handleShiftKey, true);
@@ -561,7 +709,8 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         inputFound: snap.ok,
         inputKind: snap.kind,
         snapshotLen: snapshot.length,
-        snapshot
+        snapshot,
+        initialShiftHeld
       });
 
       const finalRes = await waitForFinalText({
@@ -661,7 +810,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       return;
     }
 
-    const submitDictationVisible = !!findSubmitDictationButton();
+    const submitDictationVisible = getDictationUiState() === "SUBMIT";
 
     // Пока видна галочка "принять диктовку", пробел не должен ничего нажимать
     if (e.code === "Space" && !e.ctrlKey && !e.metaKey && submitDictationVisible) {
@@ -731,7 +880,9 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       lastDictationToggleAt = performance.now();
     }
 
-    if (isSubmitDictationButton(btn)) {
+    const dictationState = getDictationUiState();
+    const submitBtn = dictationState === "SUBMIT" ? findSubmitDictationButton() : null;
+    if (submitBtn && btn === submitBtn) {
       // Автосенд только для настоящего клика мышью по галочке
       if (!shouldAutoSendFromSubmitClick(e) || !cfg.autoSendEnabled) {
         tmLog("FLOW", "submit dictation click ignored: not mouse click", { btn: btnDesc });
@@ -746,17 +897,6 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         }
       })();
     }
-  };
-
-  const findSubmitDictationButton = (): HTMLElement | null => {
-    const btns = qsa<HTMLElement>("button, [role='button']");
-    for (const b of btns) {
-      if (!(b instanceof HTMLElement)) continue;
-      if (!isSubmitDictationButton(b)) continue;
-      if (!isVisible(b)) continue;
-      return b;
-    }
-    return null;
   };
 
   applySettings();
@@ -777,7 +917,9 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     },
     __test: {
       runAutoSendFlow: (snapshotOverride?: string, initialShiftHeld?: boolean) =>
-        runFlowAfterSubmitClick("test submit dictation", snapshotOverride, !!initialShiftHeld)
+        runFlowAfterSubmitClick("test submit dictation", snapshotOverride, !!initialShiftHeld),
+      getDictationUiState: () => getDictationUiState(),
+      findSubmitDictationButton: () => findSubmitDictationButton()
     },
     onSettingsChange: () => {
       applySettings();
