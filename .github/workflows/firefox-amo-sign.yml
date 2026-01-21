@@ -1,14 +1,15 @@
 name: firefox-amo-sign
 
 on:
-  push:
-    tags:
-      - "v*"
+  pull_request:
+    types:
+      - closed
   workflow_dispatch: {}
 
 jobs:
   sign-and-submit:
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true }}
     concurrency:
       group: ${{ github.workflow }}-${{ github.sha }}
       cancel-in-progress: true
