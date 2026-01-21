@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as dictationAutoSend from "../../src/features/dictationAutoSend";
 import { SETTINGS_DEFAULTS, Settings } from "../../src/domain/settings";
@@ -40,6 +42,28 @@ const createContext = (overrides: Partial<Settings> = {}): FeatureContext => {
       safeQuery: (sel, root = document) => root.querySelector(sel)
     }
   };
+};
+
+const loadFixture = (name: string) => {
+  const repoRoot = process.env.PWD ?? process.cwd();
+  return readFileSync(resolve(repoRoot, "tests", "fixtures", name), "utf8");
+};
+
+const markVisible = (...elements: Array<Element | null>) => {
+  for (const element of elements) {
+    if (!element) continue;
+    element.getBoundingClientRect = () => ({
+      width: 10,
+      height: 10,
+      top: 0,
+      left: 0,
+      right: 10,
+      bottom: 10,
+      x: 0,
+      y: 0,
+      toJSON: () => ""
+    });
+  }
 };
 
 afterEach(() => {
@@ -396,5 +420,63 @@ describe("dictation auto-send", () => {
     );
 
     expect(clicked).toBe(false);
+  });
+
+  it("detects submit dictation state in Codex root fixture", () => {
+    const ctx = createContext({ autoSend: true });
+    const feature = initDictationAutoSendFeature(ctx);
+
+    document.documentElement.innerHTML = loadFixture("codex-root.html");
+
+    const dictationButton = document.querySelector('[data-testid="dictation-button"]');
+    const submitButton = document.querySelector('[data-testid="codex-submit"]');
+    const sendButton = document.querySelector('button[type="submit"]');
+
+    markVisible(dictationButton, submitButton, sendButton);
+
+    const state = (
+      feature as {
+        __test?: { getDictationUiState?: () => string; findSubmitDictationButton?: () => Element };
+      }
+    ).__test?.getDictationUiState?.();
+
+    const foundSubmit = (
+      feature as {
+        __test?: { findSubmitDictationButton?: () => Element | null };
+      }
+    ).__test?.findSubmitDictationButton?.();
+
+    expect(state).toBe("SUBMIT");
+    expect(foundSubmit).toBe(submitButton);
+    feature.dispose();
+  });
+
+  it("detects submit dictation state in Codex task fixture", () => {
+    const ctx = createContext({ autoSend: true });
+    const feature = initDictationAutoSendFeature(ctx);
+
+    document.documentElement.innerHTML = loadFixture("codex-task.html");
+
+    const dictationButton = document.querySelector('[data-testid="dictation-button"]');
+    const submitButton = document.querySelector('[data-testid="codex-submit"]');
+    const sendButton = document.querySelector('button[type="submit"]');
+
+    markVisible(dictationButton, submitButton, sendButton);
+
+    const state = (
+      feature as {
+        __test?: { getDictationUiState?: () => string; findSubmitDictationButton?: () => Element };
+      }
+    ).__test?.getDictationUiState?.();
+
+    const foundSubmit = (
+      feature as {
+        __test?: { findSubmitDictationButton?: () => Element | null };
+      }
+    ).__test?.findSubmitDictationButton?.();
+
+    expect(state).toBe("SUBMIT");
+    expect(foundSubmit).toBe(submitButton);
+    feature.dispose();
   });
 });
