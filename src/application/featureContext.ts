@@ -49,6 +49,7 @@ export interface FeatureHandle {
   dispose: () => void;
   onSettingsChange?: (next: Settings, prev: Settings) => void;
   getStatus?: () => FeatureStatus;
+  __test?: Record<string, unknown>;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

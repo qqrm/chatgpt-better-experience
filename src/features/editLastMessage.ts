@@ -194,7 +194,7 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
     return null;
   };
 
-  const isEditMessageButton = (btn: HTMLButtonElement | null) => {
+  const isEditMessageButton = (btn: HTMLElement | null) => {
     if (!btn) return false;
     const a = norm(btn.getAttribute("aria-label"));
     const t = norm(btn.getAttribute("title"));
@@ -207,7 +207,48 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
     return false;
   };
 
-  const triggerEditLastMessage = () => {
+  const findEditInput = (root: Element) => {
+    const textarea = root.querySelector("textarea");
+    if (textarea instanceof HTMLTextAreaElement && isElementVisible(textarea)) {
+      return textarea;
+    }
+
+    const contentEditable = root.querySelector('[contenteditable="true"]');
+    if (contentEditable instanceof HTMLElement && isElementVisible(contentEditable)) {
+      return contentEditable;
+    }
+
+    return null;
+  };
+
+  const placeCursorAtEnd = (input: HTMLElement | HTMLTextAreaElement) => {
+    if (input instanceof HTMLTextAreaElement) {
+      const end = input.value.length;
+      input.selectionStart = end;
+      input.selectionEnd = end;
+      return;
+    }
+
+    const selection = window.getSelection();
+    if (!selection) return;
+    const range = document.createRange();
+    range.selectNodeContents(input);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  };
+
+  const waitForEditInput = async (message: HTMLElement, timeoutMs = 2000) => {
+    const t0 = performance.now();
+    while (performance.now() - t0 < timeoutMs) {
+      const input = findEditInput(message);
+      if (input) return input;
+      await sleep(50);
+    }
+    return null;
+  };
+
+  const triggerEditLastMessage = async () => {
     const message = findLastUserMessage();
     if (!message) return false;
 
@@ -218,7 +259,7 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
 
     const searchRoot = article instanceof HTMLElement ? article : message;
 
-    const buttons = qsa<HTMLButtonElement>("button", searchRoot);
+    const buttons = qsa<HTMLElement>("button, [role='button']", searchRoot);
 
     const editBtn =
       buttons.find((btn) => {
@@ -229,7 +270,17 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
 
     if (!editBtn) return false;
 
-    return ctx.helpers.humanClick(editBtn, "edit last message");
+    message.scrollIntoView({ block: "center", inline: "nearest" });
+    const clickOk = ctx.helpers.humanClick(editBtn, "edit last message");
+    if (!clickOk) return false;
+
+    const input = await waitForEditInput(searchRoot, 2000);
+    if (!input) return false;
+
+    input.focus();
+    placeCursorAtEnd(input);
+    message.scrollIntoView({ block: "center" });
+    return true;
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -262,12 +313,14 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
       }) &&
       isTextboxTarget(e.target)
     ) {
-      const ok = triggerEditLastMessage();
-      ctx.logger.debug("KEY", "arrow up edit last message", { ok });
-      if (ok) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
+      void (async () => {
+        const ok = await triggerEditLastMessage();
+        ctx.logger.debug("KEY", "arrow up edit last message", { ok });
+        if (ok) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      })();
     }
   };
 

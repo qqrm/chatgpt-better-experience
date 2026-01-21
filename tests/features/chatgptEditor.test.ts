@@ -12,6 +12,7 @@ describe("chatgpt editor helpers", () => {
     const save = document.createElement("button");
     save.type = "submit";
     save.textContent = "Save";
+    Object.defineProperty(save, "offsetParent", { value: document.body });
 
     form.appendChild(textarea);
     form.appendChild(save);
@@ -39,6 +40,23 @@ describe("chatgpt editor helpers", () => {
 
     const found = findEditSubmitButton(textarea);
     expect(found).toBe(save);
+  });
+
+  it("supports role=button edit apply controls", () => {
+    const container = document.createElement("div");
+    const textarea = document.createElement("textarea");
+    container.appendChild(textarea);
+
+    const apply = document.createElement("div");
+    apply.setAttribute("role", "button");
+    apply.setAttribute("aria-label", "Apply");
+    Object.defineProperty(apply, "offsetParent", { value: container });
+    container.appendChild(apply);
+
+    document.body.appendChild(container);
+
+    const found = findEditSubmitButton(textarea);
+    expect(found).toBe(apply);
   });
 
   it("returns null when no suitable buttons are found", () => {

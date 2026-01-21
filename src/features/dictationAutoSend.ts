@@ -1,17 +1,14 @@
-import { decideAutoSend } from "../application/autoSendUseCases";
 import { DictationInputKind } from "../domain/dictation";
 import { FeatureContext, FeatureHandle, LogFields } from "../application/featureContext";
-import { isElementVisible, isVisible, norm } from "../lib/utils";
+import { isDisabled, isElementVisible, isVisible, norm } from "../lib/utils";
 
 interface DictationConfig {
   autoSendEnabled: boolean;
-  modifierGraceMs: number;
   allowAutoSendInCodex: boolean;
   finalTextTimeoutMs: number;
   finalTextQuietMs: number;
   sendAckTimeoutMs: number;
   logClicks: boolean;
-  logBlur: boolean;
 }
 
 interface InputReadResult {
@@ -35,24 +32,24 @@ const TRANSCRIBE_HOOK_SOURCE = "tm-dictation-transcribe";
 
 const DEFAULT_CONFIG: DictationConfig = {
   autoSendEnabled: true,
-  modifierGraceMs: 1600,
   allowAutoSendInCodex: true,
   finalTextTimeoutMs: 25000,
   finalTextQuietMs: 320,
   sendAckTimeoutMs: 4500,
-  logClicks: true,
-  logBlur: false
+  logClicks: true
 };
 const DICTATION_COOLDOWN_MS = 400;
+
+export function shouldAutoSendFromSubmitClick(e: Pick<MouseEvent, "isTrusted" | "detail"> | null) {
+  if (!e?.isTrusted) return false;
+  return (e.detail ?? 0) > 0;
+}
 
 export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle {
   const cfg: DictationConfig = { ...DEFAULT_CONFIG };
 
   let inFlight = false;
   let transcribeHookInstalled = false;
-  let graceUntilMs = 0;
-  let graceCaptured = false;
-  let lastBlurLogAt = 0;
   let lastDictationToggleAt = 0;
 
   const tmLog = (scope: string, msg: string, fields?: LogFields) => {
@@ -93,14 +90,6 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     cfg.autoSendEnabled = ctx.settings.autoSend;
     cfg.allowAutoSendInCodex = ctx.settings.allowAutoSendInCodex;
   };
-
-  const updateKeyState = (e: KeyboardEvent, state: boolean) => {
-    if (e.key === "Shift") ctx.keyState.shift = state;
-    if (e.key === "Control" || e.key === "Ctrl") ctx.keyState.ctrl = state;
-    if (e.key === "Alt") ctx.keyState.alt = state;
-  };
-
-  const isModifierHeldFromEvent = (e: MouseEvent | null) => !!e?.shiftKey;
 
   const findTextbox = () => {
     const active = document.activeElement;
@@ -171,19 +160,12 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     qs<HTMLElement>('button[aria-label*="Отправ"]') ||
     null;
 
-  const isDisabled = (btn: HTMLElement | null) => {
-    if (!btn) return true;
-    if (btn instanceof HTMLButtonElement && btn.disabled) return true;
-    if (btn.hasAttribute("disabled")) return true;
-    const ariaDisabled = btn.getAttribute("aria-disabled");
-    if (ariaDisabled && ariaDisabled !== "false") return true;
-    return false;
-  };
-
   const hasDictationButtonNearby = (btn: Element) => {
     let p: HTMLElement | null = btn.parentElement;
     for (let i = 0; i < 8 && p; i += 1) {
-      const hasDictateButton = !!p.querySelector('button[aria-label="Dictate button"]');
+      const hasDictateButton = !!p.querySelector(
+        'button[aria-label="Dictate button"], [role="button"][aria-label="Dictate button"]'
+      );
       if (hasDictateButton) return true;
       p = p.parentElement;
     }
@@ -256,7 +238,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     pathname.includes("/codex") || pathname.includes("/codecs");
 
   const findStopGeneratingButton = () => {
-    const candidates = qsa<HTMLButtonElement>("button").filter((b) => {
+    const candidates = qsa<HTMLElement>("button, [role='button']").filter((b) => {
       const a = norm(b.getAttribute("aria-label"));
       const t = norm(b.getAttribute("title"));
       const dt = norm(b.getAttribute("data-testid"));
@@ -300,7 +282,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     return true;
   };
 
-  const isVoiceModeButton = (btn: HTMLButtonElement | null) => {
+  const isVoiceModeButton = (btn: HTMLElement | null) => {
     if (!btn) return false;
     const dt = norm(btn.getAttribute("data-testid"));
     const aria = norm(btn.getAttribute("aria-label"));
@@ -309,17 +291,25 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     return false;
   };
 
-  const isDictationButtonVisible = (btn: HTMLButtonElement | null) => {
+  const isDictationButtonVisible = (btn: HTMLElement | null) => {
     if (!btn) return false;
     if (btn.offsetParent === null) return false;
     return isElementVisible(btn);
   };
 
   const findDictationButtonIn = (root: Document | Element) => {
-    const direct = root.querySelector<HTMLButtonElement>('button[aria-label="Dictate button"]');
+    const direct = root.querySelector<HTMLElement>(
+      'button[aria-label="Dictate button"], [role="button"][aria-label="Dictate button"]'
+    );
     if (direct && isDictationButtonVisible(direct) && !isVoiceModeButton(direct)) return direct;
 
     const fallbackSelectors = [
+      '[role="button"][aria-label*="dictat" i]',
+      '[role="button"][aria-label*="dictation" i]',
+      '[role="button"][aria-label*="диктов" i]',
+      '[role="button"][aria-label*="microphone" i]',
+      '[role="button"][aria-label*="голос" i]',
+      '[role="button"][aria-label*="voice" i]',
       'button[aria-label*="dictat" i]',
       'button[aria-label*="dictation" i]',
       'button[aria-label*="диктов" i]',
@@ -328,9 +318,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       'button[aria-label*="voice" i]'
     ];
 
-    const candidates = Array.from(
-      root.querySelectorAll<HTMLButtonElement>(fallbackSelectors.join(","))
-    );
+    const candidates = Array.from(root.querySelectorAll<HTMLElement>(fallbackSelectors.join(",")));
     for (const btn of candidates) {
       if (isVoiceModeButton(btn)) continue;
       if (isDictationButtonVisible(btn)) return btn;
@@ -339,7 +327,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     return null;
   };
 
-  const isDictationToggleButton = (btn: HTMLButtonElement) => {
+  const isDictationToggleButton = (btn: HTMLElement) => {
     if (isVoiceModeButton(btn)) return false;
     const aria = norm(btn.getAttribute("aria-label"));
     const title = norm(btn.getAttribute("title"));
@@ -366,7 +354,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   };
 
   const waitForDictationButton = (timeoutMs = 1500) =>
-    new Promise<HTMLButtonElement | null>((resolve) => {
+    new Promise<HTMLElement | null>((resolve) => {
       const t0 = performance.now();
       const tick = () => {
         const btn = findDictationButton();
@@ -541,11 +529,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     return false;
   };
 
-  const runFlowAfterSubmitClick = async (
-    submitBtnDesc: string,
-    clickHeld: boolean,
-    snapshotOverride?: string
-  ) => {
+  const runFlowAfterSubmitClick = async (submitBtnDesc: string, snapshotOverride?: string) => {
     if (inFlight) {
       tmLog("FLOW", "skip: inFlight already true");
       return;
@@ -561,33 +545,18 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       const snap = readInputText();
       const snapshot = snapshotOverride ?? snap.text;
 
-      graceUntilMs = performance.now() + cfg.modifierGraceMs;
-      graceCaptured = false;
-      const initialHeld = ctx.keyState.shift;
-
       tmLog("FLOW", "submit click flow start", {
         btn: submitBtnDesc,
         inputFound: snap.ok,
         inputKind: snap.kind,
         snapshotLen: snapshot.length,
-        snapshot,
-        graceMs: cfg.modifierGraceMs
+        snapshot
       });
 
       const finalRes = await waitForFinalText({
         snapshot,
         timeoutMs: cfg.finalTextTimeoutMs,
         quietMs: cfg.finalTextQuietMs
-      });
-
-      const heldDuring = initialHeld || graceCaptured || ctx.keyState.shift || clickHeld;
-
-      const decision = decideAutoSend({ autoSendEnabled: cfg.autoSendEnabled, heldDuring });
-
-      tmLog("FLOW", "decision", {
-        heldDuring: decision.heldDuring,
-        autoSendEnabled: decision.autoSendEnabled,
-        shouldSend: decision.shouldSend
       });
 
       if (!finalRes.ok) {
@@ -600,11 +569,6 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         return;
       }
 
-      if (!decision.shouldSend) {
-        tmLog("FLOW", "send skipped by modifier");
-        return;
-      }
-
       const okGen = await stopGeneratingIfPossible(20000);
       if (!okGen) {
         tmLog("FLOW", "abort: still generating");
@@ -613,11 +577,6 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
       const ok1 = await clickSendWithAck();
       tmLog("FLOW", "send result", { ok: ok1 });
-
-      if (!ok1) {
-        const ok2 = await clickSendWithAck();
-        tmLog("FLOW", "send retry result", { ok: ok2 });
-      }
     } catch (e) {
       tmLog("ERR", "flow exception", {
         preview: String((e && (e as Error).stack) || (e as Error).message || e)
@@ -676,36 +635,16 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    updateKeyState(e, true);
-
-    const submitDictationVisible = !!findSubmitDictationButton();
-
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && submitDictationVisible) {
-      swallowKeyEvent(e);
-      const submitBtn = findSubmitDictationButton();
-      if (!submitBtn) return;
-      const snapshotBefore = readInputText().text;
-      ctx.helpers.humanClick(submitBtn, "submit dictation via ctrl+enter");
-      void (async () => {
-        if (!isCodexPath(location.pathname) || cfg.allowAutoSendInCodex) {
-          await runFlowAfterSubmitClick(describeEl(submitBtn), e.shiftKey, snapshotBefore);
-        } else {
-          tmLog("FLOW", "auto-send skipped on Codex path");
-        }
-      })();
+    if (!cfg.autoSendEnabled && !ctx.settings.startDictation) {
       return;
     }
+
+    const submitDictationVisible = !!findSubmitDictationButton();
 
     // Пока видна галочка "принять диктовку", пробел не должен ничего нажимать
     if (e.code === "Space" && !e.ctrlKey && !e.metaKey && submitDictationVisible) {
       swallowKeyEvent(e);
       return;
-    }
-
-    if (e.key === "Shift") {
-      const graceActive = performance.now() <= graceUntilMs;
-      if (graceActive) graceCaptured = true;
-      tmLog("KEY", "down modifier", { graceActive, graceMs: cfg.modifierGraceMs });
     }
 
     if (isDictationHotkey(e)) {
@@ -740,25 +679,6 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     }
   };
 
-  const handleKeyUp = (e: KeyboardEvent) => {
-    updateKeyState(e, false);
-    if (e.key === "Shift") {
-      tmLog("KEY", "up modifier");
-    }
-  };
-
-  const handleBlur = () => {
-    ctx.keyState.shift = false;
-    ctx.keyState.ctrl = false;
-    ctx.keyState.alt = false;
-    if (!cfg.logBlur) return;
-    const t = performance.now();
-    if (t - lastBlurLogAt > 800) {
-      lastBlurLogAt = t;
-      tmLog("KEY", "window blur reset modifier");
-    }
-  };
-
   const handleClick = (e: MouseEvent) => {
     const target = e.target;
     const btn =
@@ -776,13 +696,12 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         inputFound: cur.ok,
         inputKind: cur.kind,
         len: cur.text.length,
-        preview: cur.text,
-        graceActive: performance.now() <= graceUntilMs
+        preview: cur.text
       });
     }
 
     if (
-      btn instanceof HTMLButtonElement &&
+      btn instanceof HTMLElement &&
       !isSubmitDictationButton(btn) &&
       isDictationButtonVisible(btn) &&
       isDictationToggleButton(btn)
@@ -792,14 +711,14 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
     if (isSubmitDictationButton(btn)) {
       // Автосенд только для настоящего клика мышью по галочке
-      if (!e.isTrusted) {
-        tmLog("FLOW", "submit dictation click ignored: untrusted", { btn: btnDesc });
+      if (!shouldAutoSendFromSubmitClick(e) || !cfg.autoSendEnabled) {
+        tmLog("FLOW", "submit dictation click ignored: not mouse click", { btn: btnDesc });
         return;
       }
 
       void (async () => {
         if (!isCodexPath(location.pathname) || cfg.allowAutoSendInCodex) {
-          await runFlowAfterSubmitClick(btnDesc, isModifierHeldFromEvent(e));
+          await runFlowAfterSubmitClick(btnDesc);
         } else {
           tmLog("FLOW", "auto-send skipped on Codex path");
         }
@@ -821,8 +740,6 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   applySettings();
 
   window.addEventListener("keydown", handleKeyDown, true);
-  window.addEventListener("keyup", handleKeyUp, true);
-  window.addEventListener("blur", handleBlur, true);
   document.addEventListener("click", handleClick, true);
 
   installTranscribeHook();
@@ -833,10 +750,12 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     name: "dictationAutoSend",
     dispose: () => {
       window.removeEventListener("keydown", handleKeyDown, true);
-      window.removeEventListener("keyup", handleKeyUp, true);
-      window.removeEventListener("blur", handleBlur, true);
       document.removeEventListener("click", handleClick, true);
       window.removeEventListener("message", handleTranscribeMessage);
+    },
+    __test: {
+      runAutoSendFlow: (snapshotOverride?: string) =>
+        runFlowAfterSubmitClick("test submit dictation", snapshotOverride)
     },
     onSettingsChange: () => {
       applySettings();

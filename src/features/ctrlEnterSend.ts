@@ -1,6 +1,7 @@
 import { FeatureContext, FeatureHandle } from "../application/featureContext";
 import { findEditSubmitButton, ComposerInput } from "./chatgptEditor";
 import { routeKeyCombos } from "./keyCombos";
+import { isDisabled } from "../lib/utils";
 
 export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
   const norm = (value: string | null | undefined) => (value || "").trim().toLowerCase();
@@ -68,11 +69,6 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const findSendButton = (composer?: ComposerInput | null): HTMLElement | null => {
-    if (composer) {
-      const editBtn = findEditSubmitButton(composer);
-      if (editBtn) return editBtn;
-    }
-
     const selectors = [
       '[data-testid="send-button"]',
       'button[aria-label*="Send" i]',
@@ -83,12 +79,12 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     ];
     for (const selector of selectors) {
       const btn = document.querySelector(selector);
-      if (btn instanceof HTMLElement) return btn;
+      if (btn instanceof HTMLElement && isVisible(btn)) return btn;
     }
     const form = composer?.closest("form");
     if (!form) return null;
     const submitBtn = form.querySelector('button[type="submit"], [role="button"][type="submit"]');
-    if (submitBtn instanceof HTMLElement) return submitBtn;
+    if (submitBtn instanceof HTMLElement && isVisible(submitBtn)) return submitBtn;
     return null;
   };
 
@@ -138,7 +134,9 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       if (btn.classList.contains("composer-submit-btn")) return false;
       let p: HTMLElement | null = btn.parentElement;
       for (let i = 0; i < 8 && p; i += 1) {
-        const hasDictateButton = !!p.querySelector('button[aria-label="Dictate button"]');
+        const hasDictateButton = !!p.querySelector(
+          'button[aria-label="Dictate button"], [role="button"][aria-label="Dictate button"]'
+        );
         if (hasDictateButton) return true;
         p = p.parentElement;
       }
@@ -164,14 +162,6 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     if (title.includes("submit dictation")) return true;
     if (txt.includes("submit dictation")) return true;
 
-    return false;
-  };
-
-  const isDisabled = (btn: HTMLElement) => {
-    if (btn instanceof HTMLButtonElement && btn.disabled) return true;
-    if (btn.hasAttribute("disabled")) return true;
-    const ariaDisabled = btn.getAttribute("aria-disabled");
-    if (ariaDisabled && ariaDisabled !== "false") return true;
     return false;
   };
 
@@ -240,30 +230,7 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
 
   let lastEnterShouldSendAt = 0;
   let lastEnterShouldSend = false;
-
-  const handleCtrlEnter = (e: KeyboardEvent, target: ComposerInput) => {
-    lastEnterShouldSend = true;
-    lastEnterShouldSendAt = performance.now();
-    stopEvent(e);
-    setTimeout(() => {
-      lastEnterShouldSend = false;
-    }, 400);
-    void (async () => {
-      const stopBtn = findDictationStopButton();
-      if (stopBtn) {
-        ctx.logger.debug("KEY", "CTRL+ENTER stop dictation");
-        stopBtn.click();
-        await waitForInputToStabilize(target, 1500, 250);
-      }
-      const btn = findSendButton(target);
-      if (btn && !isDisabled(btn)) {
-        ctx.logger.debug("KEY", "CTRL+ENTER send");
-        btn.click();
-      } else {
-        ctx.logger.debug("KEY", "send button not found");
-      }
-    })();
-  };
+  let lastEnterShiftAt = 0;
 
   const handlePlainEnter = (e: KeyboardEvent, target: ComposerInput) => {
     lastEnterShouldSend = false;
@@ -280,6 +247,63 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     return false;
   };
 
+  const handleCtrlEnter = (e: KeyboardEvent, target: ComposerInput) => {
+    lastEnterShouldSend = true;
+    lastEnterShouldSendAt = performance.now();
+    stopEvent(e);
+    setTimeout(() => {
+      lastEnterShouldSend = false;
+    }, 400);
+    void (async () => {
+      const editBtn = findEditSubmitButton(target);
+      if (editBtn && !isDisabled(editBtn)) {
+        ctx.logger.debug("KEY", "CTRL+ENTER apply edit");
+        editBtn.click();
+        return;
+      }
+
+      const submitBtnBefore = findSubmitDictationButton();
+      if (submitBtnBefore) {
+        ctx.logger.debug("KEY", "CTRL+ENTER submit dictation");
+        submitBtnBefore.click();
+        await waitForInputToStabilize(target, 1500, 250);
+        const sendBtn = findSendButton(target);
+        if (sendBtn && !isDisabled(sendBtn)) {
+          ctx.logger.debug("KEY", "CTRL+ENTER send");
+          sendBtn.click();
+        }
+        return;
+      }
+
+      const stopBtn = findDictationStopButton();
+      if (stopBtn) {
+        ctx.logger.debug("KEY", "CTRL+ENTER stop dictation");
+        stopBtn.click();
+        await waitForInputToStabilize(target, 1500, 250);
+        const submitBtnAfter = findSubmitDictationButton();
+        if (submitBtnAfter) {
+          ctx.logger.debug("KEY", "CTRL+ENTER submit dictation after stop");
+          submitBtnAfter.click();
+          await waitForInputToStabilize(target, 1500, 250);
+        }
+        const sendBtn = findSendButton(target);
+        if (sendBtn && !isDisabled(sendBtn)) {
+          ctx.logger.debug("KEY", "CTRL+ENTER send");
+          sendBtn.click();
+        }
+        return;
+      }
+
+      const sendBtn = findSendButton(target);
+      if (sendBtn && !isDisabled(sendBtn)) {
+        ctx.logger.debug("KEY", "CTRL+ENTER send");
+        sendBtn.click();
+      } else {
+        ctx.logger.debug("KEY", "send button not found");
+      }
+    })();
+  };
+
   const handleKeyDown = (e: KeyboardEvent) => {
     if (!ctx.settings.ctrlEnterSends) return;
     if (e.defaultPrevented) return;
@@ -292,52 +316,23 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       !!target && (isComposerEventTarget(e) || shouldHandleCtrlEnterOutsideComposer());
 
     if (!composerOk) return;
+    if (!shouldSend && e.shiftKey) {
+      lastEnterShiftAt = performance.now();
+      return;
+    }
     if (shouldSend) {
-      lastEnterShouldSend = true;
-      lastEnterShouldSendAt = performance.now();
-      stopEvent(e);
-      setTimeout(() => {
-        lastEnterShouldSend = false;
-      }, 400);
-      void (async () => {
-        const submitBtnBefore = findSubmitDictationButton();
-        if (submitBtnBefore) {
-          ctx.logger.debug("KEY", "CTRL+ENTER submit dictation");
-          submitBtnBefore.click();
-          await waitForInputToStabilize(target, 1500, 250);
-        } else {
-          const stopBtn = findDictationStopButton();
-          if (stopBtn) {
-            ctx.logger.debug("KEY", "CTRL+ENTER stop dictation");
-            stopBtn.click();
-            await waitForInputToStabilize(target, 1500, 250);
-          }
-          const submitBtnAfter = findSubmitDictationButton();
-          if (submitBtnAfter) {
-            ctx.logger.debug("KEY", "CTRL+ENTER submit dictation after stop");
-            submitBtnAfter.click();
-            await waitForInputToStabilize(target, 1500, 250);
-          }
-        }
-        const btn = findSendButton(target);
-        if (btn && !isDisabled(btn)) {
-          ctx.logger.debug("KEY", "CTRL+ENTER send");
-          btn.click();
-        } else {
-          ctx.logger.debug("KEY", "send button not found");
-        }
-      })();
+      handleCtrlEnter(e, target);
       return;
     }
 
     if (!target) return;
     routeKeyCombos(e, [
-      { key: "Enter", ctrl: true, priority: 2, handler: () => handleCtrlEnter(e, target) },
-      { key: "Enter", meta: true, priority: 2, handler: () => handleCtrlEnter(e, target) },
       {
         key: "Enter",
         ctrl: false,
         meta: false,
+        shift: false,
+        alt: false,
         priority: 1,
         handler: () => handlePlainEnter(e, target)
       }
@@ -352,6 +347,7 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
 
     const ageMs = performance.now() - lastEnterShouldSendAt;
     if (lastEnterShouldSend && ageMs < 300) return;
+    if (performance.now() - lastEnterShiftAt < 300) return;
 
     stopEvent(e);
     const target = e.target;
