@@ -157,4 +157,44 @@ describe("ctrl-enter send", () => {
     expect(sendClicked).toBe(false);
     feature.dispose();
   });
+
+  it("sends when dictation buttons are role=button elements", async () => {
+    vi.useFakeTimers();
+    const ctx = createContext({ ctrlEnterSends: true });
+    const feature = initCtrlEnterSendFeature(ctx);
+
+    const textarea = document.createElement("textarea");
+    textarea.setAttribute("data-testid", "prompt-textarea");
+    document.body.appendChild(textarea);
+    textarea.focus();
+
+    const submitBtn = document.createElement("div");
+    submitBtn.setAttribute("role", "button");
+    submitBtn.setAttribute("aria-label", "Submit dictation");
+    Object.defineProperty(submitBtn, "offsetParent", { value: document.body });
+    submitBtn.addEventListener("click", () => {
+      setTimeout(() => {
+        textarea.value = "Dictated text";
+      }, 50);
+    });
+    document.body.appendChild(submitBtn);
+
+    let sendClicked = false;
+    const sendBtn = document.createElement("div");
+    sendBtn.setAttribute("role", "button");
+    sendBtn.setAttribute("data-testid", "send-button");
+    sendBtn.addEventListener("click", () => {
+      sendClicked = true;
+    });
+    document.body.appendChild(sendBtn);
+
+    textarea.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true })
+    );
+
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(sendClicked).toBe(true);
+    feature.dispose();
+  });
 });

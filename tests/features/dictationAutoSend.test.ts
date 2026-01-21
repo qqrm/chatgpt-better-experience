@@ -156,6 +156,55 @@ describe("dictation auto-send", () => {
     feature.dispose();
   });
 
+  it("auto-sends on Ctrl+Enter when submit dictation is visible", async () => {
+    vi.useFakeTimers();
+    const ctx = createContext({ autoSend: true });
+    const feature = initDictationAutoSendFeature(ctx);
+
+    const input = document.createElement("div");
+    input.id = "prompt-textarea";
+    input.setAttribute("contenteditable", "true");
+    document.body.appendChild(input);
+
+    let sendClicked = false;
+    const sendBtn = document.createElement("button");
+    sendBtn.setAttribute("data-testid", "send-button");
+    sendBtn.addEventListener("click", () => {
+      sendClicked = true;
+      input.textContent = "";
+    });
+    document.body.appendChild(sendBtn);
+
+    const submitBtn = document.createElement("button");
+    submitBtn.setAttribute("aria-label", "Submit dictation");
+    submitBtn.getBoundingClientRect = () => ({
+      width: 10,
+      height: 10,
+      top: 0,
+      left: 0,
+      right: 10,
+      bottom: 10,
+      x: 0,
+      y: 0,
+      toJSON: () => ""
+    });
+    submitBtn.addEventListener("click", () => {
+      setTimeout(() => {
+        input.textContent = "Hello from dictation";
+      }, 50);
+    });
+    document.body.appendChild(submitBtn);
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true })
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(sendClicked).toBe(true);
+    feature.dispose();
+  });
+
   it("triggers submit via hotkey when submit button is visible", () => {
     vi.useFakeTimers();
     const ctx = createContext({ autoSend: true, startDictation: true });

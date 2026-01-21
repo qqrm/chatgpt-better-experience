@@ -159,18 +159,21 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     return { ok: true, kind, text: readTextboxText(el) };
   };
 
-  const findSendButton = () =>
-    qs<HTMLButtonElement>('[data-testid="send-button"]') ||
-    qs<HTMLButtonElement>("#composer-submit-button") ||
-    qs<HTMLButtonElement>("button.composer-submit-btn") ||
-    qs<HTMLButtonElement>("form button[type='submit']") ||
-    qs<HTMLButtonElement>('button[aria-label="Submit"]') ||
-    qs<HTMLButtonElement>('button[aria-label*="Send"]') ||
-    qs<HTMLButtonElement>('button[aria-label*="Отправ"]') ||
+  const findSendButton = (): HTMLElement | null =>
+    qs<HTMLElement>('[data-testid="send-button"]') ||
+    qs<HTMLElement>("#composer-submit-button") ||
+    qs<HTMLElement>("button.composer-submit-btn") ||
+    qs<HTMLElement>("form button[type='submit']") ||
+    qs<HTMLElement>('button[aria-label="Submit"]') ||
+    qs<HTMLElement>('[role="button"][aria-label="Submit"]') ||
+    qs<HTMLElement>('button[aria-label*="Send"]') ||
+    qs<HTMLElement>('[role="button"][aria-label*="Send"]') ||
+    qs<HTMLElement>('button[aria-label*="Отправ"]') ||
     null;
 
-  const isDisabled = (btn: HTMLButtonElement | null) => {
+  const isDisabled = (btn: HTMLElement | null) => {
     if (!btn) return true;
+    if (btn instanceof HTMLButtonElement && btn.disabled) return true;
     if (btn.hasAttribute("disabled")) return true;
     const ariaDisabled = btn.getAttribute("aria-disabled");
     if (ariaDisabled && ariaDisabled !== "false") return true;
@@ -538,7 +541,11 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     return false;
   };
 
-  const runFlowAfterSubmitClick = async (submitBtnDesc: string, clickHeld: boolean) => {
+  const runFlowAfterSubmitClick = async (
+    submitBtnDesc: string,
+    clickHeld: boolean,
+    snapshotOverride?: string
+  ) => {
     if (inFlight) {
       tmLog("FLOW", "skip: inFlight already true");
       return;
@@ -552,7 +559,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       }
 
       const snap = readInputText();
-      const snapshot = snap.text;
+      const snapshot = snapshotOverride ?? snap.text;
 
       graceUntilMs = performance.now() + cfg.modifierGraceMs;
       graceCaptured = false;
@@ -673,6 +680,22 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
     const submitDictationVisible = !!findSubmitDictationButton();
 
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && submitDictationVisible) {
+      swallowKeyEvent(e);
+      const submitBtn = findSubmitDictationButton();
+      if (!submitBtn) return;
+      const snapshotBefore = readInputText().text;
+      ctx.helpers.humanClick(submitBtn, "submit dictation via ctrl+enter");
+      void (async () => {
+        if (!isCodexPath(location.pathname) || cfg.allowAutoSendInCodex) {
+          await runFlowAfterSubmitClick(describeEl(submitBtn), e.shiftKey, snapshotBefore);
+        } else {
+          tmLog("FLOW", "auto-send skipped on Codex path");
+        }
+      })();
+      return;
+    }
+
     // Пока видна галочка "принять диктовку", пробел не должен ничего нажимать
     if (e.code === "Space" && !e.ctrlKey && !e.metaKey && submitDictationVisible) {
       swallowKeyEvent(e);
@@ -773,10 +796,6 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         tmLog("FLOW", "submit dictation click ignored: untrusted", { btn: btnDesc });
         return;
       }
-      if (e.detail === 0) {
-        tmLog("FLOW", "submit dictation click ignored: keyboard", { btn: btnDesc });
-        return;
-      }
 
       void (async () => {
         if (!isCodexPath(location.pathname) || cfg.allowAutoSendInCodex) {
@@ -788,10 +807,10 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     }
   };
 
-  const findSubmitDictationButton = () => {
-    const btns = qsa<HTMLButtonElement>("button");
+  const findSubmitDictationButton = (): HTMLElement | null => {
+    const btns = qsa<HTMLElement>("button, [role='button']");
     for (const b of btns) {
-      if (!(b instanceof HTMLButtonElement)) continue;
+      if (!(b instanceof HTMLElement)) continue;
       if (!isSubmitDictationButton(b)) continue;
       if (!isVisible(b)) continue;
       return b;
