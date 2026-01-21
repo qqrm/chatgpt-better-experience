@@ -529,12 +529,23 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     return false;
   };
 
-  const runFlowAfterSubmitClick = async (submitBtnDesc: string, snapshotOverride?: string) => {
+  const runFlowAfterSubmitClick = async (
+    submitBtnDesc: string,
+    snapshotOverride?: string,
+    initialShiftHeld = false
+  ) => {
     if (inFlight) {
       tmLog("FLOW", "skip: inFlight already true");
       return;
     }
     inFlight = true;
+    let cancelByShift = initialShiftHeld;
+    const handleShiftKey = (event: KeyboardEvent) => {
+      if (event.key === "Shift") {
+        cancelByShift = true;
+      }
+    };
+    window.addEventListener("keydown", handleShiftKey, true);
 
     try {
       if (!cfg.autoSendEnabled) {
@@ -569,9 +580,19 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         return;
       }
 
+      if (cancelByShift) {
+        tmLog("FLOW", "send skipped by shift");
+        return;
+      }
+
       const okGen = await stopGeneratingIfPossible(20000);
       if (!okGen) {
         tmLog("FLOW", "abort: still generating");
+        return;
+      }
+
+      if (cancelByShift) {
+        tmLog("FLOW", "send skipped by shift");
         return;
       }
 
@@ -582,6 +603,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         preview: String((e && (e as Error).stack) || (e as Error).message || e)
       });
     } finally {
+      window.removeEventListener("keydown", handleShiftKey, true);
       inFlight = false;
       tmLog("FLOW", "submit click flow end");
     }
@@ -718,7 +740,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
       void (async () => {
         if (!isCodexPath(location.pathname) || cfg.allowAutoSendInCodex) {
-          await runFlowAfterSubmitClick(btnDesc);
+          await runFlowAfterSubmitClick(btnDesc, undefined, e.shiftKey);
         } else {
           tmLog("FLOW", "auto-send skipped on Codex path");
         }
@@ -754,8 +776,8 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       window.removeEventListener("message", handleTranscribeMessage);
     },
     __test: {
-      runAutoSendFlow: (snapshotOverride?: string) =>
-        runFlowAfterSubmitClick("test submit dictation", snapshotOverride)
+      runAutoSendFlow: (snapshotOverride?: string, initialShiftHeld?: boolean) =>
+        runFlowAfterSubmitClick("test submit dictation", snapshotOverride, !!initialShiftHeld)
     },
     onSettingsChange: () => {
       applySettings();

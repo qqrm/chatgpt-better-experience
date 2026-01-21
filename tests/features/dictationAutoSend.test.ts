@@ -148,7 +148,14 @@ describe("dictation auto-send", () => {
     }, 50);
 
     await (
-      feature as { __test?: { runAutoSendFlow?: (snapshotOverride?: string) => Promise<void> } }
+      feature as {
+        __test?: {
+          runAutoSendFlow?: (
+            snapshotOverride?: string,
+            initialShiftHeld?: boolean
+          ) => Promise<void>;
+        };
+      }
     ).__test?.runAutoSendFlow?.();
 
     await new Promise((resolve) => setTimeout(resolve, 800));
@@ -180,10 +187,101 @@ describe("dictation auto-send", () => {
     }, 50);
 
     await (
-      feature as { __test?: { runAutoSendFlow?: (snapshotOverride?: string) => Promise<void> } }
+      feature as {
+        __test?: {
+          runAutoSendFlow?: (
+            snapshotOverride?: string,
+            initialShiftHeld?: boolean
+          ) => Promise<void>;
+        };
+      }
     ).__test?.runAutoSendFlow?.();
 
     await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(sendClicked).toBe(false);
+    feature.dispose();
+  });
+
+  it("skips auto-send when Shift was held at submit click time", async () => {
+    vi.useRealTimers();
+    const ctx = createContext({ autoSend: true });
+    const feature = initDictationAutoSendFeature(ctx);
+
+    const input = document.createElement("div");
+    input.id = "prompt-textarea";
+    input.setAttribute("contenteditable", "true");
+    document.body.appendChild(input);
+
+    let sendClicked = false;
+    const sendBtn = document.createElement("button");
+    sendBtn.setAttribute("data-testid", "send-button");
+    sendBtn.addEventListener("click", () => {
+      sendClicked = true;
+      input.textContent = "";
+    });
+    document.body.appendChild(sendBtn);
+
+    setTimeout(() => {
+      input.textContent = "Hello from dictation";
+    }, 50);
+
+    await (
+      feature as {
+        __test?: {
+          runAutoSendFlow?: (
+            snapshotOverride?: string,
+            initialShiftHeld?: boolean
+          ) => Promise<void>;
+        };
+      }
+    ).__test?.runAutoSendFlow?.(undefined, true);
+
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    expect(sendClicked).toBe(false);
+    feature.dispose();
+  });
+
+  it("skips auto-send when Shift is pressed during stabilization after submit", async () => {
+    vi.useRealTimers();
+    const ctx = createContext({ autoSend: true });
+    const feature = initDictationAutoSendFeature(ctx);
+
+    const input = document.createElement("div");
+    input.id = "prompt-textarea";
+    input.setAttribute("contenteditable", "true");
+    document.body.appendChild(input);
+
+    let sendClicked = false;
+    const sendBtn = document.createElement("button");
+    sendBtn.setAttribute("data-testid", "send-button");
+    sendBtn.addEventListener("click", () => {
+      sendClicked = true;
+      input.textContent = "";
+    });
+    document.body.appendChild(sendBtn);
+
+    setTimeout(() => {
+      input.textContent = "Hello from dictation";
+    }, 50);
+
+    setTimeout(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", bubbles: true }));
+    }, 20);
+
+    await (
+      feature as {
+        __test?: {
+          runAutoSendFlow?: (
+            snapshotOverride?: string,
+            initialShiftHeld?: boolean
+          ) => Promise<void>;
+        };
+      }
+    ).__test?.runAutoSendFlow?.();
+
+    await new Promise((resolve) => setTimeout(resolve, 800));
 
     expect(sendClicked).toBe(false);
     feature.dispose();

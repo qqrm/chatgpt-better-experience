@@ -47,6 +47,10 @@ When the extension does not intercept, the site baseline behavior is assumed to 
 - **I5. No double action**: one user action must trigger at most one send or apply.
 - **I6. Edit mode priority**: in edit mode, Ctrl+Enter applies the edit and does not trigger
   dictation finishing or new send.
+- **I7. Shift cancels AutoSend**: if AutoSend is enabled and the user mouse-clicks Submit
+  dictation, holding Shift at click time or pressing Shift during the transcription + final text
+  stabilization phase (after the click and before Send) cancels the auto-send for that action
+  only.
 
 ## 5) Behavior matrix (baseline vs extension overrides)
 
@@ -90,8 +94,9 @@ The matrix below describes behavior by mode, dictation state, settings, and user
 
 - AutoSend OFF → **baseline** (confirm dictation only)
 - AutoSend ON → **extension override**:
-  1. wait for final dictation text
-  2. click Send
+  1. if Shift was held at click time, or Shift is pressed after the click while waiting for the
+     final text → confirm dictation only (do not send)
+  2. otherwise wait for final dictation text and click Send
 
 **Keyboard activation of Submit dictation** (`MouseEvent.detail == 0`)
 
