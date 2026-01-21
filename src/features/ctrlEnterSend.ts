@@ -261,16 +261,26 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     ctx.logger.debug("KEY", "ENTER newline");
   };
 
+  const shouldHandleCtrlEnterOutsideComposer = () => {
+    const stopBtn = findDictationStopButton();
+    if (stopBtn) return true;
+    const submitBtn = findSubmitDictationButton();
+    if (submitBtn) return true;
+    return false;
+  };
+
   const handleKeyDown = (e: KeyboardEvent) => {
     if (!ctx.settings.ctrlEnterSends) return;
     if (e.defaultPrevented) return;
     if (e.isComposing) return;
     if (e.key !== "Enter") return;
-    if (!isComposerEventTarget(e)) return;
 
-    const target = e.target;
-    if (!(target instanceof HTMLTextAreaElement || target instanceof HTMLElement)) return;
     const shouldSend = e.ctrlKey || e.metaKey;
+    const target = findActiveEditableTarget();
+    const composerOk =
+      !!target && (isComposerEventTarget(e) || shouldHandleCtrlEnterOutsideComposer());
+
+    if (!composerOk) return;
     if (shouldSend) {
       lastEnterShouldSend = true;
       lastEnterShouldSendAt = performance.now();
@@ -309,6 +319,7 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       return;
     }
 
+    if (!target) return;
     routeKeyCombos(e, [
       { key: "Enter", ctrl: true, priority: 2, handler: () => handleCtrlEnter(e, target) },
       { key: "Enter", meta: true, priority: 2, handler: () => handleCtrlEnter(e, target) },
