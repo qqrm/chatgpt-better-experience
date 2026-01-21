@@ -36,7 +36,7 @@ const TRANSCRIBE_HOOK_SOURCE = "tm-dictation-transcribe";
 const DEFAULT_CONFIG: DictationConfig = {
   autoSendEnabled: true,
   modifierGraceMs: 1600,
-  allowAutoSendInCodex: false,
+  allowAutoSendInCodex: true,
   finalTextTimeoutMs: 25000,
   finalTextQuietMs: 320,
   sendAckTimeoutMs: 4500,
@@ -177,7 +177,17 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     return false;
   };
 
-  const isSubmitDictationButton = (btn: HTMLButtonElement | null) => {
+  const hasDictationButtonNearby = (btn: Element) => {
+    let p: HTMLElement | null = btn.parentElement;
+    for (let i = 0; i < 8 && p; i += 1) {
+      const hasDictateButton = !!p.querySelector('button[aria-label="Dictate button"]');
+      if (hasDictateButton) return true;
+      p = p.parentElement;
+    }
+    return false;
+  };
+
+  const isSubmitDictationButton = (btn: Element | null) => {
     if (!btn) return false;
 
     const aRaw = btn.getAttribute("aria-label");
@@ -185,19 +195,14 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     const dtRaw = btn.getAttribute("data-testid");
     const txtRaw = btn.textContent;
 
-    const a = norm(aRaw);
-    const t = norm(tRaw);
-    const dt = norm(dtRaw);
-    const txt = norm(txtRaw);
+    const a = norm(aRaw).trim();
+    const t = norm(tRaw).trim();
+    const dt = norm(dtRaw).trim();
+    const txt = norm(txtRaw).trim();
 
-    if (a === "submit") {
+    if (a === "submit" || a === "done" || t === "done" || txt === "done") {
       if (btn.classList.contains("composer-submit-btn")) return false;
-      let p: HTMLElement | null = btn.parentElement;
-      for (let i = 0; i < 8 && p; i += 1) {
-        const hasDictateButton = !!p.querySelector('button[aria-label="Dictate button"]');
-        if (hasDictateButton) return true;
-        p = p.parentElement;
-      }
+      if (hasDictationButtonNearby(btn)) return true;
     }
 
     if (a.includes("submit dictation")) return true;
@@ -223,7 +228,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     return false;
   };
 
-  const isInterestingButton = (btn: HTMLButtonElement | null) => {
+  const isInterestingButton = (btn: Element | null) => {
     if (!btn) return false;
     const a = norm(btn.getAttribute("aria-label"));
     const t = norm(btn.getAttribute("title"));
@@ -733,12 +738,15 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
   const handleClick = (e: MouseEvent) => {
     const target = e.target;
-    const btn = target instanceof Element && target.closest ? target.closest("button") : null;
+    const btn =
+      target instanceof Element && target.closest
+        ? target.closest("button, [role='button']")
+        : null;
     if (!btn) return;
 
     const btnDesc = describeEl(btn);
 
-    if (cfg.logClicks && btn instanceof HTMLButtonElement && isInterestingButton(btn)) {
+    if (cfg.logClicks && isInterestingButton(btn)) {
       const cur = readInputText();
       tmLog("CLICK", "button click", {
         btn: btnDesc,
@@ -759,7 +767,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       lastDictationToggleAt = performance.now();
     }
 
-    if (btn instanceof HTMLButtonElement && isSubmitDictationButton(btn)) {
+    if (isSubmitDictationButton(btn)) {
       // Автосенд только для настоящего клика мышью по галочке
       if (!e.isTrusted) {
         tmLog("FLOW", "submit dictation click ignored: untrusted", { btn: btnDesc });
