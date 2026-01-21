@@ -22,6 +22,84 @@ const ONE_CLICK_DELETE_WIPE_MS = 4500;
 const ONE_CLICK_DELETE_UNDO_TOTAL_MS = 5000;
 const ONE_CLICK_DELETE_TOOLTIP = "Click to delete";
 const ONE_CLICK_DELETE_ARCHIVE_TOOLTIP = "Archive";
+const CHAT_CONVERSATION_ID_REGEX = /\/c\/([^/?#]+)/;
+
+export const extractConversationIdFromRow = (row: HTMLElement | null): string | null => {
+  if (!row) return null;
+  const link = row.querySelector<HTMLAnchorElement>('a[href^="/c/"], a[href*="/c/"]');
+  if (!link) return null;
+  const href = link.getAttribute("href") ?? "";
+  const match = href.match(CHAT_CONVERSATION_ID_REGEX);
+  return match ? match[1] : null;
+};
+
+export const getAccessToken = async (): Promise<string | null> => {
+  try {
+    const response = await fetch("/api/auth/session?unstable_client=true", {
+      credentials: "include"
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { accessToken?: unknown };
+    if (data && typeof data.accessToken === "string") return data.accessToken;
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+export const patchConversation = async (
+  conversationId: string,
+  payload: Record<string, unknown>
+): Promise<boolean> => {
+  try {
+    const token = await getAccessToken();
+    if (!token) return false;
+
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    };
+
+    const deviceId = localStorage.getItem("oai-device-id");
+    if (deviceId) headers["oai-device-id"] = deviceId;
+
+    const response = await fetch(`/backend-api/conversation/${conversationId}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers,
+      body: JSON.stringify(payload)
+    });
+
+    return response.ok;
+  } catch {
+    return false;
+  }
+};
+
+type DirectPatchResult = {
+  attempted: boolean;
+  ok: boolean;
+};
+
+export const directDeleteConversationFromRow = async (
+  row: HTMLElement
+): Promise<DirectPatchResult> => {
+  const conversationId = extractConversationIdFromRow(row);
+  if (!conversationId) return { attempted: false, ok: false };
+  const ok = await patchConversation(conversationId, { is_visible: false });
+  if (ok && row.isConnected) row.remove();
+  return { attempted: true, ok };
+};
+
+export const directArchiveConversationFromRow = async (
+  row: HTMLElement
+): Promise<DirectPatchResult> => {
+  const conversationId = extractConversationIdFromRow(row);
+  if (!conversationId) return { attempted: false, ok: false };
+  const ok = await patchConversation(conversationId, { is_archived: true });
+  if (ok && row.isConnected) row.remove();
+  return { attempted: true, ok };
+};
 
 export const buildOneClickDeleteStyleText = () => `
   html{
@@ -401,6 +479,10 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     else document.documentElement.removeAttribute(ONE_CLICK_DELETE_ROOT_FLAG);
   };
 
+  const logDebug = (message: string) => {
+    if (ctx.logger.isEnabled) ctx.logger.debug("oneClickDelete", message);
+  };
+
   const ensureOneClickDeleteStyle = () => {
     if (document.getElementById(ONE_CLICK_DELETE_STYLE_ID)) return;
     const st = document.createElement("style");
@@ -669,7 +751,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     ensureNativeDotsMark(btn);
   };
 
-  const runOneClickDeleteFlow = async (btn: HTMLElement) => {
+  const runOneClickDeleteUiFlow = async (btn: HTMLElement) => {
     try {
       setSilentDeleteMode(true);
       ctx.helpers.humanClick(btn, "oneclick-delete-open-menu");
@@ -724,7 +806,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     }
   };
 
-  const runOneClickArchiveFlow = async (btn: HTMLElement) => {
+  const runOneClickArchiveUiFlow = async (btn: HTMLElement) => {
     try {
       setSilentDeleteMode(true);
       ctx.helpers.humanClick(btn, "oneclick-archive-open-menu");
@@ -797,6 +879,38 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       await new Promise((resolve) => setTimeout(resolve, 120));
       setSilentDeleteMode(false);
     }
+  };
+
+  const runOneClickDeleteFlow = async (btn: HTMLElement) => {
+    const row = findChatRowFromOptionsButton(btn);
+    if (!row) return;
+
+    const directResult = await directDeleteConversationFromRow(row);
+    if (directResult.ok) {
+      logDebug("direct delete patch ok");
+      return;
+    }
+    if (directResult.attempted) {
+      logDebug("direct patch failed, fallback to UI");
+    }
+
+    await runOneClickDeleteUiFlow(btn);
+  };
+
+  const runOneClickArchiveFlow = async (btn: HTMLElement) => {
+    const row = findChatRowFromOptionsButton(btn);
+    if (!row) return;
+
+    const directResult = await directArchiveConversationFromRow(row);
+    if (directResult.ok) {
+      logDebug("direct archive patch ok");
+      return;
+    }
+    if (directResult.attempted) {
+      logDebug("direct patch failed, fallback to UI");
+    }
+
+    await runOneClickArchiveUiFlow(btn);
   };
 
   const handlePointerDown = (ev: PointerEvent) => {
