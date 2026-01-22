@@ -8,6 +8,7 @@ const ONE_CLICK_DELETE_STYLE_ID = "cgptbe-silent-delete-style";
 const ONE_CLICK_DELETE_ROOT_FLAG = "data-cgptbe-silent-delete";
 const ONE_CLICK_DELETE_BUTTON_SELECTOR =
   'button[data-testid^="history-item-"][data-testid$="-options"]';
+const ONE_CLICK_DELETE_TOMBSTONES_KEY = "cgptbe-tombstones";
 
 const ONE_CLICK_DELETE_BTN_H = 36;
 const ONE_CLICK_DELETE_BTN_W = 118;
@@ -23,6 +24,33 @@ const ONE_CLICK_DELETE_UNDO_TOTAL_MS = 5000;
 const ONE_CLICK_DELETE_TOOLTIP = "Click to delete";
 const ONE_CLICK_DELETE_ARCHIVE_TOOLTIP = "Archive";
 const CHAT_CONVERSATION_ID_REGEX = /\/c\/([^/?#]+)/;
+
+const readTombstones = () => {
+  try {
+    const raw = sessionStorage.getItem(ONE_CLICK_DELETE_TOMBSTONES_KEY);
+    if (!raw) return [] as string[];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [] as string[];
+    return parsed.filter((id) => typeof id === "string");
+  } catch {
+    return [] as string[];
+  }
+};
+
+const writeTombstones = (ids: string[]) => {
+  try {
+    sessionStorage.setItem(ONE_CLICK_DELETE_TOMBSTONES_KEY, JSON.stringify(ids));
+  } catch {
+    // ignore
+  }
+};
+
+const rememberTombstone = (conversationId: string) => {
+  const existing = readTombstones();
+  if (existing.includes(conversationId)) return;
+  existing.push(conversationId);
+  writeTombstones(existing);
+};
 
 export const extractConversationIdFromRow = (row: HTMLElement | null): string | null => {
   if (!row) return null;
@@ -87,7 +115,10 @@ export const directDeleteConversationFromRow = async (
   const conversationId = extractConversationIdFromRow(row);
   if (!conversationId) return { attempted: false, ok: false };
   const ok = await patchConversation(conversationId, { is_visible: false });
-  if (ok && row.isConnected) row.remove();
+  if (ok) {
+    rememberTombstone(conversationId);
+    if (row.isConnected) row.remove();
+  }
   return { attempted: true, ok };
 };
 
@@ -97,7 +128,10 @@ export const directArchiveConversationFromRow = async (
   const conversationId = extractConversationIdFromRow(row);
   if (!conversationId) return { attempted: false, ok: false };
   const ok = await patchConversation(conversationId, { is_archived: true });
-  if (ok && row.isConnected) row.remove();
+  if (ok) {
+    rememberTombstone(conversationId);
+    if (row.isConnected) row.remove();
+  }
   return { attempted: true, ok };
 };
 
@@ -429,15 +463,19 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   const state: {
     started: boolean;
     observer: MutationObserver | null;
+    tombstoneObserver: MutationObserver | null;
     intervalId: number | null;
     pendingByRow: Map<HTMLElement, PendingAction>;
     deleteQueue: Promise<void>;
+    tombstoneRoot: HTMLElement | null;
   } = {
     started: false,
     observer: null,
+    tombstoneObserver: null,
     intervalId: null,
     pendingByRow: new Map(),
-    deleteQueue: Promise.resolve()
+    deleteQueue: Promise.resolve(),
+    tombstoneRoot: null
   };
 
   const enqueueDelete = (job: () => Promise<void>) => {
@@ -583,6 +621,36 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   const findChatRowFromOptionsButton = (btn: HTMLElement) => {
     const row = btn.closest<HTMLElement>(".group.__menu-item.hoverable");
     return row ?? null;
+  };
+
+  const removeTombstonedRows = (root: Document | Element = document) => {
+    const tombstones = new Set(readTombstones());
+    if (tombstones.size === 0) return;
+    const rows = qsa<HTMLElement>(".group.__menu-item.hoverable", root);
+    for (const row of rows) {
+      const conversationId = extractConversationIdFromRow(row);
+      if (conversationId && tombstones.has(conversationId) && row.isConnected) {
+        row.remove();
+      }
+    }
+  };
+
+  const findChatListRoot = () => {
+    const row = document.querySelector<HTMLElement>(".group.__menu-item.hoverable");
+    if (row?.parentElement) return row.parentElement;
+    const nav = document.querySelector<HTMLElement>('nav[aria-label*="chat" i]');
+    if (nav) return nav;
+    return document.body;
+  };
+
+  const ensureTombstoneObserver = () => {
+    const root = findChatListRoot();
+    if (root === state.tombstoneRoot && state.tombstoneObserver) return;
+    state.tombstoneObserver?.disconnect();
+    state.tombstoneRoot = root;
+    state.tombstoneObserver = new MutationObserver(() => removeTombstonedRows(root));
+    state.tombstoneObserver.observe(root, { childList: true, subtree: true });
+    removeTombstonedRows(root);
   };
 
   const applyRowTypographyVars = (row: HTMLElement) => {
@@ -953,6 +1021,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     const btns = qsa<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
     for (const btn of btns) hookOneClickDeleteButton(btn);
     cleanupDetachedPendingRows();
+    ensureTombstoneObserver();
   };
 
   const startOneClickDelete = () => {
@@ -990,6 +1059,11 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       state.observer.disconnect();
       state.observer = null;
     }
+    if (state.tombstoneObserver) {
+      state.tombstoneObserver.disconnect();
+      state.tombstoneObserver = null;
+    }
+    state.tombstoneRoot = null;
 
     clearOneClickDeleteButtons();
     removeOneClickDeleteStyle();

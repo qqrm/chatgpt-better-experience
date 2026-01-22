@@ -41,6 +41,7 @@ const DEFAULT_CONFIG: DictationConfig = {
   logClicks: true
 };
 const DICTATION_COOLDOWN_MS = 400;
+const AUTO_SEND_COOLDOWN_MS = 2000;
 
 export function shouldAutoSendFromSubmitClick(e: Pick<MouseEvent, "isTrusted" | "detail"> | null) {
   if (!e?.isTrusted) return false;
@@ -53,9 +54,29 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   let inFlight = false;
   let transcribeHookInstalled = false;
   let lastDictationToggleAt = 0;
+  let lastState: DictationUiState = "NONE";
+  let lastStateChangedAt = performance.now();
+  let lastSubmitSeenAt = 0;
+  let lastAutoSendTriggeredAt = 0;
+  let lastShiftCancelAt = 0;
+  let lastTranscribeCompleteAt = 0;
+  let lastTranscriptId = "";
 
-  const tmLog = (scope: string, msg: string, fields?: LogFields) => {
-    ctx.logger.debug(scope, msg, fields);
+  let composerFooterObserver: MutationObserver | null = null;
+  let composerRootObserver: MutationObserver | null = null;
+  let composerFooterNode: HTMLElement | null = null;
+
+  const tmLog = (msg: string, fields?: LogFields) => {
+    const input = readInputText();
+    const payload = {
+      state: getDictationUiState(),
+      inputLen: input.text.length,
+      preview: short(input.text),
+      transcriptId: lastTranscriptId || undefined,
+      transcribeCompleteAt: lastTranscribeCompleteAt || undefined,
+      ...fields
+    };
+    console.debug("[cgptbe][dictation]", msg, payload);
   };
 
   const qs = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
@@ -531,13 +552,13 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   const triggerDictationToggle = async () => {
     const btn = await waitForDictationButton(1500);
     if (!btn) {
-      tmLog("KEY", "dictation button not found");
+      tmLog("dictation button not found");
       return false;
     }
-    tmLog("KEY", "dictation button found");
+    tmLog("dictation button found", { btn: describeEl(btn) });
     btn.click();
     lastDictationToggleAt = performance.now();
-    tmLog("KEY", "dictation button clicked");
+    tmLog("dictation button clicked", { btn: describeEl(btn) });
     return true;
   };
 
@@ -562,12 +583,12 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     const stopBtn = findStopGeneratingButton();
     if (!stopBtn) return true;
 
-    tmLog("SEND", "stop generating before send", { btn: describeEl(stopBtn) });
+    tmLog("stop generating before send", { btn: describeEl(stopBtn) });
     ctx.helpers.humanClick(stopBtn, "stop generating");
 
     const ok = await ensureNotGenerating(timeoutMs);
     if (!ok) {
-      tmLog("SEND", "stop generating timeout");
+      tmLog("stop generating timeout");
     }
     return ok;
   };
@@ -580,7 +601,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       let lastText = first.text;
       let lastChangeAt = performance.now();
 
-      tmLog("WAIT", "waitForFinalText start", {
+      tmLog("waitForFinalText start", {
         timeoutMs,
         quietMs,
         inputFound: first.ok,
@@ -598,7 +619,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         if (v !== lastText) {
           lastText = v;
           lastChangeAt = performance.now();
-          tmLog("WAIT", "input changed", {
+          tmLog("input changed", {
             inputFound: cur.ok,
             inputKind: cur.kind,
             len: v.length,
@@ -611,7 +632,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         const hasText = v.trim().length > 0;
 
         if (hasText && stableForMs >= quietMs) {
-          tmLog("WAIT", "final text stable", {
+          tmLog("final text stable", {
             stableForMs,
             changed: true,
             finalLen: v.length,
@@ -623,7 +644,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         }
 
         if (performance.now() - t0 > timeoutMs) {
-          tmLog("WAIT", "final text timeout", {
+          tmLog("final text timeout", {
             changed: v.trim().length > 0,
             snapshotLen: (snapshot || "").length,
             finalLen: v.length,
@@ -646,11 +667,11 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
     const btn = findSendButton();
     if (!btn) {
-      tmLog("SEND", "send button not found");
+      tmLog("send button not found");
       return false;
     }
     if (isDisabled(btn)) {
-      tmLog("SEND", "send button disabled", { btn: describeEl(btn) });
+      tmLog("send button disabled", { btn: describeEl(btn) });
       return false;
     }
 
@@ -664,7 +685,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       const ack = cleared || !!stopGen;
 
       if (ack) {
-        tmLog("SEND", "ack ok", {
+        tmLog("ack ok", {
           ok: true,
           changed: cur !== before,
           len: cur.length,
@@ -677,7 +698,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     }
 
     const cur = readInputText().text;
-    tmLog("SEND", "ack timeout", {
+    tmLog("ack timeout", {
       ok: false,
       changed: cur !== before,
       len: cur.length,
@@ -686,13 +707,13 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     return false;
   };
 
-  const runFlowAfterSubmitClick = async (
-    submitBtnDesc: string,
+  const runAutoSendFlow = async (
+    trigger: string,
     snapshotOverride?: string,
     initialShiftHeld = false
   ) => {
     if (inFlight) {
-      tmLog("FLOW", "skip: inFlight already true");
+      tmLog("skip: inFlight already true", { reason: trigger });
       return;
     }
     inFlight = true;
@@ -700,22 +721,22 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     const handleShiftKey = (event: KeyboardEvent) => {
       if (event.key === "Shift") {
         cancelByShift = true;
-        tmLog("FLOW", "shift cancel received");
+        tmLog("shift cancel received", { reason: trigger });
       }
     };
     window.addEventListener("keydown", handleShiftKey, true);
 
     try {
       if (!cfg.autoSendEnabled) {
-        tmLog("FLOW", "auto-send disabled");
+        tmLog("auto-send disabled", { reason: trigger });
         return;
       }
 
       const snap = readInputText();
       const snapshot = snapshotOverride ?? snap.text;
 
-      tmLog("FLOW", "submit click flow start", {
-        btn: submitBtnDesc,
+      tmLog("auto-send flow start", {
+        reason: trigger,
         inputFound: snap.ok,
         inputKind: snap.kind,
         snapshotLen: snapshot.length,
@@ -730,41 +751,42 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       });
 
       if (!finalRes.ok) {
-        tmLog("FLOW", "no stable final text, abort");
+        tmLog("no stable final text, abort", { reason: trigger });
         return;
       }
 
       if ((finalRes.text || "").trim().length === 0) {
-        tmLog("FLOW", "final text empty, abort");
+        tmLog("final text empty, abort", { reason: trigger });
         return;
       }
 
       if (cancelByShift) {
-        tmLog("FLOW", "send skipped by shift");
+        tmLog("send skipped by shift", { reason: trigger });
         return;
       }
 
       const okGen = await stopGeneratingIfPossible(20000);
       if (!okGen) {
-        tmLog("FLOW", "abort: still generating");
+        tmLog("abort: still generating", { reason: trigger });
         return;
       }
 
       if (cancelByShift) {
-        tmLog("FLOW", "send skipped by shift");
+        tmLog("send skipped by shift", { reason: trigger });
         return;
       }
 
       const ok1 = await clickSendWithAck();
-      tmLog("FLOW", "send result", { ok: ok1 });
+      tmLog("send result", { ok: ok1, reason: trigger });
     } catch (e) {
-      tmLog("ERR", "flow exception", {
+      tmLog("flow exception", {
+        reason: trigger,
         preview: String((e && (e as Error).stack) || (e as Error).message || e)
       });
     } finally {
       window.removeEventListener("keydown", handleShiftKey, true);
       inFlight = false;
-      tmLog("FLOW", "submit click flow end");
+      tmLog("auto-send flow end", { reason: trigger });
     }
   };
 
@@ -782,7 +804,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       ).browser?.runtime;
 
     if (!runtime?.getURL) {
-      tmLog("TRANSCRIBE", "runtime.getURL not available");
+      tmLog("runtime.getURL not available");
       return;
     }
 
@@ -812,7 +834,15 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     if (!data.type || !data.id) return;
 
     if (data.type === "start") return;
-    if (data.type === "complete") return;
+    if (data.type === "complete") {
+      lastTranscribeCompleteAt = performance.now();
+      lastTranscriptId = data.id;
+      tmLog("transcribe complete", {
+        reason: "transcribe",
+        transcriptId: data.id,
+        completeAt: lastTranscribeCompleteAt
+      });
+    }
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -821,6 +851,11 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     }
 
     const submitDictationVisible = getDictationUiState() === "SUBMIT";
+
+    if (e.key === "Shift" && submitDictationVisible) {
+      lastShiftCancelAt = performance.now();
+      tmLog("shift cancel recorded", { reason: "shift" });
+    }
 
     // Пока видна галочка "принять диктовку", пробел не должен ничего нажимать
     if (e.code === "Space" && !e.ctrlKey && !e.metaKey && submitDictationVisible) {
@@ -834,50 +869,37 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
       const submitBtn = findSubmitDictationButton();
       if (submitBtn) {
-        tmLog("KEY", "ctrl-enter: submit dictation");
+        tmLog("ctrl-enter: submit dictation", { btn: describeEl(submitBtn) });
         ctx.helpers.humanClick(submitBtn, "submit-dictation");
       } else {
-        tmLog("KEY", "ctrl-enter: submit button not found");
+        tmLog("ctrl-enter: submit button not found", { reason: "ctrl-enter" });
       }
-
-      if (!cfg.autoSendEnabled) {
-        tmLog("FLOW", "ctrl-enter: auto-send disabled");
-        return;
-      }
-
-      void (async () => {
-        if (!isCodexPath(location.pathname) || cfg.allowAutoSendInCodex) {
-          await runFlowAfterSubmitClick("ctrl-enter dictation submit", undefined, false);
-        } else {
-          tmLog("FLOW", "ctrl-enter: auto-send skipped on Codex path");
-        }
-      })();
       return;
     }
 
     if (isDictationHotkey(e)) {
-      tmLog("KEY", "dictation hotkey received");
+      tmLog("dictation hotkey received");
       if (!ctx.settings.startDictation) return;
       if (!isSafeToTriggerDictation()) {
-        tmLog("KEY", "dictation blocked by focus");
+        tmLog("dictation blocked by focus");
         return;
       }
 
       swallowKeyEvent(e);
 
       if (e.repeat) {
-        tmLog("KEY", "dictation hotkey repeat ignored");
+        tmLog("dictation hotkey repeat ignored");
         return;
       }
       if (performance.now() - lastDictationToggleAt < DICTATION_COOLDOWN_MS) {
-        tmLog("KEY", "dictation cooldown active");
+        tmLog("dictation cooldown active");
         return;
       }
 
       // Если сейчас открыт UI подтверждения диктовки, Ctrl+Space завершает диктовку через галочку
       const submitBtn = findSubmitDictationButton();
       if (submitBtn) {
-        tmLog("KEY", "dictation submit via hotkey", { btn: describeEl(submitBtn) });
+        tmLog("dictation submit via hotkey", { btn: describeEl(submitBtn) });
         ctx.helpers.humanClick(submitBtn, "submit dictation via hotkey");
         return;
       }
@@ -897,9 +919,9 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
     const btnDesc = describeEl(btn);
 
-    if (cfg.logClicks && isInterestingButton(btn)) {
+    if (isInterestingButton(btn)) {
       const cur = readInputText();
-      tmLog("CLICK", "button click", {
+      tmLog("button click", {
         btn: btnDesc,
         inputFound: cur.ok,
         inputKind: cur.kind,
@@ -917,27 +939,9 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       lastDictationToggleAt = performance.now();
     }
 
-    const dictationState = getDictationUiState();
-    const submitBtn = dictationState === "SUBMIT" ? findSubmitDictationButton() : null;
-    const isSubmitClick =
-      dictationState === "SUBMIT" &&
-      btn instanceof HTMLElement &&
-      (btn === submitBtn || isSubmitDictationButton(btn));
-
-    if (isSubmitClick) {
-      // Автосенд только для настоящего клика мышью по галочке
-      if (!shouldAutoSendFromSubmitClick(e) || !cfg.autoSendEnabled) {
-        tmLog("FLOW", "submit dictation click ignored: not mouse click", { btn: btnDesc });
-        return;
-      }
-
-      void (async () => {
-        if (!isCodexPath(location.pathname) || cfg.allowAutoSendInCodex) {
-          await runFlowAfterSubmitClick(btnDesc, undefined, e.shiftKey);
-        } else {
-          tmLog("FLOW", "auto-send skipped on Codex path");
-        }
-      })();
+    if (btn instanceof HTMLElement && isSubmitDictationButton(btn)) {
+      lastSubmitSeenAt = performance.now();
+      tmLog("submit dictation click observed", { btn: btnDesc, reason: "click" });
     }
   };
 
@@ -948,7 +952,114 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
   installTranscribeHook();
 
-  tmLog("BOOT", "dictation auto-send init", { preview: location.href });
+  const findComposerFooter = () =>
+    document.querySelector<HTMLElement>('[data-testid="composer-footer-actions"]');
+
+  const observeComposerFooter = () => {
+    const footer = findComposerFooter();
+    if (!footer) {
+      tmLog("composer footer not found", { reason: "observe" });
+      return;
+    }
+    if (composerFooterObserver && composerFooterNode === footer) return;
+    composerFooterObserver?.disconnect();
+    composerFooterNode = footer;
+    composerFooterObserver = new MutationObserver(() => {
+      handleStateObservation("mutation");
+    });
+    composerFooterObserver.observe(footer, {
+      childList: true,
+      subtree: true,
+      attributes: true
+    });
+    handleStateObservation("observer-init");
+  };
+
+  const ensureComposerFooterObserver = () => {
+    const footer = findComposerFooter();
+    if (footer && footer !== composerFooterNode) {
+      observeComposerFooter();
+    }
+  };
+
+  function handleStateObservation(reason: string) {
+    const now = performance.now();
+    const state = getDictationUiState();
+    if (state === "SUBMIT") {
+      lastSubmitSeenAt = now;
+    }
+    tmLog("state observed", {
+      state,
+      reason,
+      lastSubmitSeenAt,
+      lastStateChangedAt
+    });
+
+    if (state === lastState) return;
+
+    const prevState = lastState;
+    const prevChangedAt = lastStateChangedAt;
+    lastState = state;
+    lastStateChangedAt = now;
+
+    if (state === "SUBMIT") {
+      lastShiftCancelAt = 0;
+    }
+
+    tmLog("state transition", {
+      state,
+      from: prevState,
+      to: state,
+      reason,
+      lastSubmitSeenAt
+    });
+
+    if (prevState === "SUBMIT" && state === "NONE") {
+      const elapsedSinceAutoSend = now - lastAutoSendTriggeredAt;
+      const cancelByShift = lastShiftCancelAt >= prevChangedAt;
+      const input = readInputText();
+      const hasText = input.text.trim().length > 0;
+
+      if (!cfg.autoSendEnabled) {
+        tmLog("auto-send skipped: disabled", { reason });
+        return;
+      }
+      if (!hasText) {
+        tmLog("auto-send skipped: empty input", { reason });
+        return;
+      }
+      if (cancelByShift) {
+        tmLog("auto-send skipped: shift cancel", { reason });
+        return;
+      }
+      if (elapsedSinceAutoSend < AUTO_SEND_COOLDOWN_MS) {
+        tmLog("auto-send skipped: cooldown", {
+          reason,
+          elapsedMs: Math.round(elapsedSinceAutoSend)
+        });
+        return;
+      }
+
+      if (isCodexPath(location.pathname) && !cfg.allowAutoSendInCodex) {
+        tmLog("auto-send skipped on Codex path", { reason });
+        return;
+      }
+
+      lastAutoSendTriggeredAt = now;
+      void runAutoSendFlow("submit->none transition", input.text, ctx.keyState.shift);
+    }
+  }
+
+  tmLog("dictation auto-send init", { reason: "init", preview: location.href });
+
+  observeComposerFooter();
+  composerRootObserver = new MutationObserver(() => {
+    ensureComposerFooterObserver();
+  });
+  composerRootObserver.observe(document.documentElement, {
+    childList: true,
+    subtree: true
+  });
 
   return {
     name: "dictationAutoSend",
@@ -956,10 +1067,12 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       window.removeEventListener("keydown", handleKeyDown, true);
       document.removeEventListener("click", handleClick, true);
       window.removeEventListener("message", handleTranscribeMessage);
+      composerFooterObserver?.disconnect();
+      composerRootObserver?.disconnect();
     },
     __test: {
       runAutoSendFlow: (snapshotOverride?: string, initialShiftHeld?: boolean) =>
-        runFlowAfterSubmitClick("test submit dictation", snapshotOverride, !!initialShiftHeld),
+        runAutoSendFlow("test submit dictation", snapshotOverride, !!initialShiftHeld),
       getDictationUiState: () => getDictationUiState(),
       findSubmitDictationButton: () => findSubmitDictationButton()
     },

@@ -66,6 +66,31 @@ const markVisible = (...elements: Array<Element | null>) => {
   }
 };
 
+const setupComposerFixture = () => {
+  const footer = document.createElement("div");
+  footer.setAttribute("data-testid", "composer-footer-actions");
+
+  const input = document.createElement("div");
+  input.id = "prompt-textarea";
+  input.setAttribute("contenteditable", "true");
+
+  const sendBtn = document.createElement("button");
+  sendBtn.setAttribute("data-testid", "send-button");
+
+  const submitBtn = document.createElement("button");
+  submitBtn.setAttribute("aria-label", "Done");
+  submitBtn.setAttribute("data-testid", "dictation-submit");
+
+  footer.appendChild(submitBtn);
+  footer.appendChild(sendBtn);
+  document.body.appendChild(input);
+  document.body.appendChild(footer);
+
+  markVisible(input, sendBtn, submitBtn, footer);
+
+  return { footer, input, sendBtn, submitBtn };
+};
+
 afterEach(() => {
   document.body.innerHTML = "";
   vi.useRealTimers();
@@ -74,57 +99,29 @@ afterEach(() => {
 describe("dictation auto-send", () => {
   const { initDictationAutoSendFeature, shouldAutoSendFromSubmitClick } = dictationAutoSend;
 
-  it("does not auto-send on transcribe complete messages", async () => {
+  it("auto-sends only on SUBMIT -> NONE, not on transcribe complete", async () => {
     const ctx = createContext({ autoSend: true });
+    const { input, sendBtn, submitBtn } = setupComposerFixture();
     const feature = initDictationAutoSendFeature(ctx);
 
-    let sendClicked = false;
-    const sendBtn = document.createElement("button");
-    sendBtn.setAttribute("data-testid", "send-button");
+    let sendClicked = 0;
     sendBtn.addEventListener("click", () => {
-      sendClicked = true;
+      sendClicked += 1;
+      input.textContent = "";
     });
-    document.body.appendChild(sendBtn);
 
     window.postMessage({ source: "tm-dictation-transcribe", type: "complete", id: "t-1" }, "*");
 
     await Promise.resolve();
 
-    expect(sendClicked).toBe(false);
-    feature.dispose();
-  });
+    expect(sendClicked).toBe(0);
 
-  it("does not auto-send on untrusted submit dictation click", async () => {
-    vi.useFakeTimers();
-    const ctx = createContext({ autoSend: true });
-    const feature = initDictationAutoSendFeature(ctx);
+    input.textContent = "Hello from dictation";
+    submitBtn.remove();
 
-    const input = document.createElement("div");
-    input.id = "prompt-textarea";
-    input.setAttribute("contenteditable", "true");
-    document.body.appendChild(input);
+    await new Promise((resolve) => setTimeout(resolve, 800));
 
-    let sendClicked = false;
-    const sendBtn = document.createElement("button");
-    sendBtn.setAttribute("data-testid", "send-button");
-    sendBtn.addEventListener("click", () => {
-      sendClicked = true;
-      input.textContent = "";
-    });
-    document.body.appendChild(sendBtn);
-
-    const submitBtn = document.createElement("button");
-    submitBtn.setAttribute("aria-label", "Submit dictation");
-    document.body.appendChild(submitBtn);
-
-    submitBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    setTimeout(() => {
-      input.textContent = "Hello from dictation";
-    }, 50);
-
-    await vi.advanceTimersByTimeAsync(1000);
-
-    expect(sendClicked).toBe(false);
+    expect(sendClicked).toBe(1);
     feature.dispose();
   });
 
@@ -148,109 +145,40 @@ describe("dictation auto-send", () => {
     feature.dispose();
   });
 
-  it("auto-sends when submit click flow runs", async () => {
+  it("auto-sends on SUBMIT -> NONE when input is non-empty", async () => {
     vi.useRealTimers();
     const ctx = createContext({ autoSend: true });
+    const { input, sendBtn, submitBtn } = setupComposerFixture();
     const feature = initDictationAutoSendFeature(ctx);
 
-    const input = document.createElement("div");
-    input.id = "prompt-textarea";
-    input.setAttribute("contenteditable", "true");
-    document.body.appendChild(input);
-
-    let sendClicked = false;
-    const sendBtn = document.createElement("button");
-    sendBtn.setAttribute("data-testid", "send-button");
+    let sendClicked = 0;
     sendBtn.addEventListener("click", () => {
-      sendClicked = true;
+      sendClicked += 1;
       input.textContent = "";
     });
-    document.body.appendChild(sendBtn);
 
-    setTimeout(() => {
-      input.textContent = "Hello from dictation";
-    }, 50);
-
-    await (
-      feature as {
-        __test?: {
-          runAutoSendFlow?: (
-            snapshotOverride?: string,
-            initialShiftHeld?: boolean
-          ) => Promise<void>;
-        };
-      }
-    ).__test?.runAutoSendFlow?.();
+    input.textContent = "Hello from dictation";
+    submitBtn.remove();
 
     await new Promise((resolve) => setTimeout(resolve, 800));
 
-    expect(sendClicked).toBe(true);
-    feature.dispose();
-  });
-
-  it("auto-sends even when text is already final at submit click time", async () => {
-    vi.useFakeTimers();
-    const ctx = createContext({ autoSend: true });
-    const feature = initDictationAutoSendFeature(ctx);
-
-    const input = document.createElement("div");
-    input.id = "prompt-textarea";
-    input.setAttribute("contenteditable", "true");
-    input.textContent = "Hello already final";
-    document.body.appendChild(input);
-
-    let sendClicked = false;
-    const sendBtn = document.createElement("button");
-    sendBtn.setAttribute("data-testid", "send-button");
-    sendBtn.addEventListener("click", () => {
-      sendClicked = true;
-      input.textContent = "";
-    });
-    document.body.appendChild(sendBtn);
-
-    const runFlow = (
-      feature as { __test?: { runAutoSendFlow?: (snapshotOverride?: string) => Promise<void> } }
-    ).__test?.runAutoSendFlow?.("Hello already final");
-
-    await vi.advanceTimersByTimeAsync(1000);
-    await runFlow;
-
-    expect(sendClicked).toBe(true);
+    expect(sendClicked).toBe(1);
     feature.dispose();
   });
 
   it("does not auto-send when auto-send is disabled", async () => {
     vi.useRealTimers();
     const ctx = createContext({ autoSend: false });
+    const { input, sendBtn, submitBtn } = setupComposerFixture();
     const feature = initDictationAutoSendFeature(ctx);
 
-    const input = document.createElement("div");
-    input.id = "prompt-textarea";
-    input.setAttribute("contenteditable", "true");
-    document.body.appendChild(input);
-
     let sendClicked = false;
-    const sendBtn = document.createElement("button");
-    sendBtn.setAttribute("data-testid", "send-button");
     sendBtn.addEventListener("click", () => {
       sendClicked = true;
     });
-    document.body.appendChild(sendBtn);
 
-    setTimeout(() => {
-      input.textContent = "Hello from dictation";
-    }, 50);
-
-    await (
-      feature as {
-        __test?: {
-          runAutoSendFlow?: (
-            snapshotOverride?: string,
-            initialShiftHeld?: boolean
-          ) => Promise<void>;
-        };
-      }
-    ).__test?.runAutoSendFlow?.();
+    input.textContent = "Hello from dictation";
+    submitBtn.remove();
 
     await new Promise((resolve) => setTimeout(resolve, 200));
 
@@ -258,39 +186,22 @@ describe("dictation auto-send", () => {
     feature.dispose();
   });
 
-  it("skips auto-send when Shift was held at submit click time", async () => {
+  it("skips auto-send when Shift is pressed during SUBMIT", async () => {
     vi.useRealTimers();
     const ctx = createContext({ autoSend: true });
+    const { input, sendBtn, submitBtn } = setupComposerFixture();
     const feature = initDictationAutoSendFeature(ctx);
 
-    const input = document.createElement("div");
-    input.id = "prompt-textarea";
-    input.setAttribute("contenteditable", "true");
-    document.body.appendChild(input);
-
     let sendClicked = false;
-    const sendBtn = document.createElement("button");
-    sendBtn.setAttribute("data-testid", "send-button");
     sendBtn.addEventListener("click", () => {
       sendClicked = true;
       input.textContent = "";
     });
-    document.body.appendChild(sendBtn);
 
-    setTimeout(() => {
-      input.textContent = "Hello from dictation";
-    }, 50);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", bubbles: true }));
 
-    await (
-      feature as {
-        __test?: {
-          runAutoSendFlow?: (
-            snapshotOverride?: string,
-            initialShiftHeld?: boolean
-          ) => Promise<void>;
-        };
-      }
-    ).__test?.runAutoSendFlow?.(undefined, true);
+    input.textContent = "Hello from dictation";
+    submitBtn.remove();
 
     await new Promise((resolve) => setTimeout(resolve, 800));
 
@@ -298,47 +209,63 @@ describe("dictation auto-send", () => {
     feature.dispose();
   });
 
-  it("skips auto-send when Shift is pressed during stabilization after submit", async () => {
+  it("Ctrl+Enter in SUBMIT clicks submit button and auto-sends via transition", async () => {
     vi.useRealTimers();
     const ctx = createContext({ autoSend: true });
+    const { input, sendBtn, submitBtn } = setupComposerFixture();
     const feature = initDictationAutoSendFeature(ctx);
 
-    const input = document.createElement("div");
-    input.id = "prompt-textarea";
-    input.setAttribute("contenteditable", "true");
-    document.body.appendChild(input);
-
-    let sendClicked = false;
-    const sendBtn = document.createElement("button");
-    sendBtn.setAttribute("data-testid", "send-button");
+    let sendClicked = 0;
+    let submitClicked = 0;
     sendBtn.addEventListener("click", () => {
-      sendClicked = true;
+      sendClicked += 1;
       input.textContent = "";
     });
-    document.body.appendChild(sendBtn);
+    submitBtn.addEventListener("click", () => {
+      submitClicked += 1;
+      submitBtn.remove();
+    });
 
-    setTimeout(() => {
-      input.textContent = "Hello from dictation";
-    }, 50);
+    input.textContent = "Hello from dictation";
 
-    setTimeout(() => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", bubbles: true }));
-    }, 20);
-
-    await (
-      feature as {
-        __test?: {
-          runAutoSendFlow?: (
-            snapshotOverride?: string,
-            initialShiftHeld?: boolean
-          ) => Promise<void>;
-        };
-      }
-    ).__test?.runAutoSendFlow?.();
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true })
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 800));
 
-    expect(sendClicked).toBe(false);
+    expect(submitClicked).toBe(1);
+    expect(sendClicked).toBe(1);
+    feature.dispose();
+  });
+
+  it("prevents duplicate auto-send triggers on rapid SUBMIT -> NONE transitions", async () => {
+    vi.useRealTimers();
+    const ctx = createContext({ autoSend: true });
+    const { input, sendBtn, submitBtn, footer } = setupComposerFixture();
+    const feature = initDictationAutoSendFeature(ctx);
+
+    let sendClicked = 0;
+    sendBtn.addEventListener("click", () => {
+      sendClicked += 1;
+      input.textContent = "";
+    });
+
+    input.textContent = "First dictation";
+    submitBtn.remove();
+
+    await new Promise((resolve) => setTimeout(resolve, 900));
+
+    const nextSubmit = document.createElement("button");
+    nextSubmit.setAttribute("aria-label", "Done");
+    footer.prepend(nextSubmit);
+    markVisible(nextSubmit);
+    input.textContent = "Second dictation";
+    nextSubmit.remove();
+
+    await new Promise((resolve) => setTimeout(resolve, 900));
+
+    expect(sendClicked).toBe(1);
     feature.dispose();
   });
 
@@ -358,37 +285,8 @@ describe("dictation auto-send", () => {
     };
     const feature = initDictationAutoSendFeature(ctx);
 
-    const input = document.createElement("div");
-    input.id = "prompt-textarea";
-    input.setAttribute("contenteditable", "true");
-    input.getBoundingClientRect = () => ({
-      width: 10,
-      height: 10,
-      top: 0,
-      left: 0,
-      right: 10,
-      bottom: 10,
-      x: 0,
-      y: 0,
-      toJSON: () => ""
-    });
-    document.body.appendChild(input);
+    const { input } = setupComposerFixture();
     input.focus();
-
-    const submitBtn = document.createElement("button");
-    submitBtn.setAttribute("aria-label", "Submit dictation");
-    submitBtn.getBoundingClientRect = () => ({
-      width: 10,
-      height: 10,
-      top: 0,
-      left: 0,
-      right: 10,
-      bottom: 10,
-      x: 0,
-      y: 0,
-      toJSON: () => ""
-    });
-    document.body.appendChild(submitBtn);
 
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(1000);
 
@@ -412,37 +310,8 @@ describe("dictation auto-send", () => {
     };
     const feature = initDictationAutoSendFeature(ctx);
 
-    const input = document.createElement("div");
-    input.id = "prompt-textarea";
-    input.setAttribute("contenteditable", "true");
-    input.getBoundingClientRect = () => ({
-      width: 10,
-      height: 10,
-      top: 0,
-      left: 0,
-      right: 10,
-      bottom: 10,
-      x: 0,
-      y: 0,
-      toJSON: () => ""
-    });
-    document.body.appendChild(input);
+    const { input } = setupComposerFixture();
     input.focus();
-
-    const submitBtn = document.createElement("button");
-    submitBtn.setAttribute("aria-label", "Submit dictation");
-    submitBtn.getBoundingClientRect = () => ({
-      width: 10,
-      height: 10,
-      top: 0,
-      left: 0,
-      right: 10,
-      bottom: 10,
-      x: 0,
-      y: 0,
-      toJSON: () => ""
-    });
-    document.body.appendChild(submitBtn);
 
     feature.dispose();
 

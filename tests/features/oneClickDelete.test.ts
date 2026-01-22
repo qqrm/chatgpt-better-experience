@@ -53,6 +53,7 @@ const createContext = (overrides: Partial<Settings> = {}): FeatureContext => {
 afterEach(() => {
   document.body.innerHTML = "";
   vi.useRealTimers();
+  sessionStorage.clear();
 });
 
 describe("one-click delete styles", () => {
@@ -121,7 +122,9 @@ describe("one-click delete styles", () => {
 describe("one-click delete direct patch helpers", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   it("extracts conversation id from rows", () => {
@@ -277,5 +280,63 @@ describe("one-click delete direct patch helpers", () => {
     expect(result.attempted).toBe(true);
     expect(document.body.contains(row)).toBe(false);
     expect(document.documentElement.getAttribute("data-cgptbe-silent-delete")).toBeNull();
+  });
+
+  it("stores tombstones when direct delete succeeds", async () => {
+    const row = document.createElement("div");
+    row.className = "group __menu-item hoverable";
+    const link = document.createElement("a");
+    link.setAttribute("href", "/c/conv-1");
+    row.appendChild(link);
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo) => {
+      if (input === "/api/auth/session?unstable_client=true") {
+        return {
+          ok: true,
+          json: vi.fn().mockResolvedValue({ accessToken: "token-value" })
+        };
+      }
+      return { ok: true };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await directDeleteConversationFromRow(row);
+
+    expect(sessionStorage.getItem("cgptbe-tombstones")).toContain("conv-1");
+  });
+});
+
+describe("one-click delete tombstones", () => {
+  it("removes tombstoned rows on init and on mutations", async () => {
+    sessionStorage.setItem("cgptbe-tombstones", JSON.stringify(["conv-2"]));
+
+    const list = document.createElement("div");
+    const row = document.createElement("div");
+    row.className = "group __menu-item hoverable";
+    const link = document.createElement("a");
+    link.setAttribute("href", "/c/conv-2");
+    row.appendChild(link);
+    list.appendChild(row);
+    document.body.appendChild(list);
+
+    const ctx = createContext({ oneClickDelete: true });
+    const feature = initOneClickDeleteFeature(ctx);
+
+    await Promise.resolve();
+
+    expect(list.querySelector(".group.__menu-item.hoverable")).toBeNull();
+
+    const newRow = document.createElement("div");
+    newRow.className = "group __menu-item hoverable";
+    const newLink = document.createElement("a");
+    newLink.setAttribute("href", "/c/conv-2");
+    newRow.appendChild(newLink);
+    list.appendChild(newRow);
+
+    await Promise.resolve();
+
+    expect(list.querySelector(".group.__menu-item.hoverable")).toBeNull();
+
+    feature.dispose();
   });
 });
