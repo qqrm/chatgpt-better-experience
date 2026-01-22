@@ -722,13 +722,13 @@
       submitDictationBtn.addEventListener("click", () => {
         // Simulate the state when user accepted dictation.
         // The extension watches this click and then waits for stable final text.
-        setDictationUi(false);
         const value = state.nextDictationText || "Hello from mock dictation";
         state.nextDictationText = null;
         state.lastDictationText = value;
         setTimeout(() => {
           prompt.textContent = value;
           prompt.dispatchEvent(new Event("input", { bubbles: true }));
+          setDictationUi(false);
         }, 80);
       });
 
