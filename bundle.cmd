@@ -1,9 +1,9 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal EnableExtensions EnableDelayedExpansion
 
-rem Build a context bundle zip using git archive (tracked files only).
-rem Excludes automatically: .git
-rem Excludes by selection: icons (generated), node_modules, etc.
+rem Build bundle.zip from the current working tree (includes uncommitted changes).
+rem File list is produced by Git, so .gitignore is respected.
+rem Excludes: .git, target, and bundle.zip itself.
 
 for /f "usebackq delims=" %%R in (`git rev-parse --show-toplevel 2^>nul`) do set "REPO_ROOT=%%R"
 if "%REPO_ROOT%"=="" (
@@ -13,44 +13,38 @@ if "%REPO_ROOT%"=="" (
 
 pushd "%REPO_ROOT%" >nul
 
-for /f "usebackq delims=" %%H in (`git rev-parse --short HEAD 2^>nul`) do set "GIT_SHA=%%H"
-if "%GIT_SHA%"=="" set "GIT_SHA=unknown"
-
-for /f "usebackq delims=" %%T in (`powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd-HHmm"`) do set "TS=%%T"
-
-rem Output name: gpt-better-YYYY-MM-DD-HHMM-<sha>.zip
-set "OUT_NAME=gpt-better-%TS%-%GIT_SHA%.zip"
+set "OUT_NAME=bundle.zip"
 
 if exist "%OUT_NAME%" del /f /q "%OUT_NAME%" >nul 2>&1
 
-git archive --format=zip --output "%OUT_NAME%" HEAD ^
-  .github ^
-  .husky ^
-  icons-src ^
-  scripts ^
-  src ^
-  tests ^
-  .eslintignore ^
-  .eslintrc.cjs ^
-  .gitignore ^
-  .prettierignore ^
-  .prettierrc.json ^
-  AGENTS.md ^
-  amo-metadata.json ^
-  content.ts ^
-  LICENSE ^
-  manifest.json ^
-  package-lock.json ^
-  package.json ^
-  popup.html ^
-  popup.ts ^
-  README.md ^
-  settings.ts ^
-  tsconfig.json ^
-  vitest.config.ts
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ErrorActionPreference='Stop';" ^
+  "$root = (Resolve-Path -LiteralPath '%REPO_ROOT%').Path;" ^
+  "$out  = Join-Path $root '%OUT_NAME%';" ^
+  "Add-Type -AssemblyName System.IO.Compression;" ^
+  "Add-Type -AssemblyName System.IO.Compression.FileSystem;" ^
+  "if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Force }" ^
+  "" ^
+  "$zip = [System.IO.Compression.ZipFile]::Open($out, [System.IO.Compression.ZipArchiveMode]::Create);" ^
+  "try {" ^
+  "  $gitFiles = git -C $root ls-files -co --exclude-standard | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' };" ^
+  "  foreach ($rel in $gitFiles) {" ^
+  "    $relNorm = $rel -replace '/', '\';" ^
+  "" ^
+  "    if ($relNorm -match '^(?:\.git\\|target\\)') { continue }" ^
+  "    if ($relNorm -ieq '%OUT_NAME%') { continue }" ^
+  "" ^
+  "    $full = Join-Path $root $relNorm;" ^
+  "    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }" ^
+  "" ^
+  "    [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(" ^
+  "      $zip, $full, $relNorm, [System.IO.Compression.CompressionLevel]::Optimal" ^
+  "    ) | Out-Null;" ^
+  "  }" ^
+  "} finally { $zip.Dispose() }"
 
 if errorlevel 1 (
-  echo ERROR: git archive failed
+  echo ERROR: bundle build failed
   popd >nul
   exit /b 1
 )
