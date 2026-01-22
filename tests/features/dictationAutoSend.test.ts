@@ -112,11 +112,14 @@ describe("dictation auto-send", () => {
 
     window.postMessage({ source: "tm-dictation-transcribe", type: "complete", id: "t-1" }, "*");
 
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(sendClicked).toBe(0);
 
+    await new Promise((resolve) => setTimeout(resolve, 2100));
+
     input.textContent = "Hello from dictation";
+    await new Promise((resolve) => setTimeout(resolve, 0));
     submitBtn.remove();
 
     await new Promise((resolve) => setTimeout(resolve, 800));
