@@ -828,6 +828,33 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       return;
     }
 
+    // Пока видна галочка "принять диктовку", Ctrl+Enter должен принять диктовку и отправить сообщение
+    if (submitDictationVisible && (e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      swallowKeyEvent(e);
+
+      const submitBtn = findSubmitDictationButton();
+      if (submitBtn) {
+        tmLog("KEY", "ctrl-enter: submit dictation");
+        ctx.helpers.humanClick(submitBtn, "submit-dictation");
+      } else {
+        tmLog("KEY", "ctrl-enter: submit button not found");
+      }
+
+      if (!cfg.autoSendEnabled) {
+        tmLog("FLOW", "ctrl-enter: auto-send disabled");
+        return;
+      }
+
+      void (async () => {
+        if (!isCodexPath(location.pathname) || cfg.allowAutoSendInCodex) {
+          await runFlowAfterSubmitClick("ctrl-enter dictation submit", undefined, false);
+        } else {
+          tmLog("FLOW", "ctrl-enter: auto-send skipped on Codex path");
+        }
+      })();
+      return;
+    }
+
     if (isDictationHotkey(e)) {
       tmLog("KEY", "dictation hotkey received");
       if (!ctx.settings.startDictation) return;
@@ -892,7 +919,12 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
     const dictationState = getDictationUiState();
     const submitBtn = dictationState === "SUBMIT" ? findSubmitDictationButton() : null;
-    if (submitBtn && btn === submitBtn) {
+    const isSubmitClick =
+      dictationState === "SUBMIT" &&
+      btn instanceof HTMLElement &&
+      (btn === submitBtn || isSubmitDictationButton(btn));
+
+    if (isSubmitClick) {
       // Автосенд только для настоящего клика мышью по галочке
       if (!shouldAutoSendFromSubmitClick(e) || !cfg.autoSendEnabled) {
         tmLog("FLOW", "submit dictation click ignored: not mouse click", { btn: btnDesc });
