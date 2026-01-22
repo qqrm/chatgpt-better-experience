@@ -337,7 +337,9 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
   const handleKeyDown = (e: KeyboardEvent) => {
     if (!ctx.settings.ctrlEnterSends) return;
     if (e.defaultPrevented) return;
-    if (e.isComposing) return;
+    // During voice dictation/transcription, browsers can mark keydown events as composing.
+    // We still want Ctrl+Enter to work in that state.
+    if (e.isComposing && !(e.ctrlKey || e.metaKey)) return;
     if (e.key !== "Enter") return;
 
     const shouldSend = e.ctrlKey || e.metaKey;

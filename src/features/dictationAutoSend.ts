@@ -176,6 +176,17 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     if (a === "submit" || a === "done" || t === "done" || txt === "done") {
       if (btn.classList.contains("composer-submit-btn")) return false;
       if (hasDictationButtonNearby(btn)) return true;
+
+      // ChatGPT UI can temporarily replace the dictation toggle with submit/cancel buttons,
+      // so the "near dictation button" heuristic may fail. Treat Submit/Done as dictation
+      // submit when the button is part of the composer UI.
+      const promptEl =
+        document.getElementById("prompt-textarea") ||
+        document.querySelector('[data-testid="prompt-textarea"]');
+      const parentForm = btn.closest("form");
+      const inComposerFooter = !!btn.closest('[data-testid="composer-footer-actions"]');
+      const inComposerForm = !!(promptEl && parentForm && parentForm.contains(promptEl));
+      if (inComposerFooter || inComposerForm) return true;
     }
 
     if (a.includes("submit dictation")) return true;
@@ -477,7 +488,6 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         if (b === findSendButton()) continue;
         if (!isSubmitDictationButton(b)) continue;
         if (isSendButton(b)) continue;
-        if (!hasDictationButtonNearby(b)) continue;
         if (!isVisible(b)) continue;
         return b;
       }
