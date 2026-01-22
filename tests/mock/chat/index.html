@@ -788,11 +788,18 @@
         const value = detail.text || "Hello from mock dictation";
         state.lastDictationText = value;
         state.nextDictationText = value;
+
         state.dictationEventCount += 1;
         $("#dictationEventCount").textContent = String(state.dictationEventCount);
+
+        // Simulate dictation end: show submit button and notify transcribe listeners.
+        setDictationUi(false);
+        const id = `mock-${Date.now()}`;
+        window.postMessage({ source: "tm-dictation-transcribe", type: "complete", id }, "*");
       });
 
-      renderChats();
+
+renderChats();
       prompt.focus();
     </script>
   </body>
