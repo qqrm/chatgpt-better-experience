@@ -1,6 +1,10 @@
 name: firefox-amo-sign
 
 on:
+  push:
+    branches:
+      - main
+      - dev
   pull_request:
     types:
       - closed
@@ -9,7 +13,7 @@ on:
 jobs:
   sign-and-submit:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true }}
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true }}
     concurrency:
       group: ${{ github.workflow }}-${{ github.sha }}
       cancel-in-progress: true
@@ -17,6 +21,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
