@@ -598,9 +598,9 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
         const stableForMs = (performance.now() - lastChangeAt) | 0;
 
-        const changed = snapshot && snapshot.length > 0 ? v !== snapshot : v.trim().length > 0;
+        const hasText = v.trim().length > 0;
 
-        if (changed && stableForMs >= quietMs) {
+        if (hasText && stableForMs >= quietMs) {
           tmLog("WAIT", "final text stable", {
             stableForMs,
             changed: true,
@@ -614,7 +614,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
         if (performance.now() - t0 > timeoutMs) {
           tmLog("WAIT", "final text timeout", {
-            changed: snapshot && snapshot.length > 0 ? v !== snapshot : v.trim().length > 0,
+            changed: v.trim().length > 0,
             snapshotLen: (snapshot || "").length,
             finalLen: v.length,
             inputFound: cur.ok,
