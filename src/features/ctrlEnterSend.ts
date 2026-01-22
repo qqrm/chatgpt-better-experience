@@ -220,6 +220,32 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       tick();
     });
 
+  const waitForSendButtonReady = (
+    composer: ComposerInput,
+    timeoutMs: number,
+    pollMs: number
+  ): Promise<HTMLElement | null> =>
+    new Promise((resolve) => {
+      const t0 = performance.now();
+
+      const tick = () => {
+        const btn = findSendButton(composer);
+        if (btn && !isDisabled(btn)) {
+          resolve(btn);
+          return;
+        }
+
+        if (performance.now() - t0 >= timeoutMs) {
+          resolve(null);
+          return;
+        }
+
+        setTimeout(tick, pollMs);
+      };
+
+      tick();
+    });
+
   const stopEvent = (e: Event) => {
     e.preventDefault();
     e.stopPropagation();
@@ -266,11 +292,13 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       if (submitBtnBefore) {
         ctx.logger.debug("KEY", "CTRL+ENTER submit dictation");
         submitBtnBefore.click();
-        await waitForInputToStabilize(target, 1500, 250);
-        const sendBtn = findSendButton(target);
-        if (sendBtn && !isDisabled(sendBtn)) {
+        await waitForInputToStabilize(target, 2500, 250);
+        const sendBtn = await waitForSendButtonReady(target, 4000, 60);
+        if (sendBtn) {
           ctx.logger.debug("KEY", "CTRL+ENTER send");
           sendBtn.click();
+        } else {
+          ctx.logger.debug("KEY", "send button not ready");
         }
         return;
       }
@@ -279,17 +307,19 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       if (stopBtn) {
         ctx.logger.debug("KEY", "CTRL+ENTER stop dictation");
         stopBtn.click();
-        await waitForInputToStabilize(target, 1500, 250);
+        await waitForInputToStabilize(target, 2500, 250);
         const submitBtnAfter = findSubmitDictationButton();
         if (submitBtnAfter) {
           ctx.logger.debug("KEY", "CTRL+ENTER submit dictation after stop");
           submitBtnAfter.click();
-          await waitForInputToStabilize(target, 1500, 250);
+          await waitForInputToStabilize(target, 2500, 250);
         }
-        const sendBtn = findSendButton(target);
-        if (sendBtn && !isDisabled(sendBtn)) {
+        const sendBtn = await waitForSendButtonReady(target, 4000, 60);
+        if (sendBtn) {
           ctx.logger.debug("KEY", "CTRL+ENTER send");
           sendBtn.click();
+        } else {
+          ctx.logger.debug("KEY", "send button not ready");
         }
         return;
       }
