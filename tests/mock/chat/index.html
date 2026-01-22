@@ -683,19 +683,33 @@
       const sendBtn = $("#sendBtn");
       const dictateBtn = $("#dictateBtn");
       const submitDictationBtn = $("#submitDictationBtn");
+      const actionsRow = document.querySelector(".row-actions");
       const dictationLabel = $("#dictationLabel");
       const pulse = $("#pulse");
+
+      const ensureSubmitButtonPresent = () => {
+        if (!actionsRow) return;
+        if (!submitDictationBtn.isConnected) {
+          actionsRow.insertBefore(submitDictationBtn, sendBtn);
+        }
+      };
+
+      const ensureSubmitButtonAbsent = () => {
+        if (submitDictationBtn.isConnected) {
+          submitDictationBtn.remove();
+        }
+      };
 
       const setDictationUi = (on) => {
         state.dictationActive = on;
         if (on) {
           dictationLabel.textContent = "Dictation recording";
           pulse.style.display = "inline-block";
-          submitDictationBtn.style.display = "inline-flex";
+          ensureSubmitButtonPresent();
         } else {
           dictationLabel.textContent = "Dictation idle";
           pulse.style.display = "none";
-          submitDictationBtn.style.display = "none";
+          ensureSubmitButtonAbsent();
         }
       };
 
@@ -705,6 +719,8 @@
         const next = Number(el.textContent || "0") + 1;
         el.textContent = String(next);
       };
+
+      setDictationUi(false);
 
       dictateBtn.addEventListener("click", () => {
         // Toggle dictation start or stop.
