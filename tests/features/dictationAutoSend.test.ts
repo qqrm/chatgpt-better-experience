@@ -188,6 +188,37 @@ describe("dictation auto-send", () => {
     feature.dispose();
   });
 
+  it("auto-sends even when text is already final at submit click time", async () => {
+    vi.useFakeTimers();
+    const ctx = createContext({ autoSend: true });
+    const feature = initDictationAutoSendFeature(ctx);
+
+    const input = document.createElement("div");
+    input.id = "prompt-textarea";
+    input.setAttribute("contenteditable", "true");
+    input.textContent = "Hello already final";
+    document.body.appendChild(input);
+
+    let sendClicked = false;
+    const sendBtn = document.createElement("button");
+    sendBtn.setAttribute("data-testid", "send-button");
+    sendBtn.addEventListener("click", () => {
+      sendClicked = true;
+      input.textContent = "";
+    });
+    document.body.appendChild(sendBtn);
+
+    const runFlow = (
+      feature as { __test?: { runAutoSendFlow?: (snapshotOverride?: string) => Promise<void> } }
+    ).__test?.runAutoSendFlow?.("Hello already final");
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await runFlow;
+
+    expect(sendClicked).toBe(true);
+    feature.dispose();
+  });
+
   it("does not auto-send when auto-send is disabled", async () => {
     vi.useRealTimers();
     const ctx = createContext({ autoSend: false });
