@@ -505,7 +505,6 @@
                   aria-label="Done"
                   data-testid="dictation-submit"
                   title="Done"
-                  style="display: none"
                 >
                   ✓
                 </button>
@@ -683,33 +682,19 @@
       const sendBtn = $("#sendBtn");
       const dictateBtn = $("#dictateBtn");
       const submitDictationBtn = $("#submitDictationBtn");
-      const actionsRow = document.querySelector(".row-actions");
       const dictationLabel = $("#dictationLabel");
       const pulse = $("#pulse");
-
-      const ensureSubmitButtonPresent = () => {
-        if (!actionsRow) return;
-        if (!submitDictationBtn.isConnected) {
-          actionsRow.insertBefore(submitDictationBtn, sendBtn);
-        }
-      };
-
-      const ensureSubmitButtonAbsent = () => {
-        if (submitDictationBtn.isConnected) {
-          submitDictationBtn.remove();
-        }
-      };
 
       const setDictationUi = (on) => {
         state.dictationActive = on;
         if (on) {
           dictationLabel.textContent = "Dictation recording";
           pulse.style.display = "inline-block";
-          ensureSubmitButtonPresent();
+          submitDictationBtn.style.display = "none";
         } else {
           dictationLabel.textContent = "Dictation idle";
           pulse.style.display = "none";
-          ensureSubmitButtonAbsent();
+          submitDictationBtn.style.display = "";
         }
       };
 
@@ -719,8 +704,6 @@
         const next = Number(el.textContent || "0") + 1;
         el.textContent = String(next);
       };
-
-      setDictationUi(false);
 
       dictateBtn.addEventListener("click", () => {
         // Toggle dictation start or stop.
@@ -745,7 +728,7 @@
         setTimeout(() => {
           prompt.textContent = value;
           prompt.dispatchEvent(new Event("input", { bubbles: true }));
-          setDictationUi(false);
+          submitDictationBtn.style.display = "none";
         }, 80);
       });
 
