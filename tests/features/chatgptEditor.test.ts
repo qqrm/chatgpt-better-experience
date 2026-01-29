@@ -22,6 +22,28 @@ describe("chatgpt editor helpers", () => {
     expect(found).toBe(save);
   });
 
+  it("finds a Send button inside edit forms even when type=submit is missing", () => {
+    const form = document.createElement("form");
+    const textarea = document.createElement("textarea");
+
+    const cancel = document.createElement("button");
+    cancel.textContent = "Cancel";
+    Object.defineProperty(cancel, "offsetParent", { value: document.body });
+
+    const send = document.createElement("button");
+    send.textContent = "Send";
+    // Important: ChatGPT edit UI can use a plain button without type=submit.
+    Object.defineProperty(send, "offsetParent", { value: document.body });
+
+    form.appendChild(textarea);
+    form.appendChild(cancel);
+    form.appendChild(send);
+    document.body.appendChild(form);
+
+    const found = findEditSubmitButton(textarea);
+    expect(found).toBe(send);
+  });
+
   it("prefers visible positive action buttons", () => {
     const container = document.createElement("div");
     const textarea = document.createElement("textarea");

@@ -5,6 +5,25 @@ import { isDisabled } from "../lib/utils";
 
 export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
   const norm = (value: string | null | undefined) => (value || "").trim().toLowerCase();
+  const isVisible = (btn: HTMLElement) => btn.offsetParent !== null;
+
+  const click = (el: HTMLElement | null, why: string) => {
+    const ok = ctx.helpers.humanClick(el, why);
+    if (!ok && el) {
+      try {
+        el.click();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return ok;
+  };
+
+  const readInputValue = (input: ComposerInput) => {
+    if (input instanceof HTMLTextAreaElement) return input.value || "";
+    return input.innerText || input.textContent || "";
+  };
 
   const findComposerInput = (): ComposerInput | null => {
     const selectors = [
@@ -77,18 +96,26 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       '[role="button"][aria-label="Submit"]',
       'button[aria-label*="Отправ" i]'
     ];
-    for (const selector of selectors) {
-      const btn = document.querySelector(selector);
-      if (btn instanceof HTMLElement && isVisible(btn)) return btn;
-    }
-    const form = composer?.closest("form");
-    if (!form) return null;
-    const submitBtn = form.querySelector('button[type="submit"], [role="button"][type="submit"]');
-    if (submitBtn instanceof HTMLElement && isVisible(submitBtn)) return submitBtn;
-    return null;
-  };
 
-  const isVisible = (btn: HTMLElement) => btn.offsetParent !== null;
+    const tryFindIn = (root: ParentNode): HTMLElement | null => {
+      for (const selector of selectors) {
+        const btn = root.querySelector(selector);
+        if (btn instanceof HTMLElement && isVisible(btn)) return btn;
+      }
+      return null;
+    };
+
+    const form = composer?.closest("form");
+    if (form) {
+      const inside = tryFindIn(form);
+      if (inside) return inside;
+
+      const submitBtn = form.querySelector('button[type="submit"], [role="button"][type="submit"]');
+      if (submitBtn instanceof HTMLElement && isVisible(submitBtn)) return submitBtn;
+    }
+
+    return tryFindIn(document);
+  };
 
   const isDictationStopButton = (btn: HTMLElement) => {
     const aria = norm(btn.getAttribute("aria-label"));
@@ -189,28 +216,60 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     return null;
   };
 
-  const waitForInputToStabilize = (input: ComposerInput, timeoutMs: number, quietMs: number) =>
-    new Promise<void>((resolve) => {
+  const waitForTextToChangeFrom = (
+    input: ComposerInput,
+    baseline: string,
+    timeoutMs: number,
+    pollMs: number,
+    onPoll?: () => void
+  ) =>
+    new Promise<boolean>((resolve) => {
       const t0 = performance.now();
-      const readInputValue = () =>
-        input instanceof HTMLTextAreaElement ? input.value : input.innerText || "";
-      let lastValue = readInputValue();
+      const tick = () => {
+        onPoll?.();
+        const cur = readInputValue(input);
+        if (cur !== baseline) {
+          resolve(true);
+          return;
+        }
+        if (performance.now() - t0 >= timeoutMs) {
+          resolve(false);
+          return;
+        }
+        setTimeout(tick, pollMs);
+      };
+      tick();
+    });
+
+  const waitForNonEmptyStableText = (
+    input: ComposerInput,
+    timeoutMs: number,
+    quietMs: number,
+    onPoll?: () => void
+  ) =>
+    new Promise<string>((resolve) => {
+      const t0 = performance.now();
+      let lastValue = readInputValue(input);
       let lastChangeAt = performance.now();
 
       const tick = () => {
-        const cur = readInputValue();
+        onPoll?.();
+        const cur = readInputValue(input);
         if (cur !== lastValue) {
           lastValue = cur;
           lastChangeAt = performance.now();
         }
 
-        if (performance.now() - lastChangeAt >= quietMs) {
-          resolve();
+        const stableForMs = performance.now() - lastChangeAt;
+        const hasText = cur.trim().length > 0;
+
+        if (hasText && stableForMs >= quietMs) {
+          resolve(cur);
           return;
         }
 
         if (performance.now() - t0 >= timeoutMs) {
-          resolve();
+          resolve(cur);
           return;
         }
 
@@ -246,6 +305,30 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       tick();
     });
 
+  const waitForFinalTranscribedText = async (input: ComposerInput, baseline: string) => {
+    let submitClicked = false;
+    const trySubmitDictation = () => {
+      if (submitClicked) return;
+      const btn = findSubmitDictationButton();
+      if (btn) {
+        const ok = click(btn, "submit-dictation-auto");
+        if (ok) submitClicked = true;
+      }
+    };
+
+    // Give UI a chance to swap buttons/state after stop/submit click.
+    await new Promise((r) => setTimeout(r, 80));
+    trySubmitDictation();
+
+    // If there was already text, give dictation some time to actually update it.
+    if (baseline.trim().length > 0) {
+      await waitForTextToChangeFrom(input, baseline, 4000, 80, trySubmitDictation);
+    }
+
+    // Wait for non-empty stable final text (covers transcription animation).
+    return await waitForNonEmptyStableText(input, 25000, 450, trySubmitDictation);
+  };
+
   const stopEvent = (e: Event) => {
     e.preventDefault();
     e.stopPropagation();
@@ -280,23 +363,26 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     setTimeout(() => {
       lastEnterShouldSend = false;
     }, 400);
+
     void (async () => {
       const editBtn = findEditSubmitButton(target);
       if (editBtn && !isDisabled(editBtn)) {
         ctx.logger.debug("KEY", "CTRL+ENTER apply edit");
-        editBtn.click();
+        click(editBtn, "apply-edit");
         return;
       }
+
+      const baseline = readInputValue(target);
 
       const submitBtnBefore = findSubmitDictationButton();
       if (submitBtnBefore) {
         ctx.logger.debug("KEY", "CTRL+ENTER submit dictation");
-        submitBtnBefore.click();
-        await waitForInputToStabilize(target, 2500, 250);
-        const sendBtn = await waitForSendButtonReady(target, 4000, 60);
+        click(submitBtnBefore, "submit-dictation");
+        await waitForFinalTranscribedText(target, baseline);
+        const sendBtn = await waitForSendButtonReady(target, 12000, 80);
         if (sendBtn) {
           ctx.logger.debug("KEY", "CTRL+ENTER send");
-          sendBtn.click();
+          click(sendBtn, "send");
         } else {
           ctx.logger.debug("KEY", "send button not ready");
         }
@@ -306,18 +392,12 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       const stopBtn = findDictationStopButton();
       if (stopBtn) {
         ctx.logger.debug("KEY", "CTRL+ENTER stop dictation");
-        stopBtn.click();
-        await waitForInputToStabilize(target, 2500, 250);
-        const submitBtnAfter = findSubmitDictationButton();
-        if (submitBtnAfter) {
-          ctx.logger.debug("KEY", "CTRL+ENTER submit dictation after stop");
-          submitBtnAfter.click();
-          await waitForInputToStabilize(target, 2500, 250);
-        }
-        const sendBtn = await waitForSendButtonReady(target, 4000, 60);
+        click(stopBtn, "stop-dictation");
+        await waitForFinalTranscribedText(target, baseline);
+        const sendBtn = await waitForSendButtonReady(target, 12000, 80);
         if (sendBtn) {
           ctx.logger.debug("KEY", "CTRL+ENTER send");
-          sendBtn.click();
+          click(sendBtn, "send");
         } else {
           ctx.logger.debug("KEY", "send button not ready");
         }
@@ -327,7 +407,7 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       const sendBtn = findSendButton(target);
       if (sendBtn && !isDisabled(sendBtn)) {
         ctx.logger.debug("KEY", "CTRL+ENTER send");
-        sendBtn.click();
+        click(sendBtn, "send");
       } else {
         ctx.logger.debug("KEY", "send button not found");
       }
