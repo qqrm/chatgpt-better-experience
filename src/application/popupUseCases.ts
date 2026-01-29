@@ -31,6 +31,7 @@ export interface PopupSettingsInput {
   allowAutoSendInCodex: boolean;
   editLastMessageOnArrowUp: boolean;
   autoExpandChats: boolean;
+  autoExpandProjects: boolean;
   autoTempChat: boolean;
   oneClickDelete: boolean;
   startDictation: boolean;

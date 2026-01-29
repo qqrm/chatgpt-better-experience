@@ -1,3 +1,5 @@
 dist/
+dist-chrome/
+dist-firefox/
 coverage/
 test-results/

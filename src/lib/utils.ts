@@ -68,6 +68,11 @@ export function normalizeSettings(data: Record<string, unknown>): Settings {
         ? ((data as { autoExpandChats?: unknown }).autoExpandChats as boolean)
         : base.autoExpandChats,
 
+    autoExpandProjects:
+      typeof (data as { autoExpandProjects?: unknown }).autoExpandProjects === "boolean"
+        ? ((data as { autoExpandProjects?: unknown }).autoExpandProjects as boolean)
+        : base.autoExpandProjects,
+
     autoTempChat:
       typeof (data as { autoTempChat?: unknown }).autoTempChat === "boolean"
         ? ((data as { autoTempChat?: unknown }).autoTempChat as boolean)
