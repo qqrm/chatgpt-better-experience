@@ -4,16 +4,17 @@ on:
   push:
     branches:
       - main
-      - dev
   pull_request:
     types:
       - closed
+    branches:
+      - main
   workflow_dispatch: {}
 
 jobs:
   sign-and-submit:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true }}
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main') }}
     concurrency:
       group: ${{ github.workflow }}-${{ github.sha }}
       cancel-in-progress: true
