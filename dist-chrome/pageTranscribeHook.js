@@ -1,21 +1,6 @@
 "use strict";
-var cgptBetterExp = (() => {
-  var __defProp = Object.defineProperty;
-  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-  var __getOwnPropNames = Object.getOwnPropertyNames;
-  var __hasOwnProp = Object.prototype.hasOwnProperty;
-  var __copyProps = (to, from, except, desc) => {
-    if (from && typeof from === "object" || typeof from === "function") {
-      for (let key of __getOwnPropNames(from))
-        if (!__hasOwnProp.call(to, key) && key !== except)
-          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-    }
-    return to;
-  };
-  var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
+(() => {
   // src/pageTranscribeHook.ts
-  var pageTranscribeHook_exports = {};
   (() => {
     if (window.__tmTranscribeHookInstalled__) return;
     window.__tmTranscribeHookInstalled__ = true;
@@ -26,7 +11,7 @@ var cgptBetterExp = (() => {
     const post = (payload) => {
       try {
         window.postMessage({ source: SOURCE, ...payload }, "*");
-      } catch {
+      } catch (_) {
       }
     };
     const getUrl = (input) => {
@@ -59,7 +44,7 @@ var cgptBetterExp = (() => {
           xhrIds.set(xhr, id);
           post({ type: "start", id });
         }
-        return open(method, urlArg, async != null ? async : true, username != null ? username : null, password != null ? password : null);
+        return open(method, urlArg, async ?? true, username ?? null, password ?? null);
       };
       xhr.addEventListener("loadend", () => {
         if (!isTranscribeUrl(url)) return;
@@ -74,6 +59,5 @@ var cgptBetterExp = (() => {
     HookedXMLHttpRequest.prototype = OriginalXHR.prototype;
     window.XMLHttpRequest = HookedXMLHttpRequest;
   })();
-  return __toCommonJS(pageTranscribeHook_exports);
 })();
 //# sourceMappingURL=pageTranscribeHook.js.map

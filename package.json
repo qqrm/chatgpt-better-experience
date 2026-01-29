@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "build:chrome": "node scripts/build-target.mjs chrome",
+    "build:firefox": "node scripts/build-target.mjs firefox",
+    "build:all": "npm run build && npm run build:chrome && npm run build:firefox",
     "generate:icons": "node scripts/generate-icons.mjs",
     "lint": "eslint .",
     "format:check": "prettier --check .",

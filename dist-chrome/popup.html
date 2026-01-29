@@ -119,32 +119,6 @@
         border-top: 1px solid var(--border);
       }
 
-      .techRow {
-        margin-top: 14px;
-        padding-top: 8px;
-        border-top: 1px dashed var(--border);
-        opacity: 0.55;
-      }
-
-      .techRow .check label {
-        font-size: 10px;
-        color: var(--muted);
-      }
-
-      .techRow input[type="checkbox"] {
-        width: 28px;
-        height: 14px;
-      }
-
-      .techRow input[type="checkbox"]::after {
-        width: 10px;
-        height: 10px;
-      }
-
-      .techRow input[type="checkbox"]:checked::after {
-        transform: translateX(14px);
-      }
-
       .row:first-of-type {
         margin-top: 0;
         padding-top: 0;
@@ -462,16 +436,6 @@
     <div class="hint">0 = base width · 100 = 95% of the viewport</div>
 
     <div class="hint">Press F2 to rename current chat</div>
-
-    <div
-      class="row techRow"
-      title="Shows a small warning toast if ChatGPT UI changes break the extension"
-    >
-      <div class="check">
-        <input id="showCompatibilityWarnings" type="checkbox" />
-        <label for="showCompatibilityWarnings">Compatibility alerts</label>
-      </div>
-    </div>
 
     <script src="popup.js"></script>
   </body>

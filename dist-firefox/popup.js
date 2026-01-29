@@ -1,56 +1,43 @@
 "use strict";
-var cgptBetterExp = (() => {
+(() => {
   // src/domain/settings.ts
   var SETTINGS_DEFAULTS = {
     autoSend: true,
     allowAutoSendInCodex: true,
     editLastMessageOnArrowUp: true,
     autoExpandChats: true,
-    autoTempChat: true,
+    autoTempChat: false,
     tempChatEnabled: false,
-    oneClickDelete: true,
-    startDictation: true,
+    oneClickDelete: false,
+    startDictation: false,
     ctrlEnterSends: true,
-    showCompatibilityWarnings: true,
     wideChatWidth: 0
   };
 
   // src/lib/utils.ts
   function normalizeSettings(data) {
     const base = SETTINGS_DEFAULTS;
-    const obj = data && typeof data === "object" ? data : {};
-    const legacySkipKey = typeof obj.skipKey === "string" ? obj.skipKey : null;
-    const legacyHoldToSend = typeof obj.holdToSend === "boolean" ? obj.holdToSend : null;
+    const legacySkipKey = typeof data.skipKey === "string" ? data.skipKey : null;
+    const legacyHoldToSend = typeof data.holdToSend === "boolean" ? data.holdToSend : null;
     void legacyHoldToSend;
-    const autoSend = typeof obj.autoSend === "boolean" ? obj.autoSend : legacySkipKey === "None" ? false : true;
-    const readBool = (key) => {
-      const v = obj[key];
-      return typeof v === "boolean" ? v : base[key];
-    };
-    const readNumber = (key) => {
-      const v = obj[key];
-      return typeof v === "number" && Number.isFinite(v) ? v : base[key];
-    };
-    const wideChatWidth = (() => {
-      const n = readNumber("wideChatWidth");
-      return Math.min(100, Math.max(0, n));
-    })();
+    const autoSend = typeof data.autoSend === "boolean" ? data.autoSend : legacySkipKey === "None" ? false : true;
     return {
-      ...base,
-      // special-case legacy
       autoSend,
-      // bools (всё без копипасты)
-      allowAutoSendInCodex: readBool("allowAutoSendInCodex"),
-      editLastMessageOnArrowUp: readBool("editLastMessageOnArrowUp"),
-      autoExpandChats: readBool("autoExpandChats"),
-      autoTempChat: readBool("autoTempChat"),
-      tempChatEnabled: readBool("tempChatEnabled"),
-      oneClickDelete: readBool("oneClickDelete"),
-      startDictation: readBool("startDictation"),
-      ctrlEnterSends: readBool("ctrlEnterSends"),
-      showCompatibilityWarnings: readBool("showCompatibilityWarnings"),
-      // numbers
-      wideChatWidth
+      allowAutoSendInCodex: typeof data.allowAutoSendInCodex === "boolean" ? data.allowAutoSendInCodex : base.allowAutoSendInCodex,
+      editLastMessageOnArrowUp: typeof data.editLastMessageOnArrowUp === "boolean" ? data.editLastMessageOnArrowUp : base.editLastMessageOnArrowUp,
+      autoExpandChats: typeof data.autoExpandChats === "boolean" ? data.autoExpandChats : base.autoExpandChats,
+      autoTempChat: typeof data.autoTempChat === "boolean" ? data.autoTempChat : base.autoTempChat,
+      tempChatEnabled: typeof data.tempChatEnabled === "boolean" ? data.tempChatEnabled : base.tempChatEnabled,
+      oneClickDelete: typeof data.oneClickDelete === "boolean" ? data.oneClickDelete : base.oneClickDelete,
+      startDictation: typeof data.startDictation === "boolean" ? data.startDictation : base.startDictation,
+      ctrlEnterSends: typeof data.ctrlEnterSends === "boolean" ? data.ctrlEnterSends : base.ctrlEnterSends,
+      wideChatWidth: (() => {
+        const rawWidth = data.wideChatWidth;
+        if (typeof rawWidth !== "number" || !Number.isFinite(rawWidth)) {
+          return base.wideChatWidth;
+        }
+        return Math.min(100, Math.max(0, rawWidth));
+      })()
     };
   }
   function isThenable(value) {
@@ -95,8 +82,7 @@ var cgptBetterExp = (() => {
     const tryGet = (area) => new Promise((resolve, reject) => {
       try {
         const result = area.get(defaults, (res) => {
-          var _a2;
-          const err = (_a2 = lastError2 == null ? void 0 : lastError2()) != null ? _a2 : null;
+          const err = lastError2?.() ?? null;
           if (err) reject(toError(err, "Storage get failed"));
           else resolve(res);
         });
@@ -127,8 +113,7 @@ var cgptBetterExp = (() => {
     const trySet = (area) => new Promise((resolve, reject) => {
       try {
         const result = area.set(values, () => {
-          var _a2;
-          const err = (_a2 = lastError2 == null ? void 0 : lastError2()) != null ? _a2 : null;
+          const err = lastError2?.() ?? null;
           if (err) reject(toError(err, "Storage set failed"));
           else resolve();
         });
@@ -153,10 +138,7 @@ var cgptBetterExp = (() => {
     }
   }
   function createStoragePort({ storageApi: storageApi2, lastError: lastError2 }) {
-    const onChanged = (storageApi2 == null ? void 0 : storageApi2.onChanged) && typeof storageApi2.onChanged.addListener === "function" ? (handler) => {
-      var _a2;
-      return (_a2 = storageApi2.onChanged) == null ? void 0 : _a2.addListener(handler);
-    } : void 0;
+    const onChanged = storageApi2?.onChanged && typeof storageApi2.onChanged.addListener === "function" ? (handler) => storageApi2.onChanged?.addListener(handler) : void 0;
     return {
       get: (defaults) => storageGet(defaults, storageApi2, lastError2),
       set: (values) => storageSet(values, storageApi2, lastError2),
@@ -164,23 +146,7 @@ var cgptBetterExp = (() => {
     };
   }
 
-  // src/lib/webextPolyfill.ts
-  function ensureWebExtPolyfill() {
-    const g = globalThis;
-    if (typeof g.browser !== "undefined") {
-      return;
-    }
-    if (typeof g.chrome === "undefined") {
-      return;
-    }
-    g.browser = {
-      runtime: g.chrome.runtime,
-      storage: g.chrome.storage
-    };
-  }
-
-  // src/ui/popup.ts
-  ensureWebExtPolyfill();
+  // popup.ts
   function mustGetElement(id) {
     const el = document.getElementById(id);
     if (!el) throw new Error(`Missing element: ${id}`);
@@ -195,16 +161,11 @@ var cgptBetterExp = (() => {
   var oneClickDeleteEl = mustGetElement("oneClickDelete");
   var startDictationEl = mustGetElement("startDictation");
   var ctrlEnterSendsEl = mustGetElement("ctrlEnterSends");
-  var showCompatEl = mustGetElement("showCompatibilityWarnings");
   var wideChatWidthEl = mustGetElement("wideChatWidth");
   var wideChatWidthValueEl = mustGetElement("wideChatWidthValue");
   var themeToggleEl = mustGetElement("qqrm-theme-toggle");
-  var _a;
-  var storageApi = (_a = typeof browser !== "undefined" ? browser : chrome) == null ? void 0 : _a.storage;
-  var lastError = () => {
-    var _a2, _b;
-    return (_b = (_a2 = chrome == null ? void 0 : chrome.runtime) == null ? void 0 : _a2.lastError) != null ? _b : null;
-  };
+  var storageApi = (typeof browser !== "undefined" ? browser : chrome)?.storage;
+  var lastError = () => chrome?.runtime?.lastError ?? null;
   var storagePort = createStoragePort({ storageApi, lastError });
   var popupDeps = { storagePort };
   var themeMediaQuery = typeof window !== "undefined" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
@@ -265,7 +226,6 @@ var cgptBetterExp = (() => {
     oneClickDeleteEl.checked = settings.oneClickDelete;
     startDictationEl.checked = settings.startDictation;
     ctrlEnterSendsEl.checked = settings.ctrlEnterSends;
-    showCompatEl.checked = settings.showCompatibilityWarnings;
     wideChatWidthEl.value = String(settings.wideChatWidth);
     wideChatWidthValueEl.textContent = `${settings.wideChatWidth}%`;
     hintEl.textContent = hint;
@@ -282,7 +242,6 @@ var cgptBetterExp = (() => {
       oneClickDelete: !!oneClickDeleteEl.checked,
       startDictation: !!startDictationEl.checked,
       ctrlEnterSends: !!ctrlEnterSendsEl.checked,
-      showCompatibilityWarnings: !!showCompatEl.checked,
       wideChatWidth
     };
     const { hint } = await savePopupSettings(popupDeps, input);
@@ -304,8 +263,6 @@ var cgptBetterExp = (() => {
   startDictationEl.addEventListener("change", () => void save().catch(() => {
   }));
   ctrlEnterSendsEl.addEventListener("change", () => void save().catch(() => {
-  }));
-  showCompatEl.addEventListener("change", () => void save().catch(() => {
   }));
   wideChatWidthEl.addEventListener("input", () => void save().catch(() => {
   }));

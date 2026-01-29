@@ -1,17 +1,16 @@
 "use strict";
-var cgptBetterExp = (() => {
+(() => {
   // src/domain/settings.ts
   var SETTINGS_DEFAULTS = {
     autoSend: true,
     allowAutoSendInCodex: true,
     editLastMessageOnArrowUp: true,
     autoExpandChats: true,
-    autoTempChat: true,
+    autoTempChat: false,
     tempChatEnabled: false,
-    oneClickDelete: true,
-    startDictation: true,
+    oneClickDelete: false,
+    startDictation: false,
     ctrlEnterSends: true,
-    showCompatibilityWarnings: true,
     wideChatWidth: 0
   };
 
@@ -44,39 +43,27 @@ var cgptBetterExp = (() => {
   }
   function normalizeSettings(data) {
     const base = SETTINGS_DEFAULTS;
-    const obj = data && typeof data === "object" ? data : {};
-    const legacySkipKey = typeof obj.skipKey === "string" ? obj.skipKey : null;
-    const legacyHoldToSend = typeof obj.holdToSend === "boolean" ? obj.holdToSend : null;
+    const legacySkipKey = typeof data.skipKey === "string" ? data.skipKey : null;
+    const legacyHoldToSend = typeof data.holdToSend === "boolean" ? data.holdToSend : null;
     void legacyHoldToSend;
-    const autoSend = typeof obj.autoSend === "boolean" ? obj.autoSend : legacySkipKey === "None" ? false : true;
-    const readBool = (key) => {
-      const v = obj[key];
-      return typeof v === "boolean" ? v : base[key];
-    };
-    const readNumber = (key) => {
-      const v = obj[key];
-      return typeof v === "number" && Number.isFinite(v) ? v : base[key];
-    };
-    const wideChatWidth = (() => {
-      const n = readNumber("wideChatWidth");
-      return Math.min(100, Math.max(0, n));
-    })();
+    const autoSend = typeof data.autoSend === "boolean" ? data.autoSend : legacySkipKey === "None" ? false : true;
     return {
-      ...base,
-      // special-case legacy
       autoSend,
-      // bools (всё без копипасты)
-      allowAutoSendInCodex: readBool("allowAutoSendInCodex"),
-      editLastMessageOnArrowUp: readBool("editLastMessageOnArrowUp"),
-      autoExpandChats: readBool("autoExpandChats"),
-      autoTempChat: readBool("autoTempChat"),
-      tempChatEnabled: readBool("tempChatEnabled"),
-      oneClickDelete: readBool("oneClickDelete"),
-      startDictation: readBool("startDictation"),
-      ctrlEnterSends: readBool("ctrlEnterSends"),
-      showCompatibilityWarnings: readBool("showCompatibilityWarnings"),
-      // numbers
-      wideChatWidth
+      allowAutoSendInCodex: typeof data.allowAutoSendInCodex === "boolean" ? data.allowAutoSendInCodex : base.allowAutoSendInCodex,
+      editLastMessageOnArrowUp: typeof data.editLastMessageOnArrowUp === "boolean" ? data.editLastMessageOnArrowUp : base.editLastMessageOnArrowUp,
+      autoExpandChats: typeof data.autoExpandChats === "boolean" ? data.autoExpandChats : base.autoExpandChats,
+      autoTempChat: typeof data.autoTempChat === "boolean" ? data.autoTempChat : base.autoTempChat,
+      tempChatEnabled: typeof data.tempChatEnabled === "boolean" ? data.tempChatEnabled : base.tempChatEnabled,
+      oneClickDelete: typeof data.oneClickDelete === "boolean" ? data.oneClickDelete : base.oneClickDelete,
+      startDictation: typeof data.startDictation === "boolean" ? data.startDictation : base.startDictation,
+      ctrlEnterSends: typeof data.ctrlEnterSends === "boolean" ? data.ctrlEnterSends : base.ctrlEnterSends,
+      wideChatWidth: (() => {
+        const rawWidth = data.wideChatWidth;
+        if (typeof rawWidth !== "number" || !Number.isFinite(rawWidth)) {
+          return base.wideChatWidth;
+        }
+        return Math.min(100, Math.max(0, rawWidth));
+      })()
     };
   }
   function isThenable(value) {
@@ -112,7 +99,6 @@ var cgptBetterExp = (() => {
     let logCount = 0;
     const nowMs = () => performance.now() - BOOT_T0 | 0;
     const debug = (scope, message, fields) => {
-      var _a, _b, _c;
       if (!debugEnabled) return;
       logCount += 1;
       const t = String(nowMs()).padStart(6, " ");
@@ -139,10 +125,10 @@ var cgptBetterExp = (() => {
         for (const k of allow) {
           if (k in fields) parts.push(`${k}=${String(fields[k])}`);
         }
-        if ("preview" in fields) parts.push(`preview="${short(String((_a = fields.preview) != null ? _a : ""), 120)}"`);
+        if ("preview" in fields) parts.push(`preview="${short(String(fields.preview ?? ""), 120)}"`);
         if ("snapshot" in fields)
-          parts.push(`snapshot="${short(String((_b = fields.snapshot) != null ? _b : ""), 120)}"`);
-        if ("btn" in fields) parts.push(`btn="${short(String((_c = fields.btn) != null ? _c : ""), 160)}"`);
+          parts.push(`snapshot="${short(String(fields.snapshot ?? ""), 120)}"`);
+        if ("btn" in fields) parts.push(`btn="${short(String(fields.btn ?? ""), 160)}"`);
         if (parts.length) tail = " | " + parts.join(" ");
       }
       console.log(`[TM DictationAutoSend] #${logCount} ${t} ${scope}: ${message}${tail}`);
@@ -151,7 +137,7 @@ var cgptBetterExp = (() => {
   }
   function createFeatureContext({
     settings,
-    storagePort,
+    storagePort: storagePort2,
     debugEnabled
   }) {
     const logger = createLogger(debugEnabled);
@@ -177,11 +163,11 @@ var cgptBetterExp = (() => {
       if (!el) return false;
       try {
         if (typeof el.focus === "function") el.focus();
-      } catch {
+      } catch (_) {
       }
       try {
         el.scrollIntoView({ block: "center", inline: "center" });
-      } catch {
+      } catch (_) {
       }
       const rect = el.getBoundingClientRect();
       const cx = Math.max(1, Math.floor(rect.left + rect.width / 2));
@@ -203,11 +189,11 @@ var cgptBetterExp = (() => {
             isPrimary: true
           })
         );
-      } catch {
+      } catch (_) {
       }
       try {
         el.dispatchEvent(new MouseEvent("mousedown", common));
-      } catch {
+      } catch (_) {
       }
       try {
         el.dispatchEvent(
@@ -218,15 +204,15 @@ var cgptBetterExp = (() => {
             isPrimary: true
           })
         );
-      } catch {
+      } catch (_) {
       }
       try {
         el.dispatchEvent(new MouseEvent("mouseup", common));
-      } catch {
+      } catch (_) {
       }
       try {
         el.dispatchEvent(new MouseEvent("click", common));
-      } catch {
+      } catch (_) {
       }
       logger.debug("UI", `humanClick ${why}`, { preview: describeEl(el) });
       return true;
@@ -251,68 +237,20 @@ var cgptBetterExp = (() => {
     const safeQuery = (sel, root = document) => {
       try {
         return root.querySelector(sel);
-      } catch {
+      } catch (_) {
         return null;
       }
     };
     return {
       settings,
-      storagePort,
+      storagePort: storagePort2,
       logger,
       keyState: { shift: false, ctrl: false, alt: false },
       helpers: { waitPresent, waitGone, humanClick, debounceScheduler, safeQuery }
     };
   }
 
-  // src/lib/trace.ts
-  var MAX = 500;
-  function getBuf() {
-    const w = window;
-    if (!w.__CGPTBE_TRACE__) w.__CGPTBE_TRACE__ = [];
-    return w.__CGPTBE_TRACE__;
-  }
-  function isTraceEnabled() {
-    try {
-      return localStorage.getItem("cgptbe.trace") === "1";
-    } catch {
-      return false;
-    }
-  }
-  function trace(tag, msg, data, level = "log") {
-    if (!isTraceEnabled()) return;
-    const ts = Date.now();
-    const entry = {
-      ts,
-      iso: new Date(ts).toISOString(),
-      level,
-      tag,
-      msg,
-      data
-    };
-    try {
-      const stack = new Error().stack;
-      if (stack) entry.stack = stack.split("\n").slice(2, 10).join("\n");
-    } catch {
-    }
-    const buf = getBuf();
-    buf.push(entry);
-    if (buf.length > MAX) buf.splice(0, buf.length - MAX);
-    const prefix = `[cgptbe][${entry.iso}][${entry.tag}]`;
-    if (level === "warn") console.warn(prefix, msg, data != null ? data : "");
-    else if (level === "error") console.error(prefix, msg, data != null ? data : "");
-    else console.log(prefix, msg, data != null ? data : "");
-  }
-  function createTrace(tag) {
-    return {
-      log: (msg, data) => trace(tag, msg, data, "log"),
-      info: (msg, data) => trace(tag, msg, data, "log"),
-      warn: (msg, data) => trace(tag, msg, data, "warn"),
-      error: (msg, data) => trace(tag, msg, data, "error")
-    };
-  }
-
   // src/features/dictationAutoSend.ts
-  var log = createTrace("dictation");
   var TRANSCRIBE_HOOK_SOURCE = "tm-dictation-transcribe";
   var DEFAULT_CONFIG = {
     autoSendEnabled: true,
@@ -323,33 +261,17 @@ var cgptBetterExp = (() => {
     logClicks: true
   };
   var DICTATION_COOLDOWN_MS = 400;
-  var AUTO_SEND_COOLDOWN_MS = 2e3;
+  function shouldAutoSendFromSubmitClick(e) {
+    if (!e?.isTrusted) return false;
+    return (e.detail ?? 0) > 0;
+  }
   function initDictationAutoSendFeature(ctx) {
     const cfg = { ...DEFAULT_CONFIG };
     let inFlight = false;
     let transcribeHookInstalled = false;
     let lastDictationToggleAt = 0;
-    let lastState = "NONE";
-    let lastStateChangedAt = performance.now();
-    let lastSubmitSeenAt = 0;
-    let lastAutoSendTriggeredAt = 0;
-    let lastShiftCancelAt = 0;
-    let lastTranscribeCompleteAt = 0;
-    let lastTranscriptId = "";
-    let composerFooterObserver = null;
-    let composerRootObserver = null;
-    let composerFooterNode = null;
-    const tmLog = (msg, fields) => {
-      const input = readInputText();
-      const payload = {
-        state: getDictationUiState(),
-        inputLen: input.text.length,
-        preview: short2(input.text),
-        transcriptId: lastTranscriptId || void 0,
-        transcribeCompleteAt: lastTranscribeCompleteAt || void 0,
-        ...fields
-      };
-      console.debug("[cgptbe][dictation]", msg, payload);
+    const tmLog = (scope, msg, fields) => {
+      ctx.logger.debug(scope, msg, fields);
     };
     const qs = (sel, root = document) => root.querySelector(sel);
     const qsa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -397,7 +319,7 @@ var cgptBetterExp = (() => {
       if (anyCe instanceof HTMLElement) return anyCe;
       return null;
     };
-    const findComposerInput2 = () => {
+    const findComposerInput = () => {
       const byId = document.getElementById("prompt-textarea");
       if (byId instanceof HTMLTextAreaElement) return byId;
       if (byId instanceof HTMLElement && byId.getAttribute("contenteditable") === "true") {
@@ -423,7 +345,7 @@ var cgptBetterExp = (() => {
       const kind = el instanceof HTMLTextAreaElement ? "textarea" : "contenteditable";
       return { ok: true, kind, text: readTextboxText(el) };
     };
-    const findSendButton2 = () => qs('[data-testid="send-button"]') || qs("#composer-submit-button") || qs("button.composer-submit-btn") || qs("form button[type='submit']") || qs('button[aria-label*="Send"]') || qs('[role="button"][aria-label*="Send"]') || qs('button[aria-label*="\u041E\u0442\u043F\u0440\u0430\u0432"]') || null;
+    const findSendButton = () => qs('[data-testid="send-button"]') || qs("#composer-submit-button") || qs("button.composer-submit-btn") || qs("form button[type='submit']") || qs('button[aria-label*="Send"]') || qs('[role="button"][aria-label*="Send"]') || qs('button[aria-label*="\u041E\u0442\u043F\u0440\u0430\u0432"]') || null;
     const isSubmitDictationButton = (btn) => {
       if (!btn) return false;
       const aRaw = btn.getAttribute("aria-label");
@@ -457,7 +379,7 @@ var cgptBetterExp = (() => {
     };
     const isSendButton = (btn) => {
       if (!btn) return false;
-      const sendBtn = findSendButton2();
+      const sendBtn = findSendButton();
       if (sendBtn && btn === sendBtn) return true;
       if (btn instanceof HTMLButtonElement) {
         const type = norm(btn.getAttribute("type"));
@@ -516,7 +438,7 @@ var cgptBetterExp = (() => {
     };
     const isSafeToTriggerDictation = () => {
       const active = document.activeElement;
-      const composerInput = findComposerInput2();
+      const composerInput = findComposerInput();
       if (!composerInput || !isElementVisible(composerInput)) return false;
       if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLElement && active.isContentEditable) {
         if (active === composerInput) return true;
@@ -677,7 +599,7 @@ var cgptBetterExp = (() => {
             const type = norm(b.getAttribute("type"));
             if (type === "submit") continue;
           }
-          if (b === findSendButton2()) continue;
+          if (b === findSendButton()) continue;
           if (!isSubmitDictationButton(b)) continue;
           if (isSendButton(b)) continue;
           if (!isVisible(b)) continue;
@@ -717,13 +639,13 @@ var cgptBetterExp = (() => {
     const triggerDictationToggle = async () => {
       const btn = await waitForDictationButton(1500);
       if (!btn) {
-        tmLog("dictation button not found");
+        tmLog("KEY", "dictation button not found");
         return false;
       }
-      tmLog("dictation button found", { btn: describeEl2(btn) });
+      tmLog("KEY", "dictation button found");
       btn.click();
       lastDictationToggleAt = performance.now();
-      tmLog("dictation button clicked", { btn: describeEl2(btn) });
+      tmLog("KEY", "dictation button clicked");
       return true;
     };
     const ensureNotGenerating = (timeoutMs) => new Promise((resolve) => {
@@ -744,11 +666,11 @@ var cgptBetterExp = (() => {
     const stopGeneratingIfPossible = async (timeoutMs) => {
       const stopBtn = findStopGeneratingButton();
       if (!stopBtn) return true;
-      tmLog("stop generating before send", { btn: describeEl2(stopBtn) });
+      tmLog("SEND", "stop generating before send", { btn: describeEl2(stopBtn) });
       ctx.helpers.humanClick(stopBtn, "stop generating");
       const ok = await ensureNotGenerating(timeoutMs);
       if (!ok) {
-        tmLog("stop generating timeout");
+        tmLog("SEND", "stop generating timeout");
       }
       return ok;
     };
@@ -757,7 +679,7 @@ var cgptBetterExp = (() => {
       const first = readInputText();
       let lastText = first.text;
       let lastChangeAt = performance.now();
-      tmLog("waitForFinalText start", {
+      tmLog("WAIT", "waitForFinalText start", {
         timeoutMs,
         quietMs,
         inputFound: first.ok,
@@ -773,7 +695,7 @@ var cgptBetterExp = (() => {
         if (v !== lastText) {
           lastText = v;
           lastChangeAt = performance.now();
-          tmLog("input changed", {
+          tmLog("WAIT", "input changed", {
             inputFound: cur.ok,
             inputKind: cur.kind,
             len: v.length,
@@ -783,7 +705,7 @@ var cgptBetterExp = (() => {
         const stableForMs = performance.now() - lastChangeAt | 0;
         const hasText = v.trim().length > 0;
         if (hasText && stableForMs >= quietMs) {
-          tmLog("final text stable", {
+          tmLog("WAIT", "final text stable", {
             stableForMs,
             changed: true,
             finalLen: v.length,
@@ -794,7 +716,7 @@ var cgptBetterExp = (() => {
           return;
         }
         if (performance.now() - t0 > timeoutMs) {
-          tmLog("final text timeout", {
+          tmLog("WAIT", "final text timeout", {
             changed: v.trim().length > 0,
             snapshotLen: (snapshot || "").length,
             finalLen: v.length,
@@ -811,13 +733,13 @@ var cgptBetterExp = (() => {
     });
     const clickSendWithAck = async () => {
       const before = readInputText().text;
-      const btn = findSendButton2();
+      const btn = findSendButton();
       if (!btn) {
-        tmLog("send button not found");
+        tmLog("SEND", "send button not found");
         return false;
       }
       if (isDisabled(btn)) {
-        tmLog("send button disabled", { btn: describeEl2(btn) });
+        tmLog("SEND", "send button disabled", { btn: describeEl2(btn) });
         return false;
       }
       ctx.helpers.humanClick(btn, "send");
@@ -828,7 +750,7 @@ var cgptBetterExp = (() => {
         const stopGen = findStopGeneratingButton();
         const ack = cleared || !!stopGen;
         if (ack) {
-          tmLog("ack ok", {
+          tmLog("SEND", "ack ok", {
             ok: true,
             changed: cur2 !== before,
             len: cur2.length,
@@ -839,7 +761,7 @@ var cgptBetterExp = (() => {
         await new Promise((r) => setTimeout(r, 120));
       }
       const cur = readInputText().text;
-      tmLog("ack timeout", {
+      tmLog("SEND", "ack timeout", {
         ok: false,
         changed: cur !== before,
         len: cur.length,
@@ -847,9 +769,9 @@ var cgptBetterExp = (() => {
       });
       return false;
     };
-    const runAutoSendFlow = async (trigger, snapshotOverride, initialShiftHeld = false) => {
+    const runFlowAfterSubmitClick = async (submitBtnDesc, snapshotOverride, initialShiftHeld = false) => {
       if (inFlight) {
-        tmLog("skip: inFlight already true", { reason: trigger });
+        tmLog("FLOW", "skip: inFlight already true");
         return;
       }
       inFlight = true;
@@ -857,19 +779,19 @@ var cgptBetterExp = (() => {
       const handleShiftKey = (event) => {
         if (event.key === "Shift") {
           cancelByShift = true;
-          tmLog("shift cancel received", { reason: trigger });
+          tmLog("FLOW", "shift cancel received");
         }
       };
       window.addEventListener("keydown", handleShiftKey, true);
       try {
         if (!cfg.autoSendEnabled) {
-          tmLog("auto-send disabled", { reason: trigger });
+          tmLog("FLOW", "auto-send disabled");
           return;
         }
         const snap = readInputText();
-        const snapshot = snapshotOverride != null ? snapshotOverride : snap.text;
-        tmLog("auto-send flow start", {
-          reason: trigger,
+        const snapshot = snapshotOverride ?? snap.text;
+        tmLog("FLOW", "submit click flow start", {
+          btn: submitBtnDesc,
           inputFound: snap.ok,
           inputKind: snap.kind,
           snapshotLen: snapshot.length,
@@ -882,44 +804,42 @@ var cgptBetterExp = (() => {
           quietMs: cfg.finalTextQuietMs
         });
         if (!finalRes.ok) {
-          tmLog("no stable final text, abort", { reason: trigger });
+          tmLog("FLOW", "no stable final text, abort");
           return;
         }
         if ((finalRes.text || "").trim().length === 0) {
-          tmLog("final text empty, abort", { reason: trigger });
+          tmLog("FLOW", "final text empty, abort");
           return;
         }
         if (cancelByShift) {
-          tmLog("send skipped by shift", { reason: trigger });
+          tmLog("FLOW", "send skipped by shift");
           return;
         }
         const okGen = await stopGeneratingIfPossible(2e4);
         if (!okGen) {
-          tmLog("abort: still generating", { reason: trigger });
+          tmLog("FLOW", "abort: still generating");
           return;
         }
         if (cancelByShift) {
-          tmLog("send skipped by shift", { reason: trigger });
+          tmLog("FLOW", "send skipped by shift");
           return;
         }
         const ok1 = await clickSendWithAck();
-        tmLog("send result", { ok: ok1, reason: trigger });
+        tmLog("FLOW", "send result", { ok: ok1 });
       } catch (e) {
-        tmLog("flow exception", {
-          reason: trigger,
+        tmLog("ERR", "flow exception", {
           preview: String(e && e.stack || e.message || e)
         });
       } finally {
         window.removeEventListener("keydown", handleShiftKey, true);
         inFlight = false;
-        tmLog("auto-send flow end", { reason: trigger });
+        tmLog("FLOW", "submit click flow end");
       }
     };
     const injectPageTranscribeHook = () => {
-      var _a, _b, _c;
-      const runtime = (_c = (_a = globalThis.chrome) == null ? void 0 : _a.runtime) != null ? _c : (_b = globalThis.browser) == null ? void 0 : _b.runtime;
-      if (!(runtime == null ? void 0 : runtime.getURL)) {
-        tmLog("runtime.getURL not available");
+      const runtime = globalThis.chrome?.runtime ?? globalThis.browser?.runtime;
+      if (!runtime?.getURL) {
+        tmLog("TRANSCRIBE", "runtime.getURL not available");
         return;
       }
       const script = document.createElement("script");
@@ -943,25 +863,13 @@ var cgptBetterExp = (() => {
       if (data.source !== TRANSCRIBE_HOOK_SOURCE) return;
       if (!data.type || !data.id) return;
       if (data.type === "start") return;
-      if (data.type === "complete") {
-        lastTranscribeCompleteAt = performance.now();
-        lastTranscriptId = data.id;
-        tmLog("transcribe complete", {
-          reason: "transcribe",
-          transcriptId: data.id,
-          completeAt: lastTranscribeCompleteAt
-        });
-      }
+      if (data.type === "complete") return;
     };
     const handleKeyDown = (e) => {
       if (!cfg.autoSendEnabled && !ctx.settings.startDictation) {
         return;
       }
       const submitDictationVisible = getDictationUiState() === "SUBMIT";
-      if (e.key === "Shift" && submitDictationVisible) {
-        lastShiftCancelAt = performance.now();
-        tmLog("shift cancel recorded", { reason: "shift" });
-      }
       if (e.code === "Space" && !e.ctrlKey && !e.metaKey && submitDictationVisible) {
         swallowKeyEvent(e);
         return;
@@ -970,40 +878,43 @@ var cgptBetterExp = (() => {
         swallowKeyEvent(e);
         const submitBtn = findSubmitDictationButton();
         if (submitBtn) {
-          tmLog("ctrl-enter: submit dictation", { btn: describeEl2(submitBtn) });
+          tmLog("KEY", "ctrl-enter: submit dictation");
           ctx.helpers.humanClick(submitBtn, "submit-dictation");
         } else {
-          tmLog("ctrl-enter: submit button not found", { reason: "ctrl-enter" });
+          tmLog("KEY", "ctrl-enter: submit button not found");
         }
+        if (!cfg.autoSendEnabled) {
+          tmLog("FLOW", "ctrl-enter: auto-send disabled");
+          return;
+        }
+        void (async () => {
+          if (!isCodexPath(location.pathname) || cfg.allowAutoSendInCodex) {
+            await runFlowAfterSubmitClick("ctrl-enter dictation submit", void 0, false);
+          } else {
+            tmLog("FLOW", "ctrl-enter: auto-send skipped on Codex path");
+          }
+        })();
         return;
       }
       if (isDictationHotkey(e)) {
-        tmLog("dictation hotkey received");
-        log.info("hotkey", {
-          startDictationEnabled: ctx.settings.startDictation,
-          repeat: e.repeat,
-          activeEl: document.activeElement ? {
-            tag: document.activeElement.tagName,
-            id: document.activeElement.id
-          } : null
-        });
+        tmLog("KEY", "dictation hotkey received");
         if (!ctx.settings.startDictation) return;
         if (!isSafeToTriggerDictation()) {
-          tmLog("dictation blocked by focus");
+          tmLog("KEY", "dictation blocked by focus");
           return;
         }
         swallowKeyEvent(e);
         if (e.repeat) {
-          tmLog("dictation hotkey repeat ignored");
+          tmLog("KEY", "dictation hotkey repeat ignored");
           return;
         }
         if (performance.now() - lastDictationToggleAt < DICTATION_COOLDOWN_MS) {
-          tmLog("dictation cooldown active");
+          tmLog("KEY", "dictation cooldown active");
           return;
         }
         const submitBtn = findSubmitDictationButton();
         if (submitBtn) {
-          tmLog("dictation submit via hotkey", { btn: describeEl2(submitBtn) });
+          tmLog("KEY", "dictation submit via hotkey", { btn: describeEl2(submitBtn) });
           ctx.helpers.humanClick(submitBtn, "submit dictation via hotkey");
           return;
         }
@@ -1015,9 +926,9 @@ var cgptBetterExp = (() => {
       const btn = target instanceof Element && target.closest ? target.closest("button, [role='button']") : null;
       if (!btn) return;
       const btnDesc = describeEl2(btn);
-      if (isInterestingButton(btn)) {
+      if (cfg.logClicks && isInterestingButton(btn)) {
         const cur = readInputText();
-        tmLog("button click", {
+        tmLog("CLICK", "button click", {
           btn: btnDesc,
           inputFound: cur.ok,
           inputKind: cur.kind,
@@ -1028,120 +939,37 @@ var cgptBetterExp = (() => {
       if (btn instanceof HTMLElement && !isSubmitDictationButton(btn) && isDictationButtonVisible(btn) && isDictationToggleButton(btn)) {
         lastDictationToggleAt = performance.now();
       }
-      if (btn instanceof HTMLElement && isSubmitDictationButton(btn)) {
-        lastSubmitSeenAt = performance.now();
-        tmLog("submit dictation click observed", { btn: btnDesc, reason: "click" });
+      const dictationState = getDictationUiState();
+      const submitBtn = dictationState === "SUBMIT" ? findSubmitDictationButton() : null;
+      const isSubmitClick = dictationState === "SUBMIT" && btn instanceof HTMLElement && (btn === submitBtn || isSubmitDictationButton(btn));
+      if (isSubmitClick) {
+        if (!shouldAutoSendFromSubmitClick(e) || !cfg.autoSendEnabled) {
+          tmLog("FLOW", "submit dictation click ignored: not mouse click", { btn: btnDesc });
+          return;
+        }
+        void (async () => {
+          if (!isCodexPath(location.pathname) || cfg.allowAutoSendInCodex) {
+            await runFlowAfterSubmitClick(btnDesc, void 0, e.shiftKey);
+          } else {
+            tmLog("FLOW", "auto-send skipped on Codex path");
+          }
+        })();
       }
     };
     applySettings();
     window.addEventListener("keydown", handleKeyDown, true);
     document.addEventListener("click", handleClick, true);
     installTranscribeHook();
-    const findComposerFooter = () => document.querySelector('[data-testid="composer-footer-actions"]');
-    const observeComposerFooter = () => {
-      const footer = findComposerFooter();
-      if (!footer) {
-        tmLog("composer footer not found", { reason: "observe" });
-        return;
-      }
-      if (composerFooterObserver && composerFooterNode === footer) return;
-      composerFooterObserver == null ? void 0 : composerFooterObserver.disconnect();
-      composerFooterNode = footer;
-      composerFooterObserver = new MutationObserver(() => {
-        handleStateObservation("mutation");
-      });
-      composerFooterObserver.observe(footer, {
-        childList: true,
-        subtree: true,
-        attributes: true
-      });
-      handleStateObservation("observer-init");
-    };
-    const ensureComposerFooterObserver = () => {
-      const footer = findComposerFooter();
-      if (footer && footer !== composerFooterNode) {
-        observeComposerFooter();
-      }
-    };
-    function handleStateObservation(reason) {
-      const now = performance.now();
-      const state = getDictationUiState();
-      if (state === "SUBMIT") {
-        lastSubmitSeenAt = now;
-      }
-      tmLog("state observed", {
-        state,
-        reason,
-        lastSubmitSeenAt,
-        lastStateChangedAt
-      });
-      if (state === lastState) return;
-      const prevState = lastState;
-      const prevChangedAt = lastStateChangedAt;
-      lastState = state;
-      lastStateChangedAt = now;
-      if (state === "SUBMIT") {
-        lastShiftCancelAt = 0;
-      }
-      tmLog("state transition", {
-        state,
-        from: prevState,
-        to: state,
-        reason,
-        lastSubmitSeenAt
-      });
-      if (prevState === "SUBMIT" && state === "NONE") {
-        const elapsedSinceAutoSend = now - lastAutoSendTriggeredAt;
-        const cancelByShift = lastShiftCancelAt >= prevChangedAt;
-        const input = readInputText();
-        const hasText = input.text.trim().length > 0;
-        if (!cfg.autoSendEnabled) {
-          tmLog("auto-send skipped: disabled", { reason });
-          return;
-        }
-        if (!hasText) {
-          tmLog("auto-send skipped: empty input", { reason });
-          return;
-        }
-        if (cancelByShift) {
-          tmLog("auto-send skipped: shift cancel", { reason });
-          return;
-        }
-        if (elapsedSinceAutoSend < AUTO_SEND_COOLDOWN_MS) {
-          tmLog("auto-send skipped: cooldown", {
-            reason,
-            elapsedMs: Math.round(elapsedSinceAutoSend)
-          });
-          return;
-        }
-        if (isCodexPath(location.pathname) && !cfg.allowAutoSendInCodex) {
-          tmLog("auto-send skipped on Codex path", { reason });
-          return;
-        }
-        lastAutoSendTriggeredAt = now;
-        void runAutoSendFlow("submit->none transition", input.text, ctx.keyState.shift);
-      }
-    }
-    tmLog("dictation auto-send init", { reason: "init", preview: location.href });
-    observeComposerFooter();
-    composerRootObserver = new MutationObserver(() => {
-      ensureComposerFooterObserver();
-    });
-    composerRootObserver.observe(document.documentElement, {
-      childList: true,
-      subtree: true
-    });
+    tmLog("BOOT", "dictation auto-send init", { preview: location.href });
     return {
       name: "dictationAutoSend",
       dispose: () => {
         window.removeEventListener("keydown", handleKeyDown, true);
         document.removeEventListener("click", handleClick, true);
         window.removeEventListener("message", handleTranscribeMessage);
-        composerFooterObserver == null ? void 0 : composerFooterObserver.disconnect();
-        composerRootObserver == null ? void 0 : composerRootObserver.disconnect();
       },
       __test: {
-        runAutoSendFlow: (snapshotOverride, initialShiftHeld) => runAutoSendFlow("test submit dictation", snapshotOverride, !!initialShiftHeld),
+        runAutoSendFlow: (snapshotOverride, initialShiftHeld) => runFlowAfterSubmitClick("test submit dictation", snapshotOverride, !!initialShiftHeld),
         getDictationUiState: () => getDictationUiState(),
         findSubmitDictationButton: () => findSubmitDictationButton()
       },
@@ -1216,13 +1044,12 @@ var cgptBetterExp = (() => {
       return null;
     };
     const waitForRenameInput = async (activeChat, timeoutMs = 2e3) => {
-      var _a;
       const t0 = performance.now();
       while (performance.now() - t0 < timeoutMs) {
         const inChat = findVisibleInput(activeChat);
         if (inChat) return inChat;
         const dialogs = qsa('[role="dialog"]');
-        const dialog = (_a = dialogs.find((el) => isElementVisible(el))) != null ? _a : null;
+        const dialog = dialogs.find((el) => isElementVisible(el)) ?? null;
         if (dialog) {
           const dialogInput = findVisibleInput(dialog);
           if (dialogInput) return dialogInput;
@@ -1248,12 +1075,11 @@ var cgptBetterExp = (() => {
       return null;
     };
     const findOptionsButton = (activeChat) => {
-      var _a, _b, _c, _d, _e;
       const optionsSelector = 'button[data-testid^="history-item-"][data-testid$="-options"]';
-      return (_e = (_d = (_b = activeChat.querySelector(optionsSelector)) != null ? _b : (_a = activeChat.parentElement) == null ? void 0 : _a.querySelector(optionsSelector)) != null ? _d : (_c = activeChat.closest("li, div")) == null ? void 0 : _c.querySelector(optionsSelector)) != null ? _e : null;
+      return activeChat.querySelector(optionsSelector) ?? activeChat.parentElement?.querySelector(optionsSelector) ?? activeChat.closest("li, div")?.querySelector(optionsSelector) ?? null;
     };
     const triggerRenameActiveChat = async (activeChatOverride) => {
-      const activeChat = activeChatOverride != null ? activeChatOverride : findActiveChat();
+      const activeChat = activeChatOverride ?? findActiveChat();
       if (!activeChat) {
         logRenameStep("activeChat not found", false);
         return false;
@@ -1283,7 +1109,7 @@ var cgptBetterExp = (() => {
       try {
         input.focus();
         if (typeof input.select === "function") input.select();
-      } catch {
+      } catch (_) {
       }
       logRenameStep("ok", true);
       return true;
@@ -1379,17 +1205,16 @@ var cgptBetterExp = (() => {
       return null;
     };
     const triggerEditLastMessage = async () => {
-      var _a, _b, _c;
       const message = findLastUserMessage();
       if (!message) return false;
-      const article = (_b = (_a = message.closest("article")) != null ? _a : message.closest("[data-message-author-role]")) != null ? _b : message.parentElement;
+      const article = message.closest("article") ?? message.closest("[data-message-author-role]") ?? message.parentElement;
       const searchRoot = article instanceof HTMLElement ? article : message;
       const buttons = qsa("button, [role='button']", searchRoot);
-      const editBtn = (_c = buttons.find((btn) => {
+      const editBtn = buttons.find((btn) => {
         const a = norm(btn.getAttribute("aria-label"));
         if (a.includes("edit message")) return true;
         return isEditMessageButton(btn);
-      })) != null ? _c : null;
+      }) ?? null;
       if (!editBtn) return false;
       message.scrollIntoView({ block: "center", inline: "nearest" });
       const clickOk = ctx.helpers.humanClick(editBtn, "edit last message");
@@ -1454,16 +1279,7 @@ var cgptBetterExp = (() => {
   var ONE_CLICK_DELETE_X_MARK = "data-qqrm-oneclick-del-x";
   var ONE_CLICK_DELETE_STYLE_ID = "cgptbe-silent-delete-style";
   var ONE_CLICK_DELETE_ROOT_FLAG = "data-cgptbe-silent-delete";
-  var ONE_CLICK_DELETE_BUTTON_SELECTOR = [
-    // current/older sidebar patterns
-    'button[data-testid^="history-item-"][data-testid$="-options"]',
-    'button[data-testid$="-options"]',
-    // some builds use only aria-labels
-    'button[aria-label="Options"]',
-    'button[aria-label*="More" i]',
-    'button[aria-label*="Actions" i]'
-  ].join(", ");
-  var ONE_CLICK_DELETE_TOMBSTONES_KEY = "cgptbe-tombstones";
+  var ONE_CLICK_DELETE_BUTTON_SELECTOR = 'button[data-testid^="history-item-"][data-testid$="-options"]';
   var ONE_CLICK_DELETE_BTN_H = 36;
   var ONE_CLICK_DELETE_BTN_W = 118;
   var ONE_CLICK_DELETE_X_SIZE = 26;
@@ -1477,35 +1293,11 @@ var cgptBetterExp = (() => {
   var ONE_CLICK_DELETE_TOOLTIP = "Click to delete";
   var ONE_CLICK_DELETE_ARCHIVE_TOOLTIP = "Archive";
   var CHAT_CONVERSATION_ID_REGEX = /\/c\/([^/?#]+)/;
-  var readTombstones = () => {
-    try {
-      const raw = sessionStorage.getItem(ONE_CLICK_DELETE_TOMBSTONES_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter((id) => typeof id === "string");
-    } catch {
-      return [];
-    }
-  };
-  var writeTombstones = (ids) => {
-    try {
-      sessionStorage.setItem(ONE_CLICK_DELETE_TOMBSTONES_KEY, JSON.stringify(ids));
-    } catch {
-    }
-  };
-  var rememberTombstone = (conversationId) => {
-    const existing = readTombstones();
-    if (existing.includes(conversationId)) return;
-    existing.push(conversationId);
-    writeTombstones(existing);
-  };
   var extractConversationIdFromRow = (row) => {
-    var _a;
     if (!row) return null;
     const link = row.querySelector('a[href^="/c/"], a[href*="/c/"]');
     if (!link) return null;
-    const href = (_a = link.getAttribute("href")) != null ? _a : "";
+    const href = link.getAttribute("href") ?? "";
     const match = href.match(CHAT_CONVERSATION_ID_REGEX);
     return match ? match[1] : null;
   };
@@ -1547,20 +1339,14 @@ var cgptBetterExp = (() => {
     const conversationId = extractConversationIdFromRow(row);
     if (!conversationId) return { attempted: false, ok: false };
     const ok = await patchConversation(conversationId, { is_visible: false });
-    if (ok) {
-      rememberTombstone(conversationId);
-      if (row.isConnected) row.remove();
-    }
+    if (ok && row.isConnected) row.remove();
     return { attempted: true, ok };
   };
   var directArchiveConversationFromRow = async (row) => {
     const conversationId = extractConversationIdFromRow(row);
     if (!conversationId) return { attempted: false, ok: false };
     const ok = await patchConversation(conversationId, { is_archived: true });
-    if (ok) {
-      rememberTombstone(conversationId);
-      if (row.isConnected) row.remove();
-    }
+    if (ok && row.isConnected) row.remove();
     return { attempted: true, ok };
   };
   var buildOneClickDeleteStyleText = () => `
@@ -1878,11 +1664,9 @@ var cgptBetterExp = (() => {
     const state = {
       started: false,
       observer: null,
-      tombstoneObserver: null,
       intervalId: null,
       pendingByRow: /* @__PURE__ */ new Map(),
-      deleteQueue: Promise.resolve(),
-      tombstoneRoot: null
+      deleteQueue: Promise.resolve()
     };
     const enqueueDelete = (job) => {
       state.deleteQueue = state.deleteQueue.then(job).catch(() => {
@@ -1898,15 +1682,8 @@ var cgptBetterExp = (() => {
       return null;
     };
     const findButtonByExactText = (root, text) => {
-      var _a;
       const candidates = Array.from(root.querySelectorAll('button, [role="menuitem"]'));
-      return (_a = candidates.find((el) => {
-        var _a2;
-        return ((_a2 = el.textContent) == null ? void 0 : _a2.trim()) === text;
-      })) != null ? _a : candidates.find((el) => {
-        var _a2;
-        return ((_a2 = el.textContent) == null ? void 0 : _a2.trim().toLowerCase()) === text.toLowerCase();
-      });
+      return candidates.find((el) => el.textContent?.trim() === text) ?? candidates.find((el) => el.textContent?.trim().toLowerCase() === text.toLowerCase());
     };
     const findButtonByTextVariants = (root, variants) => {
       for (const variant of variants) {
@@ -1923,12 +1700,11 @@ var cgptBetterExp = (() => {
       if (ctx.logger.isEnabled) ctx.logger.debug("oneClickDelete", message);
     };
     const ensureOneClickDeleteStyle = () => {
-      var _a;
       if (document.getElementById(ONE_CLICK_DELETE_STYLE_ID)) return;
       const st = document.createElement("style");
       st.id = ONE_CLICK_DELETE_STYLE_ID;
       st.textContent = buildOneClickDeleteStyleText();
-      const host = (_a = document.head) != null ? _a : document.documentElement;
+      const host = document.head ?? document.documentElement;
       if (!host) return;
       host.appendChild(st);
     };
@@ -2012,46 +1788,8 @@ var cgptBetterExp = (() => {
       }
     };
     const findChatRowFromOptionsButton = (btn) => {
-      var _a, _b, _c, _d, _e;
-      const row = (_e = (_d = (_b = (_a = btn.closest(".group.__menu-item.hoverable")) != null ? _a : btn.closest('[data-testid^="history-item-"]')) != null ? _b : btn.closest("li")) != null ? _d : (_c = btn.closest("a[href^='/c/']")) == null ? void 0 : _c.parentElement) != null ? _e : null;
-      return row;
-    };
-    const removeTombstonedRows = (root = document) => {
-      const tombstones = new Set(readTombstones());
-      if (tombstones.size === 0) return;
-      const rows = qsa(
-        [".group.__menu-item.hoverable", '[data-testid^="history-item-"]', "nav a[href^='/c/']"].join(
-          ", "
-        ),
-        root
-      );
-      for (const row of rows) {
-        const conversationId = extractConversationIdFromRow(row);
-        if (conversationId && tombstones.has(conversationId) && row.isConnected) {
-          row.remove();
-        }
-      }
-    };
-    const findChatListRoot = () => {
-      const row = document.querySelector(
-        [".group.__menu-item.hoverable", '[data-testid^="history-item-"]', "nav a[href^='/c/']"].join(
-          ", "
-        )
-      );
-      if (row == null ? void 0 : row.parentElement) return row.parentElement;
-      const nav = document.querySelector('nav[aria-label*="chat" i]');
-      if (nav) return nav;
-      return document.body;
-    };
-    const ensureTombstoneObserver = () => {
-      var _a;
-      const root = findChatListRoot();
-      if (root === state.tombstoneRoot && state.tombstoneObserver) return;
-      (_a = state.tombstoneObserver) == null ? void 0 : _a.disconnect();
-      state.tombstoneRoot = root;
-      state.tombstoneObserver = new MutationObserver(() => removeTombstonedRows(root));
-      state.tombstoneObserver.observe(root, { childList: true, subtree: true });
-      removeTombstonedRows(root);
+      const row = btn.closest(".group.__menu-item.hoverable");
+      return row ?? null;
     };
     const applyRowTypographyVars = (row) => {
       try {
@@ -2184,24 +1922,22 @@ var cgptBetterExp = (() => {
       ensureNativeDotsMark(btn);
     };
     const runOneClickDeleteUiFlow = async (btn) => {
-      var _a, _b;
       try {
         setSilentDeleteMode(true);
         ctx.helpers.humanClick(btn, "oneclick-delete-open-menu");
         const deleteItem = await (async () => {
-          var _a2, _b2;
           const t0 = performance.now();
           while (performance.now() - t0 < 1500) {
             const menus = qsa('[role="menu"]');
             for (const menu of menus) {
-              const item = (_a2 = menu.querySelector(
+              const item = menu.querySelector(
                 'div[role="menuitem"][data-testid="delete-chat-menu-item"]'
-              )) != null ? _a2 : findButtonByExactText(menu, "Delete");
+              ) ?? findButtonByExactText(menu, "Delete");
               if (item) return item;
             }
-            const fallback = (_b2 = document.querySelector(
+            const fallback = document.querySelector(
               'div[role="menuitem"][data-testid="delete-chat-menu-item"]'
-            )) != null ? _b2 : findButtonByExactText(document, "Delete");
+            ) ?? findButtonByExactText(document, "Delete");
             if (fallback) return fallback;
             await new Promise((resolve) => setTimeout(resolve, 50));
           }
@@ -2215,13 +1951,13 @@ var cgptBetterExp = (() => {
           1500
         );
         if (!modal) return;
-        const confirmBtn = (_b = (_a = modal.querySelector(
+        const confirmBtn = modal.querySelector(
           'button[data-testid="delete-conversation-confirm-button"]'
-        )) != null ? _a : await waitPresent(
+        ) ?? await waitPresent(
           'button[data-testid="delete-conversation-confirm-button"]',
           modal,
           1200
-        )) != null ? _b : findButtonByExactText(modal, "Delete");
+        ) ?? findButtonByExactText(modal, "Delete");
         if (!confirmBtn) return;
         ctx.helpers.humanClick(confirmBtn, "oneclick-delete-confirm");
       } finally {
@@ -2230,7 +1966,6 @@ var cgptBetterExp = (() => {
       }
     };
     const runOneClickArchiveUiFlow = async (btn) => {
-      var _a, _b;
       try {
         setSilentDeleteMode(true);
         ctx.helpers.humanClick(btn, "oneclick-archive-open-menu");
@@ -2286,7 +2021,7 @@ var cgptBetterExp = (() => {
           "\u041F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C",
           "\u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C"
         ];
-        const confirmBtn = (_b = (_a = modal.querySelector('button[data-testid*="confirm" i]')) != null ? _a : modal.querySelector('button[data-testid*="archive" i]')) != null ? _b : findButtonByTextVariants(modal, confirmTexts);
+        const confirmBtn = modal.querySelector('button[data-testid*="confirm" i]') ?? modal.querySelector('button[data-testid*="archive" i]') ?? findButtonByTextVariants(modal, confirmTexts);
         if (!confirmBtn) return;
         ctx.helpers.humanClick(confirmBtn, "oneclick-archive-confirm");
       } finally {
@@ -2354,7 +2089,6 @@ var cgptBetterExp = (() => {
       const btns = qsa(ONE_CLICK_DELETE_BUTTON_SELECTOR);
       for (const btn of btns) hookOneClickDeleteButton(btn);
       cleanupDetachedPendingRows();
-      ensureTombstoneObserver();
     };
     const startOneClickDelete = () => {
       if (state.started) return;
@@ -2385,11 +2119,6 @@ var cgptBetterExp = (() => {
         state.observer.disconnect();
         state.observer = null;
       }
-      if (state.tombstoneObserver) {
-        state.tombstoneObserver.disconnect();
-        state.tombstoneObserver = null;
-      }
-      state.tombstoneRoot = null;
       clearOneClickDeleteButtons();
       removeOneClickDeleteStyle();
       setSilentDeleteMode(false);
@@ -2411,7 +2140,6 @@ var cgptBetterExp = (() => {
   // src/features/autoTempChat.ts
   var TEMP_CHAT_CHECKBOX_SELECTOR = "#temporary-chat-checkbox";
   var TEMP_CHAT_LABEL_SELECTOR = 'h1[data-testid="temporary-chat-label"]';
-  var TEMP_CHAT_TOGGLE_BUTTON_SELECTOR = 'button[aria-label*="temporary chat" i]';
   var NAVIGATION_EVENT_NAME = "qqrm:navigation";
   var NAVIGATION_FALLBACK_DELAY_MS = 1e4;
   var NAVIGATION_FALLBACK_INTERVAL_MS = 2500;
@@ -2429,56 +2157,26 @@ var cgptBetterExp = (() => {
       originalReplaceState: null
     };
     const getTempChatCheckbox = () => document.querySelector(TEMP_CHAT_CHECKBOX_SELECTOR);
-    const getTempChatToggleButton = () => {
-      const btn = document.querySelector(TEMP_CHAT_TOGGLE_BUTTON_SELECTOR);
-      return btn && btn instanceof HTMLButtonElement ? btn : null;
-    };
-    const isTempChatEnabled = () => {
-      const btn = getTempChatToggleButton();
-      if (btn) {
-        const label = (btn.getAttribute("aria-label") || "").toLowerCase();
-        if (label.includes("turn off") || label.includes("disable")) return true;
-        if (label.includes("turn on") || label.includes("enable")) return false;
-      }
-      const cb = getTempChatCheckbox();
-      if (cb) return Boolean(cb.checked);
-      const labelEl = document.querySelector(TEMP_CHAT_LABEL_SELECTOR);
-      if (labelEl) return true;
-      return null;
-    };
     const getTempChatClickTarget = () => {
-      var _a, _b, _c;
       const checkbox = getTempChatCheckbox();
       if (!checkbox) return null;
-      return (_c = (_b = (_a = checkbox.closest("label")) != null ? _a : checkbox.closest(TEMP_CHAT_LABEL_SELECTOR)) != null ? _b : checkbox.closest("button")) != null ? _c : checkbox;
+      return checkbox.closest("label") ?? checkbox.closest(TEMP_CHAT_LABEL_SELECTOR) ?? checkbox.closest("button") ?? checkbox;
     };
     const ensureTempChatOn = () => {
-      const enabled = isTempChatEnabled();
-      if (enabled === true) return;
-      const btn = getTempChatToggleButton();
-      if (btn && !btn.disabled) {
-        ctx.helpers.humanClick(btn, "tempchat-enable");
-        ctx.logger.debug("TEMPCHAT", "forced on (button)");
-        return;
-      }
       const checkbox = getTempChatCheckbox();
-      if (!checkbox || checkbox.disabled || checkbox.checked) return;
+      if (!checkbox) return;
+      if (checkbox.disabled) return;
+      if (checkbox.checked) return;
       const target = getTempChatClickTarget();
       if (!target) return;
       ctx.helpers.humanClick(target, "tempchat-enable");
       ctx.logger.debug("TEMPCHAT", "forced on");
     };
     const ensureTempChatOff = () => {
-      const enabled = isTempChatEnabled();
-      if (enabled === false) return;
-      const btn = getTempChatToggleButton();
-      if (btn && !btn.disabled) {
-        ctx.helpers.humanClick(btn, "tempchat-disable");
-        ctx.logger.debug("TEMPCHAT", "forced off (button)");
-        return;
-      }
       const checkbox = getTempChatCheckbox();
-      if (!checkbox || checkbox.disabled || !checkbox.checked) return;
+      if (!checkbox) return;
+      if (checkbox.disabled) return;
+      if (!checkbox.checked) return;
       const target = getTempChatClickTarget();
       if (!target) return;
       ctx.helpers.humanClick(target, "tempchat-disable");
@@ -2524,14 +2222,12 @@ var cgptBetterExp = (() => {
       state.originalPushState = history.pushState.bind(history);
       state.originalReplaceState = history.replaceState.bind(history);
       history.pushState = (...args) => {
-        var _a;
-        const result = (_a = state.originalPushState) == null ? void 0 : _a.call(state, ...args);
+        const result = state.originalPushState?.(...args);
         window.dispatchEvent(new CustomEvent(NAVIGATION_EVENT_NAME));
         return result;
       };
       history.replaceState = (...args) => {
-        var _a;
-        const result = (_a = state.originalReplaceState) == null ? void 0 : _a.call(state, ...args);
+        const result = state.originalReplaceState?.(...args);
         window.dispatchEvent(new CustomEvent(NAVIGATION_EVENT_NAME));
         return result;
       };
@@ -2639,12 +2335,11 @@ var cgptBetterExp = (() => {
         12e3
       );
       if (!ok1) return false;
-      const ok2 = await ctx.helpers.waitPresent(
-        '#history, #stage-slideover-sidebar, nav[aria-label="Chat history"]',
-        document,
-        12e3
-      );
-      return Boolean(ok2);
+      const ok2 = await ctx.helpers.waitPresent("#stage-slideover-sidebar", document, 12e3);
+      if (!ok2) return false;
+      const ok3 = await ctx.helpers.waitPresent('nav[aria-label="Chat history"]', document, 12e3);
+      if (!ok3) return false;
+      return true;
     };
     const autoExpandDispatchClick = (el) => {
       const seq = ["pointerdown", "mousedown", "mouseup", "click"];
@@ -2656,15 +2351,7 @@ var cgptBetterExp = (() => {
       state.started = false;
       state.runId += 1;
     };
-    const autoExpandSidebarEl = () => {
-      const sb = qs("#stage-slideover-sidebar");
-      if (sb) return sb;
-      const history2 = document.getElementById("history");
-      const nav = history2 == null ? void 0 : history2.closest("nav");
-      if (nav) return nav;
-      const anyNav = qs("nav");
-      return anyNav;
-    };
+    const autoExpandSidebarEl = () => qs("#stage-slideover-sidebar");
     const autoExpandSidebarIsOpen = () => {
       const sb = autoExpandSidebarEl();
       if (!sb) return false;
@@ -2686,11 +2373,7 @@ var cgptBetterExp = (() => {
     const autoExpandChatHistoryNav = () => {
       const sb = autoExpandSidebarEl();
       if (!sb) return null;
-      const oldNav = sb.querySelector('nav[aria-label="Chat history"]');
-      if (oldNav) return oldNav;
-      const history2 = sb.querySelector("#history");
-      if (history2) return sb;
-      return sb;
+      return sb.querySelector('nav[aria-label="Chat history"]');
     };
     const autoExpandFindYourChatsSection = (nav) => {
       if (!nav) return null;
@@ -2705,10 +2388,6 @@ var cgptBetterExp = (() => {
       return null;
     };
     const autoExpandSectionCollapsed = (sec) => {
-      const btn = sec.querySelector("button[aria-expanded]");
-      const expanded = btn == null ? void 0 : btn.getAttribute("aria-expanded");
-      if (expanded === "false") return true;
-      if (expanded === "true") return false;
       const cls = String(sec.className || "");
       if (cls.includes("sidebar-collapsed-section-margin-bottom")) return true;
       if (cls.includes("sidebar-expanded-section-margin-bottom")) return false;
@@ -2723,13 +2402,13 @@ var cgptBetterExp = (() => {
       const sec = autoExpandFindYourChatsSection(nav);
       if (!sec) return false;
       if (!autoExpandSectionCollapsed(sec)) return false;
-      const btn = sec.querySelector("button[aria-expanded]") || sec.querySelector("button.text-token-text-tertiary.flex.w-full") || sec.querySelector("button") || sec.querySelector('[role="button"]');
+      const btn = sec.querySelector("button.text-token-text-tertiary.flex.w-full") || sec.querySelector("button") || sec.querySelector('[role="button"]');
       if (!btn || !isElementVisible(btn)) return false;
       autoExpandDispatchClick(btn);
       return true;
     };
     const autoExpandWaitForSidebar = async () => {
-      const sidebarSelector = "#history, #stage-slideover-sidebar";
+      const sidebarSelector = "#stage-slideover-sidebar";
       const openButtonSelector = '#stage-sidebar-tiny-bar button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"], button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]';
       const selector = `${sidebarSelector}, ${openButtonSelector}`;
       return ctx.helpers.waitPresent(selector, document, AUTO_EXPAND_START_TIMEOUT_MS);
@@ -2745,7 +2424,7 @@ var cgptBetterExp = (() => {
       }
       if (autoExpandSidebarIsOpen()) {
         const nav2 = await ctx.helpers.waitPresent(
-          '#history, nav[aria-label="Chat history"], #stage-slideover-sidebar',
+          'nav[aria-label="Chat history"]',
           document,
           AUTO_EXPAND_NAV_TIMEOUT_MS
         );
@@ -2755,8 +2434,7 @@ var cgptBetterExp = (() => {
           }
           return false;
         }
-        const root2 = autoExpandChatHistoryNav();
-        const sec2 = autoExpandFindYourChatsSection(root2);
+        const sec2 = autoExpandFindYourChatsSection(nav2);
         if (sec2 && !autoExpandSectionCollapsed(sec2)) {
           ctx.logger.debug("AUTOEXPAND", "already expanded on start");
           return true;
@@ -2766,7 +2444,7 @@ var cgptBetterExp = (() => {
         autoExpandEnsureSidebarOpen();
       }
       const nav = await ctx.helpers.waitPresent(
-        '#history, nav[aria-label="Chat history"], #stage-slideover-sidebar',
+        'nav[aria-label="Chat history"]',
         document,
         AUTO_EXPAND_NAV_TIMEOUT_MS
       );
@@ -2776,8 +2454,7 @@ var cgptBetterExp = (() => {
         }
         return false;
       }
-      const root = autoExpandChatHistoryNav();
-      const sec = autoExpandFindYourChatsSection(root);
+      const sec = autoExpandFindYourChatsSection(nav);
       if (sec && !autoExpandSectionCollapsed(sec)) {
         ctx.logger.debug("AUTOEXPAND", "already expanded on start");
         return true;
@@ -2880,38 +2557,7 @@ var cgptBetterExp = (() => {
       baseWidthPx: null,
       scheduled: false
     };
-    const findWideChatContentEl = () => {
-      const selectors = [
-        'main [class*="max-w-(--thread-content-max-width)"]',
-        '[class*="max-w-(--thread-content-max-width)"]',
-        'main [data-testid*="conversation" i]',
-        'main [data-testid*="thread" i]',
-        "main article",
-        "main section"
-      ];
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el) return el;
-      }
-      const main = document.querySelector("main");
-      if (!main) return null;
-      const candidates = Array.from(main.querySelectorAll("div, section, article"));
-      let best = null;
-      let bestScore = -Infinity;
-      for (const el of candidates) {
-        const style = window.getComputedStyle(el);
-        const maxW = style.maxWidth;
-        if (!maxW || maxW === "none") continue;
-        const rect = el.getBoundingClientRect();
-        if (rect.width < 400 || rect.width > window.innerWidth) continue;
-        const score = rect.width;
-        if (score > bestScore) {
-          bestScore = score;
-          best = el;
-        }
-      }
-      return best;
-    };
+    const findWideChatContentEl = () => document.querySelector('main [class*="max-w-(--thread-content-max-width)"]') || document.querySelector('[class*="max-w-(--thread-content-max-width)"]');
     const ensureWideChatBaseWidth = () => {
       if (state.baseWidthPx !== null) return state.baseWidthPx;
       const contentEl = findWideChatContentEl();
@@ -3011,6 +2657,7 @@ var cgptBetterExp = (() => {
 
   // src/features/chatgptEditor.ts
   var norm2 = (value) => (value || "").trim().toLowerCase();
+  var isVisible2 = (el) => el.offsetParent !== null;
   var isMainComposer = (composer) => {
     if (composer instanceof HTMLElement) {
       if (composer.id === "prompt-textarea") return true;
@@ -3018,17 +2665,55 @@ var cgptBetterExp = (() => {
     }
     return false;
   };
+  var getHay = (btn) => {
+    const aria = norm2(btn.getAttribute("aria-label"));
+    const title = norm2(btn.getAttribute("title"));
+    const dt = norm2(btn.getAttribute("data-testid"));
+    const txt = norm2(btn.textContent);
+    return `${aria} ${title} ${dt} ${txt}`.trim();
+  };
+  var POSITIVE = [
+    "save",
+    "save and submit",
+    "submit",
+    "apply",
+    "update",
+    "done",
+    "ok",
+    "send",
+    "send message",
+    "\u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C",
+    "\u0441\u043E\u0445\u0440\u0430\u043D",
+    "\u043F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C",
+    "\u0433\u043E\u0442\u043E\u0432\u043E",
+    "\u043E\u043A",
+    "\u043E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C",
+    "\u043E\u0442\u043F\u0440\u0430\u0432"
+  ];
+  var NEGATIVE = ["cancel", "close", "dismiss", "\u043E\u0442\u043C\u0435\u043D\u0430", "\u043E\u0442\u043C\u0435\u043D\u0438\u0442\u044C"];
+  var isPositiveAction = (btn) => {
+    if (isDisabled(btn)) return false;
+    if (!isVisible2(btn)) return false;
+    const hay = getHay(btn);
+    if (!hay) return false;
+    if (NEGATIVE.some((x) => hay.includes(x))) return false;
+    return POSITIVE.some((x) => hay.includes(x));
+  };
   var findEditSubmitButton = (composer) => {
-    var _a;
     if (isMainComposer(composer)) return null;
     const closestForm = composer.closest("form");
     if (closestForm) {
       const submitBtn = closestForm.querySelector(
         'button[type="submit"], [role="button"][type="submit"]'
       );
-      if (submitBtn instanceof HTMLElement && !isDisabled(submitBtn) && submitBtn.offsetParent !== null) {
+      if (submitBtn instanceof HTMLElement && !isDisabled(submitBtn) && isVisible2(submitBtn)) {
         return submitBtn;
       }
+      const formButtons = Array.from(closestForm.querySelectorAll("button, [role='button']")).filter(
+        (btn) => btn instanceof HTMLElement
+      );
+      const byText = formButtons.find((btn) => isPositiveAction(btn));
+      if (byText) return byText;
     }
     const searchRoots = [
       composer.closest('[role="dialog"], [role="alertdialog"]'),
@@ -3037,47 +2722,26 @@ var cgptBetterExp = (() => {
       composer.closest('[data-testid*="message" i]'),
       composer.closest("div")
     ];
-    const root = (_a = searchRoots.find((x) => !!x)) != null ? _a : null;
+    const root = searchRoots.find((x) => !!x) ?? null;
     if (!root) return null;
     const buttons = Array.from(root.querySelectorAll("button, [role='button']")).filter(
       (btn) => btn instanceof HTMLElement
     );
-    const positive = [
-      "save",
-      "save and submit",
-      "submit",
-      "apply",
-      "update",
-      "done",
-      "ok",
-      "\u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C",
-      "\u0441\u043E\u0445\u0440\u0430\u043D",
-      "\u043F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C",
-      "\u0433\u043E\u0442\u043E\u0432\u043E"
-    ];
-    const negative = ["cancel", "close", "dismiss", "\u043E\u0442\u043C\u0435\u043D\u0430", "\u043E\u0442\u043C\u0435\u043D\u0438\u0442\u044C"];
-    const candidates = buttons.filter((btn) => {
-      if (isDisabled(btn)) return false;
-      const aria = norm2(btn.getAttribute("aria-label"));
-      const title = norm2(btn.getAttribute("title"));
-      const dt = norm2(btn.getAttribute("data-testid"));
-      const txt = norm2(btn.textContent);
-      const hay = `${aria} ${title} ${dt} ${txt}`;
-      if (negative.some((x) => hay.includes(x))) return false;
-      return positive.some((x) => hay.includes(x));
-    }).filter((btn) => btn.offsetParent !== null);
+    const candidates = buttons.filter((btn) => isPositiveAction(btn));
     if (candidates.length > 0) return candidates[0];
     const byTestId = buttons.find((btn) => {
       if (isDisabled(btn)) return false;
+      if (!isVisible2(btn)) return false;
       const dt = norm2(btn.getAttribute("data-testid"));
       if (!dt) return false;
       if (dt.includes("save")) return true;
       if (dt.includes("submit")) return true;
       if (dt.includes("apply")) return true;
       if (dt.includes("update")) return true;
+      if (dt.includes("send")) return true;
       return false;
     });
-    return byTestId != null ? byTestId : null;
+    return byTestId ?? null;
   };
 
   // src/features/keyCombos.ts
@@ -3093,9 +2757,8 @@ var cgptBetterExp = (() => {
   };
   var routeKeyCombos = (event, combos) => {
     const ranked = combos.map((combo, index) => ({ combo, index })).sort((a, b) => {
-      var _a, _b;
-      const ap = (_a = a.combo.priority) != null ? _a : 0;
-      const bp = (_b = b.combo.priority) != null ? _b : 0;
+      const ap = a.combo.priority ?? 0;
+      const bp = b.combo.priority ?? 0;
       if (bp !== ap) return bp - ap;
       return a.index - b.index;
     });
@@ -3110,7 +2773,24 @@ var cgptBetterExp = (() => {
   // src/features/ctrlEnterSend.ts
   function initCtrlEnterSendFeature(ctx) {
     const norm3 = (value) => (value || "").trim().toLowerCase();
-    const findComposerInput2 = () => {
+    const isVisible3 = (btn) => btn.offsetParent !== null;
+    const click = (el, why) => {
+      const ok = ctx.helpers.humanClick(el, why);
+      if (!ok && el) {
+        try {
+          el.click();
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      return ok;
+    };
+    const readInputValue = (input) => {
+      if (input instanceof HTMLTextAreaElement) return input.value || "";
+      return input.innerText || input.textContent || "";
+    };
+    const findComposerInput = () => {
       const selectors = [
         'textarea[data-testid="prompt-textarea"]',
         '[contenteditable="true"][data-testid="prompt-textarea"]',
@@ -3129,7 +2809,7 @@ var cgptBetterExp = (() => {
       const active = document.activeElement;
       if (active instanceof HTMLTextAreaElement) return active;
       if (active instanceof HTMLElement && active.isContentEditable) return active;
-      return findComposerInput2();
+      return findComposerInput();
     };
     const isComposerEventTarget = (e) => {
       const target = e.target;
@@ -3145,10 +2825,9 @@ var cgptBetterExp = (() => {
       return false;
     };
     const insertNewlineAtCaret = (input) => {
-      var _a, _b;
       if (input instanceof HTMLTextAreaElement) {
-        const start = (_a = input.selectionStart) != null ? _a : input.value.length;
-        const end = (_b = input.selectionEnd) != null ? _b : input.value.length;
+        const start = input.selectionStart ?? input.value.length;
+        const end = input.selectionEnd ?? input.value.length;
         input.value = `${input.value.slice(0, start)}
 ${input.value.slice(end)}`;
         const nextPos = start + 1;
@@ -3169,7 +2848,7 @@ ${input.value.slice(end)}`;
       selection.addRange(range);
       input.dispatchEvent(new Event("input", { bubbles: true }));
     };
-    const findSendButton2 = (composer) => {
+    const findSendButton = (composer) => {
       const selectors = [
         '[data-testid="send-button"]',
         'button[aria-label*="Send" i]',
@@ -3178,17 +2857,22 @@ ${input.value.slice(end)}`;
         '[role="button"][aria-label="Submit"]',
         'button[aria-label*="\u041E\u0442\u043F\u0440\u0430\u0432" i]'
       ];
-      for (const selector of selectors) {
-        const btn = document.querySelector(selector);
-        if (btn instanceof HTMLElement && isVisible2(btn)) return btn;
+      const tryFindIn = (root) => {
+        for (const selector of selectors) {
+          const btn = root.querySelector(selector);
+          if (btn instanceof HTMLElement && isVisible3(btn)) return btn;
+        }
+        return null;
+      };
+      const form = composer?.closest("form");
+      if (form) {
+        const inside = tryFindIn(form);
+        if (inside) return inside;
+        const submitBtn = form.querySelector('button[type="submit"], [role="button"][type="submit"]');
+        if (submitBtn instanceof HTMLElement && isVisible3(submitBtn)) return submitBtn;
       }
-      const form = composer == null ? void 0 : composer.closest("form");
-      if (!form) return null;
-      const submitBtn = form.querySelector('button[type="submit"], [role="button"][type="submit"]');
-      if (submitBtn instanceof HTMLElement && isVisible2(submitBtn)) return submitBtn;
-      return null;
+      return tryFindIn(document);
     };
-    const isVisible2 = (btn) => btn.offsetParent !== null;
     const isDictationStopButton = (btn) => {
       const aria = norm3(btn.getAttribute("aria-label"));
       const title = norm3(btn.getAttribute("title"));
@@ -3236,7 +2920,7 @@ ${input.value.slice(end)}`;
         (btn) => btn instanceof HTMLElement
       );
       for (const btn of buttons) {
-        if (!isVisible2(btn)) continue;
+        if (!isVisible3(btn)) continue;
         if (isDisabled(btn)) continue;
         if (isDictationStopButton(btn)) return btn;
       }
@@ -3247,29 +2931,48 @@ ${input.value.slice(end)}`;
         (btn) => btn instanceof HTMLElement
       );
       for (const btn of buttons) {
-        if (!isVisible2(btn)) continue;
+        if (!isVisible3(btn)) continue;
         if (isDisabled(btn)) continue;
         if (isSubmitDictationButton(btn)) return btn;
       }
       return null;
     };
-    const waitForInputToStabilize = (input, timeoutMs, quietMs) => new Promise((resolve) => {
+    const waitForTextToChangeFrom = (input, baseline, timeoutMs, pollMs, onPoll) => new Promise((resolve) => {
       const t0 = performance.now();
-      const readInputValue = () => input instanceof HTMLTextAreaElement ? input.value : input.innerText || "";
-      let lastValue = readInputValue();
+      const tick = () => {
+        onPoll?.();
+        const cur = readInputValue(input);
+        if (cur !== baseline) {
+          resolve(true);
+          return;
+        }
+        if (performance.now() - t0 >= timeoutMs) {
+          resolve(false);
+          return;
+        }
+        setTimeout(tick, pollMs);
+      };
+      tick();
+    });
+    const waitForNonEmptyStableText = (input, timeoutMs, quietMs, onPoll) => new Promise((resolve) => {
+      const t0 = performance.now();
+      let lastValue = readInputValue(input);
       let lastChangeAt = performance.now();
       const tick = () => {
-        const cur = readInputValue();
+        onPoll?.();
+        const cur = readInputValue(input);
         if (cur !== lastValue) {
           lastValue = cur;
           lastChangeAt = performance.now();
         }
-        if (performance.now() - lastChangeAt >= quietMs) {
-          resolve();
+        const stableForMs = performance.now() - lastChangeAt;
+        const hasText = cur.trim().length > 0;
+        if (hasText && stableForMs >= quietMs) {
+          resolve(cur);
           return;
         }
         if (performance.now() - t0 >= timeoutMs) {
-          resolve();
+          resolve(cur);
           return;
         }
         setTimeout(tick, 60);
@@ -3279,7 +2982,7 @@ ${input.value.slice(end)}`;
     const waitForSendButtonReady = (composer, timeoutMs, pollMs) => new Promise((resolve) => {
       const t0 = performance.now();
       const tick = () => {
-        const btn = findSendButton2(composer);
+        const btn = findSendButton(composer);
         if (btn && !isDisabled(btn)) {
           resolve(btn);
           return;
@@ -3292,6 +2995,23 @@ ${input.value.slice(end)}`;
       };
       tick();
     });
+    const waitForFinalTranscribedText = async (input, baseline) => {
+      let submitClicked = false;
+      const trySubmitDictation = () => {
+        if (submitClicked) return;
+        const btn = findSubmitDictationButton();
+        if (btn) {
+          const ok = click(btn, "submit-dictation-auto");
+          if (ok) submitClicked = true;
+        }
+      };
+      await new Promise((r) => setTimeout(r, 80));
+      trySubmitDictation();
+      if (baseline.trim().length > 0) {
+        await waitForTextToChangeFrom(input, baseline, 4e3, 80, trySubmitDictation);
+      }
+      return await waitForNonEmptyStableText(input, 25e3, 450, trySubmitDictation);
+    };
     const stopEvent = (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -3326,18 +3046,19 @@ ${input.value.slice(end)}`;
         const editBtn = findEditSubmitButton(target);
         if (editBtn && !isDisabled(editBtn)) {
           ctx.logger.debug("KEY", "CTRL+ENTER apply edit");
-          editBtn.click();
+          click(editBtn, "apply-edit");
           return;
         }
+        const baseline = readInputValue(target);
         const submitBtnBefore = findSubmitDictationButton();
         if (submitBtnBefore) {
           ctx.logger.debug("KEY", "CTRL+ENTER submit dictation");
-          submitBtnBefore.click();
-          await waitForInputToStabilize(target, 2500, 250);
-          const sendBtn2 = await waitForSendButtonReady(target, 4e3, 60);
+          click(submitBtnBefore, "submit-dictation");
+          await waitForFinalTranscribedText(target, baseline);
+          const sendBtn2 = await waitForSendButtonReady(target, 12e3, 80);
           if (sendBtn2) {
             ctx.logger.debug("KEY", "CTRL+ENTER send");
-            sendBtn2.click();
+            click(sendBtn2, "send");
           } else {
             ctx.logger.debug("KEY", "send button not ready");
           }
@@ -3346,27 +3067,21 @@ ${input.value.slice(end)}`;
         const stopBtn = findDictationStopButton();
         if (stopBtn) {
           ctx.logger.debug("KEY", "CTRL+ENTER stop dictation");
-          stopBtn.click();
-          await waitForInputToStabilize(target, 2500, 250);
-          const submitBtnAfter = findSubmitDictationButton();
-          if (submitBtnAfter) {
-            ctx.logger.debug("KEY", "CTRL+ENTER submit dictation after stop");
-            submitBtnAfter.click();
-            await waitForInputToStabilize(target, 2500, 250);
-          }
-          const sendBtn2 = await waitForSendButtonReady(target, 4e3, 60);
+          click(stopBtn, "stop-dictation");
+          await waitForFinalTranscribedText(target, baseline);
+          const sendBtn2 = await waitForSendButtonReady(target, 12e3, 80);
           if (sendBtn2) {
             ctx.logger.debug("KEY", "CTRL+ENTER send");
-            sendBtn2.click();
+            click(sendBtn2, "send");
           } else {
             ctx.logger.debug("KEY", "send button not ready");
           }
           return;
         }
-        const sendBtn = findSendButton2(target);
+        const sendBtn = findSendButton(target);
         if (sendBtn && !isDisabled(sendBtn)) {
           ctx.logger.debug("KEY", "CTRL+ENTER send");
-          sendBtn.click();
+          click(sendBtn, "send");
         } else {
           ctx.logger.debug("KEY", "send button not found");
         }
@@ -3378,18 +3093,14 @@ ${input.value.slice(end)}`;
       if (e.isComposing && !(e.ctrlKey || e.metaKey)) return;
       if (e.key !== "Enter") return;
       const shouldSend = e.ctrlKey || e.metaKey;
-      let target = findActiveEditableTarget();
-      const outsideComposerOk = shouldHandleCtrlEnterOutsideComposer();
-      if (!target && outsideComposerOk) {
-        target = findComposerInput2();
-      }
-      const composerOk = !!target && (isComposerEventTarget(e) || outsideComposerOk);
+      const target = findActiveEditableTarget();
+      const composerOk = !!target && (isComposerEventTarget(e) || shouldHandleCtrlEnterOutsideComposer());
       if (!composerOk) return;
       if (!shouldSend && e.shiftKey) {
         lastEnterShiftAt = performance.now();
         return;
       }
-      if (shouldSend && target) {
+      if (shouldSend) {
         handleCtrlEnter(e, target);
         return;
       }
@@ -3432,431 +3143,60 @@ ${input.value.slice(end)}`;
     };
   }
 
-  // src/features/compatibilityMonitor.ts
-  var TOAST_ROOT_ID = "qqrm-compat-toast-root";
-  var TOAST_ID = "qqrm-compat-toast";
-  function isChatUiLike() {
-    if (document.getElementById("prompt-textarea")) return true;
-    if (document.querySelector("form.group\\/composer")) return true;
-    if (document.querySelector('[data-testid="composer-footer-actions"]')) return true;
-    if (document.querySelector('nav[aria-label="Chat history"]')) return true;
-    if (document.getElementById("history")) return true;
-    return false;
-  }
-  function findComposerRoot() {
-    const byClass = document.querySelector("form.group\\/composer");
-    if (byClass) return byClass;
-    const byFooter = document.querySelector('[data-testid="composer-footer-actions"]');
-    if (byFooter) return byFooter.closest("form");
-    const prompt = document.getElementById("prompt-textarea");
-    if (prompt) return prompt.closest("form, footer");
-    return null;
-  }
-  function findComposerInput(root) {
-    const scope = root != null ? root : document;
-    const textarea = scope.querySelector("textarea");
-    if (textarea) return textarea;
-    const ce = scope.querySelector('[contenteditable="true"]');
-    if (ce) return ce;
-    const byId = document.getElementById("prompt-textarea");
-    if (byId) return byId;
-    return null;
-  }
-  function findSendButton(root) {
-    const scope = root != null ? root : document;
-    const byTestId = scope.querySelector('[data-testid="send-button"]');
-    if (byTestId) return byTestId;
-    const submit = scope.querySelector('button[type="submit"]');
-    if (submit) return submit;
-    const any = scope.querySelector('button[aria-label*="send" i]');
-    return any;
-  }
-  function hasDictationToggle() {
-    var _a, _b;
-    return Boolean(
-      (_b = (_a = document.querySelector('button[data-testid="composer-speech-button"]')) != null ? _a : document.querySelector('button[aria-label="Dictate button"]')) != null ? _b : document.querySelector('button[aria-label*="dictate" i]')
-    );
-  }
-  function hasTemporaryChatToggle() {
-    var _a;
-    return Boolean(
-      (_a = document.querySelector('button[aria-label*="temporary chat" i]')) != null ? _a : document.querySelector('[data-testid*="temporary" i]')
-    );
-  }
-  function hasHistoryOptionsButtons() {
-    var _a, _b;
-    return Boolean(
-      (_b = (_a = document.querySelector('button[data-testid^="history-item-"][data-testid$="-options"]')) != null ? _a : document.querySelector('button[aria-label*="conversation options" i]')) != null ? _b : document.querySelector('button[aria-label*="open conversation options" i]')
-    );
-  }
-  function hasHistoryRoot() {
-    return Boolean(document.getElementById("history"));
-  }
-  function hasYourChatsExpandoToggle() {
-    var _a;
-    return Boolean(
-      (_a = document.querySelector("div.group\\/sidebar-expando-section button[aria-expanded]")) != null ? _a : document.querySelector('button[aria-expanded][aria-controls*="history" i]')
-    );
-  }
-  function hasOpenSidebarButton() {
-    var _a;
-    return Boolean(
-      (_a = document.querySelector(
-        'button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]'
-      )) != null ? _a : document.querySelector('button[aria-label="Open sidebar"]')
-    );
-  }
-  function hasUserMessages() {
-    return Boolean(document.querySelector('[data-message-author-role="user"]'));
-  }
-  function hasEditButtons() {
-    const btns = Array.from(document.querySelectorAll("button"));
-    for (const b of btns) {
-      const dt = norm(b.getAttribute("data-testid"));
-      const a = norm(b.getAttribute("aria-label"));
-      const t = norm(b.getAttribute("title"));
-      const txt = norm(b.textContent);
-      if (dt.includes("edit")) return true;
-      if (a.includes("edit") || a.includes("\u0440\u0435\u0434\u0430\u043A\u0442") || a.includes("\u0438\u0437\u043C\u0435\u043D")) return true;
-      if (t.includes("edit") || t.includes("\u0440\u0435\u0434\u0430\u043A\u0442") || t.includes("\u0438\u0437\u043C\u0435\u043D")) return true;
-      if (txt.includes("edit") || txt.includes("\u0440\u0435\u0434\u0430\u043A\u0442") || txt.includes("\u0438\u0437\u043C\u0435\u043D")) return true;
-    }
-    return false;
-  }
-  function runCompatibilityChecks(ctx) {
-    if (!ctx.settings.showCompatibilityWarnings) return [];
-    if (!isChatUiLike()) return [];
-    const issues = [];
-    const composerRoot = findComposerRoot();
-    const composerInput = findComposerInput(composerRoot);
-    const sendBtn = findSendButton(composerRoot);
-    const needsComposer = ctx.settings.autoSend || ctx.settings.ctrlEnterSends;
-    if (needsComposer) {
-      if (!composerRoot) {
-        issues.push({
-          id: "composer.root",
-          severity: "error",
-          title: "Composer not found",
-          details: "The message composer container could not be located."
-        });
-      } else {
-        if (!composerInput) {
-          const hasCanvas = Boolean(composerRoot.querySelector("canvas"));
-          issues.push({
-            id: "composer.input",
-            severity: "error",
-            title: "Composer input not found",
-            details: hasCanvas ? "Only a canvas-based input was detected. The extension expects textarea/contenteditable." : "No textarea/contenteditable input found inside the composer."
-          });
-        }
-        if (!sendBtn) {
-          issues.push({
-            id: "composer.send",
-            severity: "warn",
-            title: "Send button not found",
-            details: "Auto-send / Ctrl+Enter may fail because the Send button selector did not match."
-          });
-        }
-      }
-    }
-    if (ctx.settings.startDictation && !hasDictationToggle()) {
-      issues.push({
-        id: "dictation.toggle",
-        severity: "warn",
-        title: "Dictation toggle not found",
-        details: "Ctrl+Space dictation toggle may be outdated for the current ChatGPT UI."
-      });
-    }
-    if (ctx.settings.autoTempChat && !hasTemporaryChatToggle()) {
-      issues.push({
-        id: "tempchat.toggle",
-        severity: "warn",
-        title: "Temporary Chat toggle not found",
-        details: "Auto-enable Temporary Chat may no longer match the current ChatGPT UI."
-      });
-    }
-    if (ctx.settings.oneClickDelete && !hasHistoryOptionsButtons()) {
-      issues.push({
-        id: "history.options",
-        severity: "warn",
-        title: "Chat history menu buttons not found",
-        details: "One-click delete / rename (F2) depend on chat history options buttons."
-      });
-    }
-    if (ctx.settings.autoExpandChats) {
-      if (!hasHistoryRoot()) {
-        issues.push({
-          id: "sidebar.history",
-          severity: "warn",
-          title: "Sidebar history container not found",
-          details: "Auto-expand chats expects a #history container (or equivalent) in the left sidebar."
-        });
-      }
-      if (!hasYourChatsExpandoToggle()) {
-        issues.push({
-          id: "sidebar.expando",
-          severity: "warn",
-          title: "Sidebar expando toggle not detected",
-          details: 'Auto-expand chats relies on an expando header with aria-expanded (e.g. "Your chats").'
-        });
-      }
-      if (!hasOpenSidebarButton() && !document.querySelector("#stage-slideover-sidebar")) {
-        issues.push({
-          id: "sidebar.openBtn",
-          severity: "warn",
-          title: "Open sidebar button not found",
-          details: 'If the sidebar is collapsed by default, auto-expand may fail without an "Open sidebar" button.'
-        });
-      }
-    }
-    if (ctx.settings.editLastMessageOnArrowUp) {
-      if (!hasUserMessages()) {
-        issues.push({
-          id: "editlast.messages",
-          severity: "warn",
-          title: "No user messages found",
-          details: "ArrowUp edit needs at least one user message in the conversation view."
-        });
-      } else if (!hasEditButtons()) {
-        issues.push({
-          id: "editlast.buttons",
-          severity: "warn",
-          title: "Edit controls not detected",
-          details: "The extension could not detect any edit controls for user messages."
-        });
-      }
-    }
-    if (ctx.settings.wideChatWidth > 0) {
-      const main = document.querySelector("main");
-      if (!main) {
-        issues.push({
-          id: "widechat.main",
-          severity: "warn",
-          title: "Main container not found",
-          details: "Wide Chat could not find <main>, so the width override may not apply."
-        });
-      }
-    }
-    return issues;
-  }
-  function ensureToastRoot() {
-    let root = document.getElementById(TOAST_ROOT_ID);
-    if (root) return root;
-    root = document.createElement("div");
-    root.id = TOAST_ROOT_ID;
-    root.style.position = "fixed";
-    root.style.right = "14px";
-    root.style.bottom = "14px";
-    root.style.zIndex = "2147483647";
-    root.style.pointerEvents = "none";
-    document.documentElement.appendChild(root);
-    return root;
-  }
-  function removeToast() {
-    const toast = document.getElementById(TOAST_ID);
-    toast == null ? void 0 : toast.remove();
-  }
-  function showToast(issues) {
-    removeToast();
-    const root = ensureToastRoot();
-    const toast = document.createElement("div");
-    toast.id = TOAST_ID;
-    toast.style.pointerEvents = "auto";
-    toast.style.maxWidth = "340px";
-    toast.style.borderRadius = "12px";
-    toast.style.border = "1px solid rgba(255,255,255,0.14)";
-    toast.style.background = "rgba(20, 22, 26, 0.86)";
-    toast.style.color = "#fff";
-    toast.style.padding = "10px 10px 8px";
-    toast.style.font = "12px/16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-    toast.style.boxShadow = "0 10px 30px rgba(0,0,0,0.35)";
-    toast.style.backdropFilter = "blur(8px)";
-    const header = document.createElement("div");
-    header.style.display = "flex";
-    header.style.alignItems = "center";
-    header.style.justifyContent = "space-between";
-    header.style.gap = "8px";
-    const title = document.createElement("div");
-    title.textContent = "Compatibility check";
-    title.style.fontWeight = "600";
-    const close = document.createElement("button");
-    close.type = "button";
-    close.textContent = "\xD7";
-    close.style.border = "none";
-    close.style.background = "transparent";
-    close.style.color = "rgba(255,255,255,0.8)";
-    close.style.fontSize = "16px";
-    close.style.lineHeight = "16px";
-    close.style.cursor = "pointer";
-    close.addEventListener("click", () => removeToast());
-    header.appendChild(title);
-    header.appendChild(close);
-    toast.appendChild(header);
-    const list = document.createElement("ul");
-    list.style.margin = "8px 0 0";
-    list.style.padding = "0 0 0 18px";
-    for (const issue of issues.slice(0, 6)) {
-      const item = document.createElement("li");
-      item.textContent = issue.title;
-      item.style.margin = "2px 0";
-      list.appendChild(item);
-    }
-    toast.appendChild(list);
-    if (issues.length > 6) {
-      const more = document.createElement("div");
-      more.textContent = `\u2026and ${issues.length - 6} more`;
-      more.style.marginTop = "4px";
-      more.style.color = "rgba(255,255,255,0.7)";
-      toast.appendChild(more);
-    }
-    root.appendChild(toast);
-    window.setTimeout(() => {
-      if (document.getElementById(TOAST_ID)) removeToast();
-    }, 12e3);
-  }
-  function initCompatibilityMonitorFeature(ctx) {
-    let enabled = Boolean(ctx.settings.showCompatibilityWarnings);
-    let lastIds = /* @__PURE__ */ new Set();
-    let scheduled = false;
-    let mo = null;
-    const logIssues = (issues) => {
-      var _a, _b;
-      for (const issue of issues) {
-        const prefix = "[cgptbe][compat]";
-        const msg = `${prefix} ${issue.title}`;
-        if (issue.severity === "error") console.error(msg, (_a = issue.details) != null ? _a : "");
-        else console.warn(msg, (_b = issue.details) != null ? _b : "");
-      }
-    };
-    const evaluate = () => {
-      if (!enabled) return;
-      const issues = runCompatibilityChecks(ctx);
-      const currentIds = new Set(issues.map((x) => x.id));
-      const hasNew = issues.some((x) => !lastIds.has(x.id));
-      lastIds = currentIds;
-      if (issues.length === 0) {
-        removeToast();
-        return;
-      }
-      if (hasNew) {
-        logIssues(issues);
-        showToast(issues);
-      }
-    };
-    const schedule = () => {
-      if (!enabled) return;
-      if (scheduled) return;
-      scheduled = true;
-      window.setTimeout(() => {
-        scheduled = false;
-        evaluate();
-      }, 800);
-    };
-    const start = () => {
-      if (mo) return;
-      schedule();
-      mo = new MutationObserver(() => schedule());
-      mo.observe(document.documentElement, { childList: true, subtree: true });
-      window.setTimeout(() => evaluate(), 2e3);
-    };
-    const stop = () => {
-      mo == null ? void 0 : mo.disconnect();
-      mo = null;
-      lastIds = /* @__PURE__ */ new Set();
-      removeToast();
-    };
-    if (enabled) start();
-    return {
-      name: "compatibilityMonitor",
-      dispose: () => stop(),
-      onSettingsChange: (next) => {
-        const nextEnabled = Boolean(next.showCompatibilityWarnings);
-        if (nextEnabled === enabled) return;
-        enabled = nextEnabled;
-        if (enabled) start();
-        else stop();
-      },
-      getStatus: () => ({ active: enabled })
-    };
-  }
-
   // src/application/contentScript.ts
   var fallbackStoragePort = {
     get: (defaults) => Promise.resolve({ ...defaults }),
     set: () => Promise.resolve()
   };
-  var startContentScript = ({ storagePort } = {}) => {
+  var startContentScript = ({ storagePort: storagePort2 } = {}) => {
     if (window.__ChatGPTDictationAutoSendLoaded__) return;
     window.__ChatGPTDictationAutoSendLoaded__ = true;
-    const log2 = createTrace("content");
-    log2.info("startContentScript", {
-      href: location.href,
-      readyState: document.readyState
-    });
-    const resolvedStorage = storagePort != null ? storagePort : fallbackStoragePort;
+    const resolvedStorage = storagePort2 ?? fallbackStoragePort;
     const DEBUG = false;
     const loadSettings = async () => {
       const stored = await resolvedStorage.get(SETTINGS_DEFAULTS);
-      const normalized = normalizeSettings(stored);
-      log2.info("settings loaded", normalized);
-      return normalized;
+      return normalizeSettings(stored);
     };
     const init = async () => {
-      var _a;
       const settings = await loadSettings();
       const ctx = createFeatureContext({
         settings,
         storagePort: resolvedStorage,
         debugEnabled: DEBUG
       });
-      const features = [];
-      const safeInit = (name, fn) => {
-        try {
-          const h = fn();
-          features.push(h);
-          log2.info(`feature init ok: ${name}`, {
-            enabled: Boolean(h)
-          });
-        } catch (e) {
-          log2.error(`feature init failed: ${name}`, {
-            error: String(e)
-          });
-        }
-      };
-      safeInit("compatibilityMonitor", () => initCompatibilityMonitorFeature(ctx));
-      safeInit("dictationAutoSend", () => initDictationAutoSendFeature(ctx));
-      safeInit("editLastMessage", () => initEditLastMessageFeature(ctx));
-      safeInit("autoExpandChats", () => initAutoExpandChatsFeature(ctx));
-      safeInit("autoTempChat", () => initAutoTempChatFeature(ctx));
-      safeInit("oneClickDelete", () => initOneClickDeleteFeature(ctx));
-      safeInit("wideChat", () => initWideChatFeature(ctx));
-      safeInit("ctrlEnterSend", () => initCtrlEnterSendFeature(ctx));
+      const features = [
+        initDictationAutoSendFeature(ctx),
+        initEditLastMessageFeature(ctx),
+        initAutoExpandChatsFeature(ctx),
+        initAutoTempChatFeature(ctx),
+        initOneClickDeleteFeature(ctx),
+        initWideChatFeature(ctx),
+        initCtrlEnterSendFeature(ctx)
+      ];
       if (ctx.logger.isEnabled) {
         const summary = features.map((feature) => {
-          var _a2;
-          const status = (_a2 = feature.getStatus) == null ? void 0 : _a2.call(feature);
-          const state = (status == null ? void 0 : status.active) ? "on" : "off";
-          const details = (status == null ? void 0 : status.details) ? `:${status.details}` : "";
+          const status = feature.getStatus?.();
+          const state = status?.active ? "on" : "off";
+          const details = status?.details ? `:${status.details}` : "";
           return `${feature.name}=${state}${details}`;
         }).join(", ");
         ctx.logger.debug("BOOT", "features initialized", { preview: summary });
       }
       const handleStorageChange = (changes, areaName) => {
         if (areaName !== "sync" && areaName !== "local") return;
-        if (!changes || !("autoExpandChats" in changes) && !("autoSend" in changes) && !("allowAutoSendInCodex" in changes) && !("editLastMessageOnArrowUp" in changes) && !("autoTempChat" in changes) && !("oneClickDelete" in changes) && !("startDictation" in changes) && !("ctrlEnterSends" in changes) && !("showCompatibilityWarnings" in changes) && !("wideChatWidth" in changes) && !("tempChatEnabled" in changes)) {
+        if (!changes || !("autoExpandChats" in changes) && !("autoSend" in changes) && !("allowAutoSendInCodex" in changes) && !("editLastMessageOnArrowUp" in changes) && !("autoTempChat" in changes) && !("oneClickDelete" in changes) && !("startDictation" in changes) && !("ctrlEnterSends" in changes) && !("wideChatWidth" in changes) && !("tempChatEnabled" in changes)) {
           return;
         }
         void (async () => {
-          var _a2;
           const nextSettings = await loadSettings();
           const previousSettings = { ...ctx.settings };
           Object.assign(ctx.settings, nextSettings);
           for (const handle of features) {
-            (_a2 = handle.onSettingsChange) == null ? void 0 : _a2.call(handle, ctx.settings, previousSettings);
+            handle.onSettingsChange?.(ctx.settings, previousSettings);
           }
         })();
       };
-      (_a = resolvedStorage.onChanged) == null ? void 0 : _a.call(resolvedStorage, handleStorageChange);
+      resolvedStorage.onChanged?.(handleStorageChange);
     };
     void init();
   };
@@ -3871,14 +3211,13 @@ ${input.value.slice(end)}`;
     if (storage.local) return storage.local;
     return null;
   }
-  async function storageGet(defaults, storage, lastError) {
+  async function storageGet(defaults, storage, lastError2) {
     const areaSync = getStorageArea(storage, true);
     const areaLocal = getStorageArea(storage, false);
     const tryGet = (area) => new Promise((resolve, reject) => {
       try {
         const result = area.get(defaults, (res) => {
-          var _a;
-          const err = (_a = lastError == null ? void 0 : lastError()) != null ? _a : null;
+          const err = lastError2?.() ?? null;
           if (err) reject(toError(err, "Storage get failed"));
           else resolve(res);
         });
@@ -3903,14 +3242,13 @@ ${input.value.slice(end)}`;
     }
     return { ...defaults };
   }
-  async function storageSet(values, storage, lastError) {
+  async function storageSet(values, storage, lastError2) {
     const areaSync = getStorageArea(storage, true);
     const areaLocal = getStorageArea(storage, false);
     const trySet = (area) => new Promise((resolve, reject) => {
       try {
         const result = area.set(values, () => {
-          var _a;
-          const err = (_a = lastError == null ? void 0 : lastError()) != null ? _a : null;
+          const err = lastError2?.() ?? null;
           if (err) reject(toError(err, "Storage set failed"));
           else resolve();
         });
@@ -3934,54 +3272,19 @@ ${input.value.slice(end)}`;
       }
     }
   }
-  function createStoragePort({ storageApi, lastError }) {
-    const onChanged = (storageApi == null ? void 0 : storageApi.onChanged) && typeof storageApi.onChanged.addListener === "function" ? (handler) => {
-      var _a;
-      return (_a = storageApi.onChanged) == null ? void 0 : _a.addListener(handler);
-    } : void 0;
+  function createStoragePort({ storageApi: storageApi2, lastError: lastError2 }) {
+    const onChanged = storageApi2?.onChanged && typeof storageApi2.onChanged.addListener === "function" ? (handler) => storageApi2.onChanged?.addListener(handler) : void 0;
     return {
-      get: (defaults) => storageGet(defaults, storageApi, lastError),
-      set: (values) => storageSet(values, storageApi, lastError),
+      get: (defaults) => storageGet(defaults, storageApi2, lastError2),
+      set: (values) => storageSet(values, storageApi2, lastError2),
       onChanged
     };
   }
 
-  // src/lib/webextPolyfill.ts
-  function ensureWebExtPolyfill() {
-    const g = globalThis;
-    if (typeof g.browser !== "undefined") {
-      return;
-    }
-    if (typeof g.chrome === "undefined") {
-      return;
-    }
-    g.browser = {
-      runtime: g.chrome.runtime,
-      storage: g.chrome.storage
-    };
-  }
-
-  // src/entries/content.ts
-  var trace2 = createTrace("entry:content");
-  (async () => {
-    var _a, _b, _c;
-    try {
-      ensureWebExtPolyfill();
-      const g = globalThis;
-      const storageApi = (_c = (_a = g.browser) == null ? void 0 : _a.storage) != null ? _c : (_b = g.chrome) == null ? void 0 : _b.storage;
-      if (!storageApi) {
-        trace2.error("No storage API available (browser.storage / chrome.storage missing)");
-        return;
-      }
-      const lastError = () => {
-        var _a2, _b2, _c2, _d, _e, _f;
-        return (_f = (_e = (_b2 = (_a2 = g.chrome) == null ? void 0 : _a2.runtime) == null ? void 0 : _b2.lastError) != null ? _e : (_d = (_c2 = g.browser) == null ? void 0 : _c2.runtime) == null ? void 0 : _d.lastError) != null ? _f : null;
-      };
-      const storagePort = createStoragePort({ storageApi, lastError });
-      await Promise.resolve(startContentScript({ storagePort }));
-    } catch (e) {
-      trace2.error("Content script entry failed", e);
-    }
-  })();
+  // content.ts
+  var storageApi = (typeof browser !== "undefined" ? browser : chrome)?.storage;
+  var lastError = () => chrome?.runtime?.lastError ?? null;
+  var storagePort = createStoragePort({ storageApi, lastError });
+  startContentScript({ storagePort });
 })();
 //# sourceMappingURL=content.js.map
