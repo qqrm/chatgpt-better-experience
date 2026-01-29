@@ -3,3 +3,4 @@
 /coverage/
 /test-results/
 scripts/build-target.mjs
+dist-firefox/dist-firefox.zip
