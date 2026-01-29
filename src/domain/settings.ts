@@ -3,6 +3,7 @@ export interface Settings {
   allowAutoSendInCodex: boolean;
   editLastMessageOnArrowUp: boolean;
   autoExpandChats: boolean;
+  autoExpandProjects: boolean;
   autoTempChat: boolean;
   tempChatEnabled: boolean;
   oneClickDelete: boolean;
@@ -18,6 +19,7 @@ export const SETTINGS_DEFAULTS: SettingsRecord = {
   allowAutoSendInCodex: true,
   editLastMessageOnArrowUp: true,
   autoExpandChats: true,
+  autoExpandProjects: true,
   autoTempChat: false,
   tempChatEnabled: false,
   oneClickDelete: false,
