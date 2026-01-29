@@ -19,7 +19,12 @@ const createContext = (overrides: Partial<Settings> = {}): FeatureContext => {
     helpers: {
       waitPresent: () => Promise.resolve(null),
       waitGone: () => Promise.resolve(true),
-      humanClick: () => true,
+      humanClick: (el) => {
+        if (!el) return false;
+        // JSDOM: .click() is enough to trigger the listeners in tests.
+        el.click();
+        return true;
+      },
       debounceScheduler: (fn, delayMs) => {
         let timeoutId: number | null = null;
         return {

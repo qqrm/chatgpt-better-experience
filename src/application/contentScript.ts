@@ -7,6 +7,7 @@ import { initEditLastMessageFeature } from "../features/editLastMessage";
 import { initOneClickDeleteFeature } from "../features/oneClickDelete";
 import { initAutoTempChatFeature } from "../features/autoTempChat";
 import { initAutoExpandChatsFeature } from "../features/autoExpandChats";
+import { initAutoExpandProjectsFeature } from "../features/autoExpandProjects";
 import { initWideChatFeature } from "../features/wideChat";
 import { initCtrlEnterSendFeature } from "../features/ctrlEnterSend";
 
@@ -50,6 +51,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       initDictationAutoSendFeature(ctx),
       initEditLastMessageFeature(ctx),
       initAutoExpandChatsFeature(ctx),
+      initAutoExpandProjectsFeature(ctx),
       initAutoTempChatFeature(ctx),
       initOneClickDeleteFeature(ctx),
       initWideChatFeature(ctx),
@@ -76,6 +78,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       if (
         !changes ||
         (!("autoExpandChats" in changes) &&
+          !("autoExpandProjects" in changes) &&
           !("autoSend" in changes) &&
           !("allowAutoSendInCodex" in changes) &&
           !("editLastMessageOnArrowUp" in changes) &&
