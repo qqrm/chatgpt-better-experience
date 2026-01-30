@@ -363,7 +363,7 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     return false;
   };
 
-  const handleCtrlEnter = (e: KeyboardEvent, target: ComposerInput) => {
+  const handleCtrlEnter = (e: KeyboardEvent, target: ComposerInput | null) => {
     lastEnterShouldSend = true;
     lastEnterShouldSendAt = performance.now();
     stopEvent(e);
@@ -372,30 +372,35 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     }, 400);
 
     void (async () => {
-      const editBtn = findEditSubmitButton(target);
-      if (editBtn && !isDisabled(editBtn)) {
-        ctx.logger.debug("KEY", "CTRL+ENTER apply edit");
-        click(editBtn, "apply-edit");
-        return;
+      const composer = target ?? findComposerInput();
+      if (composer) {
+        const editBtn = findEditSubmitButton(composer);
+        if (editBtn && !isDisabled(editBtn)) {
+          ctx.logger.debug("KEY", "CTRL+ENTER apply edit");
+          click(editBtn, "apply-edit");
+          return;
+        }
       }
       if (!isMainComposer(target)) {
         ctx.logger.debug("KEY", "CTRL+ENTER edit submit not found");
         return;
       }
 
-      const baseline = readInputValue(target);
+      const baseline = composer ? readInputValue(composer) : "";
 
       const submitBtnBefore = findSubmitDictationButton();
       if (submitBtnBefore) {
         ctx.logger.debug("KEY", "CTRL+ENTER submit dictation");
         click(submitBtnBefore, "submit-dictation");
-        await waitForFinalTranscribedText(target, baseline);
-        const sendBtn = await waitForSendButtonReady(target, 12000, 80);
-        if (sendBtn) {
-          ctx.logger.debug("KEY", "CTRL+ENTER send");
-          click(sendBtn, "send");
-        } else {
-          ctx.logger.debug("KEY", "send button not ready");
+        if (composer) {
+          await waitForFinalTranscribedText(composer, baseline);
+          const sendBtn = await waitForSendButtonReady(composer, 12000, 80);
+          if (sendBtn) {
+            ctx.logger.debug("KEY", "CTRL+ENTER send");
+            click(sendBtn, "send");
+          } else {
+            ctx.logger.debug("KEY", "send button not ready");
+          }
         }
         return;
       }
@@ -404,18 +409,20 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       if (stopBtn) {
         ctx.logger.debug("KEY", "CTRL+ENTER stop dictation");
         click(stopBtn, "stop-dictation");
-        await waitForFinalTranscribedText(target, baseline);
-        const sendBtn = await waitForSendButtonReady(target, 12000, 80);
-        if (sendBtn) {
-          ctx.logger.debug("KEY", "CTRL+ENTER send");
-          click(sendBtn, "send");
-        } else {
-          ctx.logger.debug("KEY", "send button not ready");
+        if (composer) {
+          await waitForFinalTranscribedText(composer, baseline);
+          const sendBtn = await waitForSendButtonReady(composer, 12000, 80);
+          if (sendBtn) {
+            ctx.logger.debug("KEY", "CTRL+ENTER send");
+            click(sendBtn, "send");
+          } else {
+            ctx.logger.debug("KEY", "send button not ready");
+          }
         }
         return;
       }
 
-      const sendBtn = findSendButton(target);
+      const sendBtn = findSendButton(composer ?? undefined);
       if (sendBtn && !isDisabled(sendBtn)) {
         ctx.logger.debug("KEY", "CTRL+ENTER send");
         click(sendBtn, "send");
@@ -435,8 +442,10 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
 
     const shouldSend = e.ctrlKey || e.metaKey;
     const target = findActiveEditableTarget();
+    const hasDictationControls = shouldHandleCtrlEnterOutsideComposer();
+    const canSendFromOutside = shouldSend && !!findSendButton(target ?? undefined);
     const composerOk =
-      !!target && (isComposerEventTarget(e) || shouldHandleCtrlEnterOutsideComposer());
+      (!!target && isComposerEventTarget(e)) || hasDictationControls || canSendFromOutside;
 
     if (!composerOk) return;
     if (!shouldSend && e.shiftKey) {
