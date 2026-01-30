@@ -13,11 +13,13 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     runId: number;
     observer: MutationObserver | null;
     observerSection: Element | null;
+    observerSectionWasCollapsed: boolean | null;
   } = {
     started: false,
     runId: 0,
     observer: null,
-    observerSection: null
+    observerSection: null,
+    observerSectionWasCollapsed: null
   };
 
   const waitForSpaReady = async (): Promise<boolean> => {
@@ -52,6 +54,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       state.observer.disconnect();
       state.observer = null;
       state.observerSection = null;
+      state.observerSectionWasCollapsed = null;
     }
   };
 
@@ -187,6 +190,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
         state.observer.disconnect();
         state.observer = null;
         state.observerSection = null;
+        state.observerSectionWasCollapsed = null;
       }
       return;
     }
@@ -202,13 +206,22 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       state.observer.disconnect();
       state.observer = null;
       state.observerSection = null;
+      state.observerSectionWasCollapsed = null;
     }
 
-    const observer = new MutationObserver(() => autoExpandScheduleProjectItems.schedule());
+    state.observerSectionWasCollapsed = autoExpandSectionCollapsed(sec);
+    const observer = new MutationObserver(() => {
+      if (state.observerSection !== sec) return;
+      const wasCollapsed = state.observerSectionWasCollapsed;
+      const isCollapsed = autoExpandSectionCollapsed(sec);
+      state.observerSectionWasCollapsed = isCollapsed;
+      if (wasCollapsed && !isCollapsed) {
+        autoExpandScheduleProjectItems.schedule();
+      }
+    });
     observer.observe(sec, {
       attributes: true,
-      subtree: true,
-      attributeFilter: ["class", "aria-expanded"]
+      attributeFilter: ["class"]
     });
     state.observer = observer;
     state.observerSection = sec;
@@ -346,6 +359,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
         state.observer.disconnect();
         state.observer = null;
         state.observerSection = null;
+        state.observerSectionWasCollapsed = null;
       }
     },
     onSettingsChange: (next, prev) => {
@@ -367,6 +381,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
           state.observer.disconnect();
           state.observer = null;
           state.observerSection = null;
+          state.observerSectionWasCollapsed = null;
         }
       }
       if (prev.autoExpandProjects && !next.autoExpandProjects) {
@@ -376,6 +391,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
           state.observer.disconnect();
           state.observer = null;
           state.observerSection = null;
+          state.observerSectionWasCollapsed = null;
         }
       }
     },
