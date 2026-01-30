@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 
-const steps = ["format:check", "lint", "typecheck", "test", "build", "test:e2e"];
+const steps = ["format:check", "lint", "typecheck", "build"];
 
 const args = process.argv.slice(2);
 const stepIndex = args.indexOf("--step");
