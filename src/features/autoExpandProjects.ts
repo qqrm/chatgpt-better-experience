@@ -101,15 +101,16 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   };
 
   const autoExpandFindProjectExpanders = (sec: Element) => {
+    const isVisibleTarget = (el: HTMLElement) => isElementVisible(el);
     const buttons = Array.from(
       sec.querySelectorAll<HTMLElement>(
         'button[aria-expanded="false"], [role="button"][aria-expanded="false"]'
       )
-    ).filter((el) => isElementVisible(el));
+    ).filter(isVisibleTarget);
     if (buttons.length) return buttons;
 
-    return Array.from(sec.querySelectorAll<HTMLElement>('a[aria-expanded="false"]')).filter((el) =>
-      isElementVisible(el)
+    return Array.from(sec.querySelectorAll<HTMLElement>('a[aria-expanded="false"]')).filter(
+      isVisibleTarget
     );
   };
 
