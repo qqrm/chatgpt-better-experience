@@ -11,9 +11,13 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   const state: {
     started: boolean;
     runId: number;
+    observer: MutationObserver | null;
+    observerSection: Element | null;
   } = {
     started: false,
-    runId: 0
+    runId: 0,
+    observer: null,
+    observerSection: null
   };
 
   const waitForSpaReady = async (): Promise<boolean> => {
@@ -43,6 +47,12 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   const autoExpandReset = () => {
     state.started = false;
     state.runId += 1;
+    autoExpandScheduleProjectItems.cancel();
+    if (state.observer) {
+      state.observer.disconnect();
+      state.observer = null;
+      state.observerSection = null;
+    }
   };
 
   const autoExpandSidebarEl = () => qs<HTMLElement>("#stage-slideover-sidebar");
@@ -114,8 +124,12 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     return false;
   };
 
+  const autoExpandProjectItemsEnabled = () =>
+    ctx.settings.autoExpandProjects && ctx.settings.autoExpandProjectItems;
+
   const autoExpandExpandProjectItems = (sec: Element) => {
-    if (!ctx.settings.autoExpandProjectItems) return false;
+    if (!autoExpandProjectItemsEnabled()) return false;
+    if (autoExpandSectionCollapsed(sec)) return false;
     const targets = autoExpandFindProjectExpanders(sec);
     if (!targets.length) return false;
     for (const target of targets) {
@@ -144,6 +158,59 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
 
     autoExpandDispatchClick(btn as HTMLElement);
     return true;
+  };
+
+  const autoExpandWaitForProjectsExpanded = async (sec: Element, timeoutMs = 1200) => {
+    const t0 = performance.now();
+    while (performance.now() - t0 < timeoutMs) {
+      if (!autoExpandSectionCollapsed(sec)) return true;
+      await new Promise((resolve) => window.setTimeout(resolve, 25));
+    }
+    return !autoExpandSectionCollapsed(sec);
+  };
+
+  const autoExpandScheduleProjectItems = ctx.helpers.debounceScheduler(() => {
+    if (!autoExpandProjectItemsEnabled()) return;
+    const nav = autoExpandChatHistoryNav();
+    if (!nav || !isElementVisible(nav)) return;
+    const sec = autoExpandFindProjectsSection(nav);
+    if (!sec || autoExpandSectionCollapsed(sec)) return;
+    if (autoExpandExpandProjectItems(sec)) {
+      ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items after manual expand");
+    }
+  }, 150);
+
+  const autoExpandEnsureObserver = () => {
+    if (!autoExpandProjectItemsEnabled()) {
+      if (state.observer) {
+        state.observer.disconnect();
+        state.observer = null;
+        state.observerSection = null;
+      }
+      return;
+    }
+
+    const nav = autoExpandChatHistoryNav();
+    if (!nav || !isElementVisible(nav)) return;
+    const sec = autoExpandFindProjectsSection(nav);
+    if (!sec) return;
+
+    if (state.observer && state.observerSection === sec) return;
+
+    if (state.observer) {
+      state.observer.disconnect();
+      state.observer = null;
+      state.observerSection = null;
+    }
+
+    const observer = new MutationObserver(() => autoExpandScheduleProjectItems.schedule());
+    observer.observe(sec, {
+      attributes: true,
+      subtree: true,
+      attributeFilter: ["class", "aria-expanded"]
+    });
+    state.observer = observer;
+    state.observerSection = sec;
   };
 
   const autoExpandWaitForSidebar = async () => {
@@ -184,6 +251,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
           ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items on start");
         }
         ctx.logger.debug("AUTOEXPAND_PROJECTS", "already expanded on start");
+        autoExpandEnsureObserver();
         return true;
       }
     }
@@ -210,22 +278,23 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
         ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items on start");
       }
       ctx.logger.debug("AUTOEXPAND_PROJECTS", "already expanded on start");
+      autoExpandEnsureObserver();
       return true;
     }
 
     if (autoExpandExpandProjects()) {
       ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded on start");
-      if (sec && ctx.settings.autoExpandProjectItems) {
-        const expanderSelector =
-          'button[aria-expanded="false"], [role="button"][aria-expanded="false"], a[aria-expanded="false"]';
-        await ctx.helpers.waitPresent(expanderSelector, sec, 1000);
+      const nextSec = autoExpandFindProjectsSection(nav) ?? sec;
+      if (nextSec && autoExpandProjectItemsEnabled()) {
+        await autoExpandWaitForProjectsExpanded(nextSec, 1200);
         if (runId !== state.runId || !ctx.settings.autoExpandProjects) {
           return true;
         }
-        if (autoExpandExpandProjectItems(sec)) {
+        if (autoExpandExpandProjectItems(nextSec)) {
           ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items on start");
         }
       }
+      autoExpandEnsureObserver();
       return true;
     }
 
@@ -251,6 +320,8 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
 
       if (currentRun !== state.runId || !ctx.settings.autoExpandProjects) return;
 
+      autoExpandEnsureObserver();
+
       const done = await autoExpandRunOnce(currentRun);
       if (!done) {
         ctx.logger.debug("AUTOEXPAND_PROJECTS", "runOnce returned false");
@@ -269,6 +340,12 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     name: "autoExpandProjects",
     dispose: () => {
       state.runId += 1;
+      autoExpandScheduleProjectItems.cancel();
+      if (state.observer) {
+        state.observer.disconnect();
+        state.observer = null;
+        state.observerSection = null;
+      }
     },
     onSettingsChange: (next, prev) => {
       if (!prev.autoExpandProjects && next.autoExpandProjects) {
@@ -283,8 +360,22 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
         autoExpandReset();
         ensureStarted();
       }
+      if (prev.autoExpandProjectItems && !next.autoExpandProjectItems) {
+        autoExpandScheduleProjectItems.cancel();
+        if (state.observer) {
+          state.observer.disconnect();
+          state.observer = null;
+          state.observerSection = null;
+        }
+      }
       if (prev.autoExpandProjects && !next.autoExpandProjects) {
         state.runId += 1;
+        autoExpandScheduleProjectItems.cancel();
+        if (state.observer) {
+          state.observer.disconnect();
+          state.observer = null;
+          state.observerSection = null;
+        }
       }
     },
     getStatus: () => ({ active: ctx.settings.autoExpandProjects })
