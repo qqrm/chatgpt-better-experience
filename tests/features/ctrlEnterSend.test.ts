@@ -212,7 +212,7 @@ describe("ctrl-enter send", () => {
     feature.dispose();
   });
 
-  it("ignores keydown events outside composer targets", () => {
+  it("sends when Ctrl+Enter is pressed outside the composer if send is available", () => {
     vi.useFakeTimers();
     const ctx = createContext({ ctrlEnterSends: true });
     const feature = initCtrlEnterSendFeature(ctx);
@@ -233,7 +233,7 @@ describe("ctrl-enter send", () => {
       new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true })
     );
 
-    expect(sendClicked).toBe(false);
+    expect(sendClicked).toBe(true);
     feature.dispose();
   });
 
