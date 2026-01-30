@@ -279,7 +279,9 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
 
     input.focus();
     placeCursorAtEnd(input);
-    message.scrollIntoView({ block: "center" });
+    if (typeof input.scrollIntoView === "function") {
+      input.scrollIntoView({ block: "center", inline: "nearest" });
+    }
     return true;
   };
 

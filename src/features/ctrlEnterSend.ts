@@ -6,6 +6,13 @@ import { isDisabled } from "../lib/utils";
 export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
   const norm = (value: string | null | undefined) => (value || "").trim().toLowerCase();
   const isVisible = (btn: HTMLElement) => btn.offsetParent !== null;
+  const isMainComposer = (composer: ComposerInput) => {
+    if (composer instanceof HTMLElement) {
+      if (composer.id === "prompt-textarea") return true;
+      if (composer.getAttribute("data-testid") === "prompt-textarea") return true;
+    }
+    return false;
+  };
 
   const click = (el: HTMLElement | null, why: string) => {
     const ok = ctx.helpers.humanClick(el, why);
@@ -369,6 +376,10 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       if (editBtn && !isDisabled(editBtn)) {
         ctx.logger.debug("KEY", "CTRL+ENTER apply edit");
         click(editBtn, "apply-edit");
+        return;
+      }
+      if (!isMainComposer(target)) {
+        ctx.logger.debug("KEY", "CTRL+ENTER edit submit not found");
         return;
       }
 
