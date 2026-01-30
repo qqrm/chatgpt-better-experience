@@ -25,6 +25,7 @@ const allowCodexEl = mustGetElement<HTMLInputElement>("allowAutoSendInCodex");
 const editLastMessageEl = mustGetElement<HTMLInputElement>("editLastMessageOnArrowUp");
 const autoExpandEl = mustGetElement<HTMLInputElement>("autoExpandChats");
 const autoExpandProjectsEl = mustGetElement<HTMLInputElement>("autoExpandProjects");
+const autoExpandProjectItemsEl = mustGetElement<HTMLInputElement>("autoExpandProjectItems");
 const autoTempChatEl = mustGetElement<HTMLInputElement>("autoTempChat");
 const oneClickDeleteEl = mustGetElement<HTMLInputElement>("oneClickDelete");
 const startDictationEl = mustGetElement<HTMLInputElement>("startDictation");
@@ -107,6 +108,7 @@ async function load() {
   editLastMessageEl.checked = settings.editLastMessageOnArrowUp;
   autoExpandEl.checked = settings.autoExpandChats;
   autoExpandProjectsEl.checked = settings.autoExpandProjects;
+  autoExpandProjectItemsEl.checked = settings.autoExpandProjectItems;
   autoTempChatEl.checked = settings.autoTempChat;
   oneClickDeleteEl.checked = settings.oneClickDelete;
   startDictationEl.checked = settings.startDictation;
@@ -127,6 +129,7 @@ async function save() {
     editLastMessageOnArrowUp: !!editLastMessageEl.checked,
     autoExpandChats: !!autoExpandEl.checked,
     autoExpandProjects: !!autoExpandProjectsEl.checked,
+    autoExpandProjectItems: !!autoExpandProjectItemsEl.checked,
     autoTempChat: !!autoTempChatEl.checked,
     oneClickDelete: !!oneClickDeleteEl.checked,
     startDictation: !!startDictationEl.checked,
@@ -144,6 +147,7 @@ allowCodexEl.addEventListener("change", () => void save().catch(() => {}));
 editLastMessageEl.addEventListener("change", () => void save().catch(() => {}));
 autoExpandEl.addEventListener("change", () => void save().catch(() => {}));
 autoExpandProjectsEl.addEventListener("change", () => void save().catch(() => {}));
+autoExpandProjectItemsEl.addEventListener("change", () => void save().catch(() => {}));
 autoTempChatEl.addEventListener("change", () => void save().catch(() => {}));
 oneClickDeleteEl.addEventListener("change", () => void save().catch(() => {}));
 startDictationEl.addEventListener("change", () => void save().catch(() => {}));

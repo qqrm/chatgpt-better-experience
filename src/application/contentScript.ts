@@ -79,6 +79,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
         !changes ||
         (!("autoExpandChats" in changes) &&
           !("autoExpandProjects" in changes) &&
+          !("autoExpandProjectItems" in changes) &&
           !("autoSend" in changes) &&
           !("allowAutoSendInCodex" in changes) &&
           !("editLastMessageOnArrowUp" in changes) &&

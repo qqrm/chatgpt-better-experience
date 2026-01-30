@@ -90,6 +90,19 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     return null;
   };
 
+  const autoExpandFindProjectExpanders = (sec: Element) => {
+    const buttons = Array.from(
+      sec.querySelectorAll<HTMLElement>(
+        'button[aria-expanded="false"], [role="button"][aria-expanded="false"]'
+      )
+    ).filter((el) => isElementVisible(el));
+    if (buttons.length) return buttons;
+
+    return Array.from(sec.querySelectorAll<HTMLElement>('a[aria-expanded="false"]')).filter((el) =>
+      isElementVisible(el)
+    );
+  };
+
   const autoExpandSectionCollapsed = (sec: Element) => {
     const cls = String((sec as HTMLElement).className || "");
     if (cls.includes("sidebar-collapsed-section-margin-bottom")) return true;
@@ -99,6 +112,16 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     if (cls.includes("--sidebar-expanded-section-margin-bottom")) return false;
 
     return false;
+  };
+
+  const autoExpandExpandProjectItems = (sec: Element) => {
+    if (!ctx.settings.autoExpandProjectItems) return false;
+    const targets = autoExpandFindProjectExpanders(sec);
+    if (!targets.length) return false;
+    for (const target of targets) {
+      autoExpandDispatchClick(target);
+    }
+    return true;
   };
 
   const autoExpandExpandProjects = () => {
@@ -157,6 +180,9 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
 
       const sec = autoExpandFindProjectsSection(nav);
       if (sec && !autoExpandSectionCollapsed(sec)) {
+        if (autoExpandExpandProjectItems(sec)) {
+          ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items on start");
+        }
         ctx.logger.debug("AUTOEXPAND_PROJECTS", "already expanded on start");
         return true;
       }
@@ -180,12 +206,26 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
 
     const sec = autoExpandFindProjectsSection(nav);
     if (sec && !autoExpandSectionCollapsed(sec)) {
+      if (autoExpandExpandProjectItems(sec)) {
+        ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items on start");
+      }
       ctx.logger.debug("AUTOEXPAND_PROJECTS", "already expanded on start");
       return true;
     }
 
     if (autoExpandExpandProjects()) {
       ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded on start");
+      if (sec && ctx.settings.autoExpandProjectItems) {
+        const expanderSelector =
+          'button[aria-expanded="false"], [role="button"][aria-expanded="false"], a[aria-expanded="false"]';
+        await ctx.helpers.waitPresent(expanderSelector, sec, 1000);
+        if (runId !== state.runId || !ctx.settings.autoExpandProjects) {
+          return true;
+        }
+        if (autoExpandExpandProjectItems(sec)) {
+          ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items on start");
+        }
+      }
       return true;
     }
 
@@ -232,6 +272,14 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     },
     onSettingsChange: (next, prev) => {
       if (!prev.autoExpandProjects && next.autoExpandProjects) {
+        autoExpandReset();
+        ensureStarted();
+      }
+      if (
+        prev.autoExpandProjectItems !== next.autoExpandProjectItems &&
+        next.autoExpandProjects &&
+        next.autoExpandProjectItems
+      ) {
         autoExpandReset();
         ensureStarted();
       }

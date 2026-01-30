@@ -32,6 +32,7 @@ export interface PopupSettingsInput {
   editLastMessageOnArrowUp: boolean;
   autoExpandChats: boolean;
   autoExpandProjects: boolean;
+  autoExpandProjectItems: boolean;
   autoTempChat: boolean;
   oneClickDelete: boolean;
   startDictation: boolean;
