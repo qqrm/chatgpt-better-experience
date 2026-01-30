@@ -4,6 +4,7 @@ export interface Settings {
   editLastMessageOnArrowUp: boolean;
   autoExpandChats: boolean;
   autoExpandProjects: boolean;
+  autoExpandProjectItems: boolean;
   autoTempChat: boolean;
   tempChatEnabled: boolean;
   oneClickDelete: boolean;
@@ -20,6 +21,7 @@ export const SETTINGS_DEFAULTS: SettingsRecord = {
   editLastMessageOnArrowUp: true,
   autoExpandChats: true,
   autoExpandProjects: true,
+  autoExpandProjectItems: false,
   autoTempChat: false,
   tempChatEnabled: false,
   oneClickDelete: false,
