@@ -53,6 +53,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   let inFlight = false;
   let transcribeHookInstalled = false;
   let lastDictationToggleAt = 0;
+  let lastSubmitClickAt = 0;
 
   const tmLog = (scope: string, msg: string, fields?: LogFields) => {
     ctx.logger.debug(scope, msg, fields);
@@ -812,7 +813,42 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     if (!data.type || !data.id) return;
 
     if (data.type === "start") return;
-    if (data.type === "complete") return;
+    if (data.type !== "complete") return;
+
+    if (!cfg.autoSendEnabled) return;
+
+    if (isCodexPath(location.pathname) && !cfg.allowAutoSendInCodex) {
+      tmLog("FLOW", "transcribe: auto-send skipped on Codex path");
+      return;
+    }
+
+    if (inFlight) {
+      tmLog("FLOW", "transcribe: skip, flow already in flight");
+      return;
+    }
+
+    if (performance.now() - lastSubmitClickAt < 1000) {
+      tmLog("FLOW", "transcribe: skip, submit recently clicked");
+      return;
+    }
+
+    void (async () => {
+      const dictationState = getDictationUiState();
+      let submitDesc = "transcribe complete";
+
+      if (dictationState === "SUBMIT") {
+        const submitBtn = findSubmitDictationButton();
+        if (submitBtn) {
+          submitDesc = describeEl(submitBtn);
+          tmLog("FLOW", "transcribe: submit dictation", { btn: submitDesc });
+          ctx.helpers.humanClick(submitBtn, "submit-dictation");
+        } else {
+          tmLog("FLOW", "transcribe: submit button not found");
+        }
+      }
+
+      await runFlowAfterSubmitClick(submitDesc, undefined, false);
+    })();
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -836,6 +872,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       if (submitBtn) {
         tmLog("KEY", "ctrl-enter: submit dictation");
         ctx.helpers.humanClick(submitBtn, "submit-dictation");
+        lastSubmitClickAt = performance.now();
       } else {
         tmLog("KEY", "ctrl-enter: submit button not found");
       }
@@ -931,6 +968,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         return;
       }
 
+      lastSubmitClickAt = performance.now();
       void (async () => {
         if (!isCodexPath(location.pathname) || cfg.allowAutoSendInCodex) {
           await runFlowAfterSubmitClick(btnDesc, undefined, e.shiftKey);
