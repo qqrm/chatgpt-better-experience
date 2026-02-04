@@ -416,6 +416,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   const qsa = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
     Array.from(root.querySelectorAll<T>(sel));
 
+  const RECENT_TTL_MS = 5 * 60 * 1000;
+
   type PendingActionKind = "delete" | "archive";
 
   type PendingAction = {
@@ -429,15 +431,27 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   const state: {
     started: boolean;
     observer: MutationObserver | null;
+    deleteSweepObserver: MutationObserver | null;
+    deleteSweepSchedule: (() => void) | null;
+    deleteSweepCancel: (() => void) | null;
+    deleteSweepNav: Element | null;
     intervalId: number | null;
     pendingByRow: Map<HTMLElement, PendingAction>;
     deleteQueue: Promise<void>;
+    sweepTimeoutsById: Map<string, number[]>;
+    recentlyDeleted: Map<string, number>;
   } = {
     started: false,
     observer: null,
+    deleteSweepObserver: null,
+    deleteSweepSchedule: null,
+    deleteSweepCancel: null,
+    deleteSweepNav: null,
     intervalId: null,
     pendingByRow: new Map(),
-    deleteQueue: Promise.resolve()
+    deleteQueue: Promise.resolve(),
+    sweepTimeoutsById: new Map(),
+    recentlyDeleted: new Map()
   };
 
   const enqueueDelete = (job: () => Promise<void>) => {
@@ -481,6 +495,125 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
 
   const logDebug = (message: string) => {
     if (ctx.logger.isEnabled) ctx.logger.debug("oneClickDelete", message);
+  };
+
+  const markDeleted = (conversationId: string) => {
+    state.recentlyDeleted.set(conversationId, Date.now() + RECENT_TTL_MS);
+  };
+
+  const pruneDeleted = () => {
+    const now = Date.now();
+    for (const [id, exp] of state.recentlyDeleted) {
+      if (exp <= now) state.recentlyDeleted.delete(id);
+    }
+  };
+
+  const removeConversationEverywhere = (
+    conversationId: string,
+    reason: string,
+    root?: Document | Element
+  ) => {
+    const scanRoot =
+      root ?? state.deleteSweepNav ?? document.querySelector('nav[aria-label="Chat history"]');
+    const scanHost = scanRoot ?? document;
+    const anchors = Array.from(
+      scanHost.querySelectorAll<HTMLAnchorElement>('a[href^="/c/"], a[href*="/c/"]')
+    );
+    let removed = 0;
+    for (const anchor of anchors) {
+      const href = anchor.getAttribute("href") ?? "";
+      const match = href.match(CHAT_CONVERSATION_ID_REGEX);
+      if (!match || match[1] !== conversationId) continue;
+      const container =
+        anchor.closest<HTMLElement>('[data-sidebar-item="true"]') ??
+        anchor.closest<HTMLElement>("li") ??
+        anchor.closest<HTMLElement>('[role="listitem"]') ??
+        anchor.closest<HTMLElement>(".group.__menu-item") ??
+        anchor;
+      if (container?.isConnected) {
+        container.remove();
+        removed += 1;
+      }
+    }
+    if (ctx.logger.isEnabled) {
+      ctx.logger.debug(
+        "oneClickDelete",
+        `removed ${removed} rows for ${conversationId} (${reason})`
+      );
+    }
+    return removed;
+  };
+
+  const clearSweepTimeouts = (conversationId: string) => {
+    const timers = state.sweepTimeoutsById.get(conversationId);
+    if (!timers) return;
+    for (const t of timers) window.clearTimeout(t);
+    state.sweepTimeoutsById.delete(conversationId);
+  };
+
+  const scheduleSweepPasses = (conversationId: string) => {
+    clearSweepTimeouts(conversationId);
+    const timers: number[] = [];
+    const delays = [320, 1200];
+    delays.forEach((delayMs, idx) => {
+      const timerId = window.setTimeout(() => {
+        pruneDeleted();
+        if (!state.recentlyDeleted.has(conversationId)) return;
+        removeConversationEverywhere(
+          conversationId,
+          `post-api-delete pass ${idx + 2}`,
+          state.deleteSweepNav ?? undefined
+        );
+      }, delayMs);
+      timers.push(timerId);
+    });
+    state.sweepTimeoutsById.set(conversationId, timers);
+  };
+
+  const ensureDeleteSweepObserver = async () => {
+    if (state.deleteSweepObserver || !state.started) return;
+
+    await ctx.helpers.waitPresent("#stage-slideover-sidebar", document, 2000);
+    const nav = await ctx.helpers.waitPresent('nav[aria-label="Chat history"]', document, 2000);
+    if (!state.started) return;
+
+    state.deleteSweepNav = nav ?? null;
+    const observeRoot = nav ?? document.documentElement;
+
+    const runSweep = () => {
+      pruneDeleted();
+      if (state.recentlyDeleted.size === 0) return;
+      for (const conversationId of state.recentlyDeleted.keys()) {
+        removeConversationEverywhere(conversationId, "observer sweep", nav ?? undefined);
+      }
+    };
+
+    if (ctx.helpers.debounceScheduler) {
+      const sched = ctx.helpers.debounceScheduler(runSweep, 300);
+      state.deleteSweepSchedule = sched.schedule;
+      state.deleteSweepCancel = sched.cancel;
+    } else {
+      let debTimer: number | null = null;
+      state.deleteSweepSchedule = () => {
+        if (debTimer !== null) return;
+        debTimer = window.setTimeout(() => {
+          debTimer = null;
+          runSweep();
+        }, 300);
+      };
+      state.deleteSweepCancel = () => {
+        if (debTimer !== null) {
+          window.clearTimeout(debTimer);
+          debTimer = null;
+        }
+      };
+    }
+
+    state.deleteSweepObserver = new MutationObserver(() => {
+      pruneDeleted();
+      state.deleteSweepSchedule?.();
+    });
+    state.deleteSweepObserver.observe(observeRoot, { childList: true, subtree: true });
   };
 
   const ensureOneClickDeleteStyle = () => {
@@ -885,9 +1018,16 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     const row = findChatRowFromOptionsButton(btn);
     if (!row) return;
 
+    const conversationId = extractConversationIdFromRow(row);
     const directResult = await directDeleteConversationFromRow(row);
     if (directResult.ok) {
       logDebug("direct delete patch ok");
+      if (conversationId) {
+        markDeleted(conversationId);
+        pruneDeleted();
+        removeConversationEverywhere(conversationId, "post-api-delete pass 1");
+        scheduleSweepPasses(conversationId);
+      }
       return;
     }
     if (directResult.attempted) {
@@ -971,6 +1111,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       childList: true,
       subtree: true
     });
+
+    void ensureDeleteSweepObserver();
   };
 
   const stopOneClickDelete = () => {
@@ -989,6 +1131,19 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     if (state.observer) {
       state.observer.disconnect();
       state.observer = null;
+    }
+    if (state.deleteSweepObserver) {
+      state.deleteSweepObserver.disconnect();
+      state.deleteSweepObserver = null;
+    }
+    if (state.deleteSweepCancel) {
+      state.deleteSweepCancel();
+      state.deleteSweepCancel = null;
+    }
+    state.deleteSweepSchedule = null;
+    state.deleteSweepNav = null;
+    for (const [conversationId] of state.sweepTimeoutsById) {
+      clearSweepTimeouts(conversationId);
     }
 
     clearOneClickDeleteButtons();
