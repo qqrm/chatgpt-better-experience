@@ -336,16 +336,13 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       }
     };
 
-    // Give UI a chance to swap buttons/state after stop/submit click.
     await new Promise((r) => setTimeout(r, 80));
     trySubmitDictation();
 
-    // If there was already text, give dictation some time to actually update it.
     if (baseline.trim().length > 0) {
       await waitForTextToChangeFrom(input, baseline, 4000, 80, trySubmitDictation);
     }
 
-    // Wait for non-empty stable final text (covers transcription animation).
     return await waitForNonEmptyStableText(input, 25000, 450, trySubmitDictation);
   };
 
@@ -362,10 +359,45 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
   let lastEnterShiftAt = 0;
 
   const handlePlainEnter = (e: KeyboardEvent, target: ComposerInput) => {
+    // For ChatGPT's contenteditable composer, manual DOM insertion (br or newline) is unreliable.
+    // Simulate Shift+Enter so the page's own handlers create a stable line break.
     lastEnterShouldSend = false;
     stopEvent(e);
-    insertNewlineAtCaret(target);
-    ctx.logger.debug("KEY", "ENTER newline");
+
+    const baseline = readInputValue(target);
+
+    // For a plain <textarea>, our newline insertion is reliable and avoids re-dispatching.
+    if (target instanceof HTMLTextAreaElement) {
+      insertNewlineAtCaret(target);
+      ctx.logger.debug("KEY", "ENTER newline (textarea)");
+      return;
+    }
+
+    try {
+      const ev = new KeyboardEvent("keydown", {
+        key: "Enter",
+        code: "Enter",
+        bubbles: true,
+        cancelable: true,
+        shiftKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false
+      });
+      target.dispatchEvent(ev);
+    } catch {
+      // ignore and fall back below
+    }
+
+    // Fallback: if ChatGPT didn't insert anything, do a conservative manual insert.
+    setTimeout(() => {
+      if (readInputValue(target) === baseline) {
+        insertNewlineAtCaret(target);
+        ctx.logger.debug("KEY", "ENTER newline (fallback)");
+      } else {
+        ctx.logger.debug("KEY", "ENTER newline (shift-dispatch)");
+      }
+    }, 0);
   };
 
   const shouldHandleCtrlEnterOutsideComposer = () => {
@@ -444,8 +476,7 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
   const handleKeyDown = (e: KeyboardEvent) => {
     if (!ctx.settings.ctrlEnterSends) return;
     if (e.defaultPrevented) return;
-    // During voice dictation/transcription, browsers can mark keydown events as composing.
-    // We still want Ctrl+Enter to work in that state.
+    if (!e.isTrusted) return;
     if (e.isComposing && !(e.ctrlKey || e.metaKey)) return;
     if (e.key !== "Enter") return;
 
@@ -483,6 +514,7 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
   const handleBeforeInput = (e: InputEvent) => {
     if (!ctx.settings.ctrlEnterSends) return;
     if (e.defaultPrevented) return;
+    if (!e.isTrusted) return;
     if (e.inputType !== "insertParagraph") return;
     if (!isComposerEventTarget(e)) return;
 
