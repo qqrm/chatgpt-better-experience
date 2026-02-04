@@ -1,8 +1,12 @@
 import { FeatureContext, FeatureHandle } from "../application/featureContext";
 import { isElementVisible, norm } from "../lib/utils";
 
-const AUTO_EXPAND_START_TIMEOUT_MS = 3500;
-const AUTO_EXPAND_NAV_TIMEOUT_MS = 1500;
+// ChatGPT is a SPA; the sidebar/projects list can hydrate progressively after reload.
+// Startup automation must tolerate slow/async rendering.
+const AUTO_EXPAND_START_TIMEOUT_MS = 15000;
+const AUTO_EXPAND_NAV_TIMEOUT_MS = 8000;
+const AUTO_EXPAND_SPA_READY_TIMEOUT_MS = 30000;
+const AUTO_EXPAND_PROJECT_TOGGLES_TIMEOUT_MS = 20000;
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -27,18 +31,26 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   };
 
   const waitForSpaReady = async (): Promise<boolean> => {
+    // ChatGPT UI changes frequently. Avoid relying on a single "ready" sentinel.
+    // We consider the SPA ready when either the sidebar or its open-button exists,
+    // and the Chat history nav is present.
+    const sidebarSelector = "#stage-slideover-sidebar";
+    const openButtonSelector =
+      '#stage-sidebar-tiny-bar button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"], button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]';
+
     const ok1 = await ctx.helpers.waitPresent(
-      '[data-testid="blocking-initial-modals-done"]',
+      `${sidebarSelector}, ${openButtonSelector}`,
       document,
-      12000
+      AUTO_EXPAND_SPA_READY_TIMEOUT_MS
     );
     if (!ok1) return false;
 
-    const ok2 = await ctx.helpers.waitPresent("#stage-slideover-sidebar", document, 12000);
+    const ok2 = await ctx.helpers.waitPresent(
+      'nav[aria-label="Chat history"]',
+      document,
+      AUTO_EXPAND_SPA_READY_TIMEOUT_MS
+    );
     if (!ok2) return false;
-
-    const ok3 = await ctx.helpers.waitPresent('nav[aria-label="Chat history"]', document, 12000);
-    if (!ok3) return false;
 
     return true;
   };
@@ -108,6 +120,16 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     return null;
   };
 
+  const autoExpandWaitForProjectsSection = async (nav: Element, timeoutMs: number) => {
+    const t0 = performance.now();
+    while (performance.now() - t0 < timeoutMs) {
+      const sec = autoExpandFindProjectsSection(nav);
+      if (sec) return sec;
+      await sleep(100);
+    }
+    return autoExpandFindProjectsSection(nav);
+  };
+
   const autoExpandFindProjectExpanders = (sec: Element) => {
     const isVisibleTarget = (el: HTMLElement) => isElementVisible(el);
     const buttons = Array.from(
@@ -165,18 +187,24 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
 
   // Only on startup: open each project's chat list by clicking the per-project folder icon.
   // This intentionally does not run continuously (no monitoring), per user request.
+  // Important: do NOT "burn" the one-time attempt before the SPA has rendered the project rows.
   const autoExpandExpandProjectChatsOnce = async (sec: Element, runId: number) => {
     if (!autoExpandProjectItemsEnabled()) return false;
     if (state.projectChatsExpandedOnce) return false;
     if (autoExpandSectionCollapsed(sec)) return false;
 
-    state.projectChatsExpandedOnce = true;
-
+    const deadline = performance.now() + AUTO_EXPAND_PROJECT_TOGGLES_TIMEOUT_MS;
     let clicks = 0;
 
-    // In practice, the project rows render progressively; do a few passes.
-    for (let pass = 0; pass < 3; pass += 1) {
+    while (performance.now() < deadline) {
       if (runId !== state.runId || !ctx.settings.autoExpandProjects) return clicks > 0;
+      if (autoExpandSectionCollapsed(sec)) {
+        await sleep(120);
+        continue;
+      }
+
+      // Projects list may appear later; keep expanding items while waiting.
+      autoExpandExpandProjectItems(sec);
 
       const toggles = autoExpandFindProjectChatToggles(sec).filter((btn) => {
         const st = norm(btn.getAttribute("data-state"));
@@ -185,21 +213,37 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
         return ariaExpanded === "false";
       });
 
-      if (!toggles.length) break;
+      if (!toggles.length) {
+        await sleep(200);
+        continue;
+      }
 
       for (const btn of toggles) {
         if (runId !== state.runId || !ctx.settings.autoExpandProjects) return clicks > 0;
-
         if (ctx.helpers.humanClick(btn, "autoExpandProjects: expand project chats")) {
           clicks += 1;
         }
-        await sleep(60);
+        await sleep(70);
       }
 
-      // Give React time to mount nested chats.
-      await sleep(140);
+      // Give React time to mount nested chats / update the row state.
+      await sleep(220);
+
+      const stillClosed = autoExpandFindProjectChatToggles(sec).some((btn) => {
+        const st = norm(btn.getAttribute("data-state"));
+        if (st === "closed") return true;
+        const ariaExpanded = norm(btn.getAttribute("aria-expanded"));
+        return ariaExpanded === "false";
+      });
+
+      if (!stillClosed) {
+        state.projectChatsExpandedOnce = true;
+        return clicks > 0;
+      }
     }
 
+    // Give up after the startup window, but do not keep monitoring.
+    state.projectChatsExpandedOnce = true;
     return clicks > 0;
   };
 
@@ -320,7 +364,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
         return false;
       }
 
-      const sec = autoExpandFindProjectsSection(nav);
+      const sec = await autoExpandWaitForProjectsSection(nav, AUTO_EXPAND_NAV_TIMEOUT_MS);
       if (sec && !autoExpandSectionCollapsed(sec)) {
         if (autoExpandExpandProjectItems(sec)) {
           ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items on start");
@@ -348,7 +392,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       return false;
     }
 
-    const sec = autoExpandFindProjectsSection(nav);
+    const sec = await autoExpandWaitForProjectsSection(nav, AUTO_EXPAND_NAV_TIMEOUT_MS);
     if (sec && !autoExpandSectionCollapsed(sec)) {
       if (autoExpandExpandProjectItems(sec)) {
         ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items on start");
@@ -361,7 +405,8 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
 
     if (autoExpandExpandProjects()) {
       ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded on start");
-      const nextSec = autoExpandFindProjectsSection(nav) ?? sec;
+      const nextSec =
+        (await autoExpandWaitForProjectsSection(nav, AUTO_EXPAND_NAV_TIMEOUT_MS)) ?? sec;
       if (nextSec && autoExpandProjectItemsEnabled()) {
         await autoExpandWaitForProjectsExpanded(nextSec, 1200);
         if (runId !== state.runId || !ctx.settings.autoExpandProjects) {
