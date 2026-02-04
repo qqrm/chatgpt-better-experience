@@ -4,6 +4,8 @@ import { isElementVisible, norm } from "../lib/utils";
 const AUTO_EXPAND_START_TIMEOUT_MS = 3500;
 const AUTO_EXPAND_NAV_TIMEOUT_MS = 1500;
 
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
 export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandle {
   const qs = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
     root.querySelector<T>(sel);
@@ -14,12 +16,14 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     observer: MutationObserver | null;
     observerSection: Element | null;
     observerSectionWasCollapsed: boolean | null;
+    projectChatsExpandedOnce: boolean;
   } = {
     started: false,
     runId: 0,
     observer: null,
     observerSection: null,
-    observerSectionWasCollapsed: null
+    observerSectionWasCollapsed: null,
+    projectChatsExpandedOnce: false
   };
 
   const waitForSpaReady = async (): Promise<boolean> => {
@@ -49,6 +53,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   const autoExpandReset = () => {
     state.started = false;
     state.runId += 1;
+    state.projectChatsExpandedOnce = false;
     autoExpandScheduleProjectItems.cancel();
     if (state.observer) {
       state.observer.disconnect();
@@ -117,6 +122,22 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     );
   };
 
+  const autoExpandFindProjectChatToggles = (sec: Element) => {
+    const links = Array.from(
+      sec.querySelectorAll<HTMLAnchorElement>('a[data-sidebar-item="true"][href*="/project"]')
+    );
+
+    const out: HTMLButtonElement[] = [];
+    for (const link of links) {
+      const btn = link.querySelector<HTMLButtonElement>("button.icon[data-state]");
+      if (!btn) continue;
+      if (!isElementVisible(btn)) continue;
+      out.push(btn);
+    }
+
+    return out;
+  };
+
   const autoExpandSectionCollapsed = (sec: Element) => {
     const cls = String((sec as HTMLElement).className || "");
     if (cls.includes("sidebar-collapsed-section-margin-bottom")) return true;
@@ -140,6 +161,46 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       autoExpandDispatchClick(target);
     }
     return true;
+  };
+
+  // Only on startup: open each project's chat list by clicking the per-project folder icon.
+  // This intentionally does not run continuously (no monitoring), per user request.
+  const autoExpandExpandProjectChatsOnce = async (sec: Element, runId: number) => {
+    if (!autoExpandProjectItemsEnabled()) return false;
+    if (state.projectChatsExpandedOnce) return false;
+    if (autoExpandSectionCollapsed(sec)) return false;
+
+    state.projectChatsExpandedOnce = true;
+
+    let clicks = 0;
+
+    // In practice, the project rows render progressively; do a few passes.
+    for (let pass = 0; pass < 3; pass += 1) {
+      if (runId !== state.runId || !ctx.settings.autoExpandProjects) return clicks > 0;
+
+      const toggles = autoExpandFindProjectChatToggles(sec).filter((btn) => {
+        const st = norm(btn.getAttribute("data-state"));
+        if (st === "closed") return true;
+        const ariaExpanded = norm(btn.getAttribute("aria-expanded"));
+        return ariaExpanded === "false";
+      });
+
+      if (!toggles.length) break;
+
+      for (const btn of toggles) {
+        if (runId !== state.runId || !ctx.settings.autoExpandProjects) return clicks > 0;
+
+        if (ctx.helpers.humanClick(btn, "autoExpandProjects: expand project chats")) {
+          clicks += 1;
+        }
+        await sleep(60);
+      }
+
+      // Give React time to mount nested chats.
+      await sleep(140);
+    }
+
+    return clicks > 0;
   };
 
   const autoExpandExpandProjects = () => {
@@ -168,7 +229,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     const t0 = performance.now();
     while (performance.now() - t0 < timeoutMs) {
       if (!autoExpandSectionCollapsed(sec)) return true;
-      await new Promise((resolve) => window.setTimeout(resolve, 25));
+      await sleep(25);
     }
     return !autoExpandSectionCollapsed(sec);
   };
@@ -264,6 +325,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
         if (autoExpandExpandProjectItems(sec)) {
           ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items on start");
         }
+        await autoExpandExpandProjectChatsOnce(sec, runId);
         ctx.logger.debug("AUTOEXPAND_PROJECTS", "already expanded on start");
         autoExpandEnsureObserver();
         return true;
@@ -291,6 +353,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       if (autoExpandExpandProjectItems(sec)) {
         ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items on start");
       }
+      await autoExpandExpandProjectChatsOnce(sec, runId);
       ctx.logger.debug("AUTOEXPAND_PROJECTS", "already expanded on start");
       autoExpandEnsureObserver();
       return true;
@@ -307,6 +370,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
         if (autoExpandExpandProjectItems(nextSec)) {
           ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items on start");
         }
+        await autoExpandExpandProjectChatsOnce(nextSec, runId);
       }
       autoExpandEnsureObserver();
       return true;
