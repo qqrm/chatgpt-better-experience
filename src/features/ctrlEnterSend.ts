@@ -74,6 +74,26 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       return;
     }
 
+    if (document.activeElement !== input) {
+      input.focus();
+    }
+
+    const doc = input.ownerDocument;
+    const canExec = typeof doc.execCommand === "function";
+    if (canExec) {
+      try {
+        if (doc.execCommand("insertLineBreak")) return;
+      } catch {
+        // ignore and fall back
+      }
+
+      try {
+        if (doc.execCommand("insertText", false, "\n")) return;
+      } catch {
+        // ignore and fall back
+      }
+    }
+
     const selection = input.ownerDocument.getSelection();
     if (!selection || selection.rangeCount === 0) return;
     const range = selection.getRangeAt(0);
