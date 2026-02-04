@@ -1,7 +1,7 @@
 {
   "name": "chatgpt-dictation-auto-send",
   "private": true,
-  "version": "1.0.87",
+  "version": "1.0.88",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
