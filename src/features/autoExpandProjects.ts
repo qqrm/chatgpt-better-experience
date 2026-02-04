@@ -1,509 +1,234 @@
 import { FeatureContext, FeatureHandle } from "../application/featureContext";
 import { isElementVisible, norm } from "../lib/utils";
 
-// ChatGPT is a SPA; the sidebar/projects list can hydrate progressively after reload.
-// Startup automation must tolerate slow/async rendering.
-const AUTO_EXPAND_START_TIMEOUT_MS = 15000;
-const AUTO_EXPAND_NAV_TIMEOUT_MS = 8000;
-const AUTO_EXPAND_SPA_READY_TIMEOUT_MS = 30000;
-const AUTO_EXPAND_PROJECT_TOGGLES_TIMEOUT_MS = 20000;
+const AUTO_EXPAND_START_TIMEOUT_MS = 3500;
+const AUTO_EXPAND_NAV_TIMEOUT_MS = 1500;
+const AUTO_EXPAND_RETRY_DEBOUNCE_MS = 250;
 
-const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+type ExpandStats = {
+  projectsExpanded: boolean;
+  projectRows: number;
+  folderClicks: number;
+};
+
+function dispatchHumanClick(el: HTMLElement): void {
+  // максимально “похоже на человека”, чтобы React/Radix обработали как надо
+  el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+  el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
+function getChatHistoryNav(ctx: FeatureContext): HTMLElement | null {
+  return ctx.helpers.safeQuery<HTMLElement>('nav[aria-label="Chat history"]');
+}
+
+function findProjectsSection(nav: HTMLElement): HTMLElement | null {
+  // В UI классы содержат "sidebar-expando-section" (иногда с "/")
+  const sections = Array.from(
+    nav.querySelectorAll<HTMLElement>('[class*="sidebar-expando-section"]')
+  );
+
+  // Самый устойчивый признак — наличие ссылок на /project
+  for (const sec of sections) {
+    const hasProjectLinks = sec.querySelector('a[href*="/project"]') !== null;
+    if (hasProjectLinks) return sec;
+  }
+
+  // Фолбэк по тексту (на случай если структура поменяется)
+  for (const sec of sections) {
+    const t = norm(sec.textContent);
+    if (t.includes("projects") || t.includes("проекты")) return sec;
+  }
+
+  return null;
+}
+
+function isSectionCollapsed(section: HTMLElement): boolean {
+  const cls = section.className;
+  if (cls.includes("sidebar-collapsed-section")) return true;
+  if (cls.includes("sidebar-expanded-section")) return false;
+
+  // фолбэк по aria-expanded у кнопки заголовка
+  const headerBtn = section.querySelector<HTMLButtonElement>("button[aria-expanded]");
+  return headerBtn?.getAttribute("aria-expanded") === "false";
+}
+
+function expandSectionIfNeeded(ctx: FeatureContext, section: HTMLElement): boolean {
+  const headerBtn = section.querySelector<HTMLButtonElement>("button[aria-expanded]");
+  if (!headerBtn) return false;
+
+  const expanded = headerBtn.getAttribute("aria-expanded") === "true";
+  if (expanded) return true;
+
+  if (!isElementVisible(headerBtn)) return false;
+
+  ctx.logger.debug("autoExpandProjects: expanding Projects section");
+  dispatchHumanClick(headerBtn);
+  return true;
+}
+
+function findFolderToggleButton(rowScope: HTMLElement): HTMLButtonElement | null {
+  const buttons = Array.from(rowScope.querySelectorAll<HTMLButtonElement>("button"));
+
+  // 1) сначала ищем явные "Show/Hide Chat" по aria-label/title
+  for (const b of buttons) {
+    const aria = norm(b.getAttribute("aria-label"));
+    const title = norm(b.getAttribute("title"));
+    const hint = `${aria} ${title}`;
+    if ((hint.includes("show") || hint.includes("hide")) && hint.includes("chat")) {
+      return b;
+    }
+  }
+
+  // 2) затем ищем кнопку-иконку с data-state (в логах у вас это <button.icon data-state=closed>)
+  const byIcon = rowScope.querySelector<HTMLButtonElement>("button.icon[data-state]");
+  if (byIcon) return byIcon;
+
+  // 3) фолбэк: любая button с data-state и svg внутри (обычно это и есть иконка папки)
+  for (const b of buttons) {
+    const ds = b.getAttribute("data-state");
+    const hasSvg = b.querySelector("svg") !== null;
+    if (ds && hasSvg) return b;
+  }
+
+  return null;
+}
+
+function shouldOpenFolder(btn: HTMLButtonElement): boolean {
+  const ds = norm(btn.getAttribute("data-state"));
+  const aria = norm(btn.getAttribute("aria-label"));
+  const title = norm(btn.getAttribute("title"));
+
+  // закрыто — открываем
+  if (ds === "closed") return true;
+
+  // даже если нет data-state, но текст говорит “show chat” — открываем
+  const hint = `${aria} ${title}`;
+  if (hint.includes("show") && hint.includes("chat")) return true;
+
+  return false;
+}
+
+function expandProjectItems(ctx: FeatureContext, section: HTMLElement): number {
+  const links = Array.from(section.querySelectorAll<HTMLAnchorElement>('a[href*="/project"]'));
+
+  let clicks = 0;
+
+  for (const a of links) {
+    // строка проекта может быть вокруг ссылки, либо рядом
+    const row =
+      a.closest<HTMLElement>("li") ?? a.closest<HTMLElement>("div") ?? a.parentElement ?? a;
+
+    // пробуем в пределах строки и чуть шире (родитель строки), потому что кнопка может быть sibling
+    const scopeCandidates: HTMLElement[] = [row];
+    if (row.parentElement) scopeCandidates.push(row.parentElement);
+
+    let btn: HTMLButtonElement | null = null;
+    for (const sc of scopeCandidates) {
+      btn = findFolderToggleButton(sc);
+      if (btn) break;
+    }
+
+    if (!btn) continue;
+    if (!isElementVisible(btn)) continue;
+
+    if (shouldOpenFolder(btn)) {
+      const href = a.getAttribute("href") ?? "";
+      ctx.logger.debug(`autoExpandProjects: click folder icon for ${href}`);
+      dispatchHumanClick(btn);
+      clicks += 1;
+    }
+  }
+
+  return clicks;
+}
+
+function runOnce(ctx: FeatureContext, reason: string): ExpandStats {
+  const nav = getChatHistoryNav(ctx);
+  if (!nav) {
+    ctx.logger.debug(`autoExpandProjects: no sidebar nav yet (${reason})`);
+    return { projectsExpanded: false, projectRows: 0, folderClicks: 0 };
+  }
+
+  const section = findProjectsSection(nav);
+  if (!section) {
+    ctx.logger.debug(`autoExpandProjects: no Projects section yet (${reason})`);
+    return { projectsExpanded: false, projectRows: 0, folderClicks: 0 };
+  }
+
+  const wantProjects = ctx.settings.autoExpandProjects;
+  const wantItems = ctx.settings.autoExpandProjectItems;
+
+  if (!wantProjects && !wantItems) {
+    return { projectsExpanded: false, projectRows: 0, folderClicks: 0 };
+  }
+
+  let expanded = !isSectionCollapsed(section);
+
+  if (wantProjects && !expanded) {
+    expanded = expandSectionIfNeeded(ctx, section);
+  }
+
+  const rows = section.querySelectorAll('a[href*="/project"]').length;
+
+  let folderClicks = 0;
+  if (expanded && wantItems) {
+    folderClicks = expandProjectItems(ctx, section);
+  }
+
+  ctx.logger.debug(
+    `autoExpandProjects: ${reason} expanded=${expanded} rows=${rows} folderClicks=${folderClicks}`
+  );
+
+  return { projectsExpanded: expanded, projectRows: rows, folderClicks };
+}
 
 export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandle {
-  const qs = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
-    root.querySelector<T>(sel);
+  let stopped = false;
+  let debounceTimer: number | null = null;
+  let intervalId: number | null = null;
+  let observer: MutationObserver | null = null;
 
-  const state: {
-    started: boolean;
-    runId: number;
-    observer: MutationObserver | null;
-    observerSection: Element | null;
-    observerSectionWasCollapsed: boolean | null;
-    projectChatsExpandedOnce: boolean;
-  } = {
-    started: false,
-    runId: 0,
-    observer: null,
-    observerSection: null,
-    observerSectionWasCollapsed: null,
-    projectChatsExpandedOnce: false
+  const schedule = (reason: string): void => {
+    if (stopped) return;
+
+    if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+
+    debounceTimer = window.setTimeout(() => {
+      debounceTimer = null;
+      runOnce(ctx, reason);
+    }, AUTO_EXPAND_RETRY_DEBOUNCE_MS);
   };
 
-  const waitForSpaReady = async (): Promise<boolean> => {
-    // ChatGPT UI changes frequently. Avoid relying on a single "ready" sentinel.
-    // We consider the SPA ready when either the sidebar or its open-button exists,
-    // and the Chat history nav is present.
-    const sidebarSelector = "#stage-slideover-sidebar";
-    const openButtonSelector =
-      '#stage-sidebar-tiny-bar button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"], button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]';
-
-    const ok1 = await ctx.helpers.waitPresent(
-      `${sidebarSelector}, ${openButtonSelector}`,
-      document,
-      AUTO_EXPAND_SPA_READY_TIMEOUT_MS
-    );
-    if (!ok1) return false;
-
-    const ok2 = await ctx.helpers.waitPresent(
-      'nav[aria-label="Chat history"]',
-      document,
-      AUTO_EXPAND_SPA_READY_TIMEOUT_MS
-    );
-    if (!ok2) return false;
-
-    return true;
-  };
-
-  const autoExpandDispatchClick = (el: HTMLElement) => {
-    const seq = ["pointerdown", "mousedown", "mouseup", "click"];
-    for (const t of seq) {
-      el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window }));
-    }
-  };
-
-  const autoExpandReset = () => {
-    state.started = false;
-    state.runId += 1;
-    state.projectChatsExpandedOnce = false;
-    autoExpandScheduleProjectItems.cancel();
-    if (state.observer) {
-      state.observer.disconnect();
-      state.observer = null;
-      state.observerSection = null;
-      state.observerSectionWasCollapsed = null;
-    }
-  };
-
-  const autoExpandSidebarEl = () => qs<HTMLElement>("#stage-slideover-sidebar");
-
-  const autoExpandSidebarIsOpen = () => {
-    const sb = autoExpandSidebarEl();
-    if (!sb) return false;
-    if (!isElementVisible(sb)) return false;
-    return sb.getBoundingClientRect().width >= 120;
-  };
-
-  const autoExpandOpenSidebarButton = () =>
-    qs<HTMLButtonElement>(
-      '#stage-sidebar-tiny-bar button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]'
-    ) ||
-    qs<HTMLButtonElement>(
-      'button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]'
-    );
-
-  const autoExpandEnsureSidebarOpen = () => {
-    if (autoExpandSidebarIsOpen()) return false;
-    const btn = autoExpandOpenSidebarButton();
-    if (!btn || !isElementVisible(btn)) return false;
-    autoExpandDispatchClick(btn);
-    return true;
-  };
-
-  const autoExpandChatHistoryNav = () => {
-    const sb = autoExpandSidebarEl();
-    if (!sb) return null;
-    return sb.querySelector('nav[aria-label="Chat history"]');
-  };
-
-  const autoExpandFindProjectsSection = (nav: Element | null) => {
-    if (!nav) return null;
-
-    const sections = Array.from(nav.querySelectorAll("div.group\\/sidebar-expando-section"));
-    for (const sec of sections) {
-      const t = norm(sec.textContent);
-      if (t.includes("projects") || t.includes("project") || t.includes("проекты")) {
-        return sec;
-      }
-    }
-
-    return null;
-  };
-
-  const autoExpandWaitForProjectsSection = async (nav: Element, timeoutMs: number) => {
-    const t0 = performance.now();
-    while (performance.now() - t0 < timeoutMs) {
-      const sec = autoExpandFindProjectsSection(nav);
-      if (sec) return sec;
-      await sleep(100);
-    }
-    return autoExpandFindProjectsSection(nav);
-  };
-
-  const autoExpandFindProjectExpanders = (sec: Element) => {
-    const isVisibleTarget = (el: HTMLElement) => isElementVisible(el);
-    const buttons = Array.from(
-      sec.querySelectorAll<HTMLElement>(
-        'button[aria-expanded="false"], [role="button"][aria-expanded="false"]'
-      )
-    ).filter(isVisibleTarget);
-    if (buttons.length) return buttons;
-
-    return Array.from(sec.querySelectorAll<HTMLElement>('a[aria-expanded="false"]')).filter(
-      isVisibleTarget
-    );
-  };
-
-  const autoExpandFindProjectChatToggles = (sec: Element) => {
-    const links = Array.from(
-      sec.querySelectorAll<HTMLAnchorElement>('a[data-sidebar-item="true"][href*="/project"]')
-    );
-
-    const out: HTMLButtonElement[] = [];
-    for (const link of links) {
-      const btn = link.querySelector<HTMLButtonElement>("button.icon[data-state]");
-      if (!btn) continue;
-      if (!isElementVisible(btn)) continue;
-      out.push(btn);
-    }
-
-    return out;
-  };
-
-  const autoExpandSectionCollapsed = (sec: Element) => {
-    const cls = String((sec as HTMLElement).className || "");
-    if (cls.includes("sidebar-collapsed-section-margin-bottom")) return true;
-    if (cls.includes("sidebar-expanded-section-margin-bottom")) return false;
-
-    if (cls.includes("--sidebar-collapsed-section-margin-bottom")) return true;
-    if (cls.includes("--sidebar-expanded-section-margin-bottom")) return false;
-
-    return false;
-  };
-
-  const autoExpandProjectItemsEnabled = () =>
-    ctx.settings.autoExpandProjects && ctx.settings.autoExpandProjectItems;
-
-  const autoExpandExpandProjectItems = (sec: Element) => {
-    if (!autoExpandProjectItemsEnabled()) return false;
-    if (autoExpandSectionCollapsed(sec)) return false;
-    const targets = autoExpandFindProjectExpanders(sec);
-    if (!targets.length) return false;
-    for (const target of targets) {
-      autoExpandDispatchClick(target);
-    }
-    return true;
-  };
-
-  // Only on startup: open each project's chat list by clicking the per-project folder icon.
-  // This intentionally does not run continuously (no monitoring), per user request.
-  // Important: do NOT "burn" the one-time attempt before the SPA has rendered the project rows.
-  const autoExpandExpandProjectChatsOnce = async (sec: Element, runId: number) => {
-    if (!autoExpandProjectItemsEnabled()) return false;
-    if (state.projectChatsExpandedOnce) return false;
-    if (autoExpandSectionCollapsed(sec)) return false;
-
-    const deadline = performance.now() + AUTO_EXPAND_PROJECT_TOGGLES_TIMEOUT_MS;
-    let clicks = 0;
-
-    while (performance.now() < deadline) {
-      if (runId !== state.runId || !ctx.settings.autoExpandProjects) return clicks > 0;
-      if (autoExpandSectionCollapsed(sec)) {
-        await sleep(120);
-        continue;
-      }
-
-      // Projects list may appear later; keep expanding items while waiting.
-      autoExpandExpandProjectItems(sec);
-
-      const toggles = autoExpandFindProjectChatToggles(sec).filter((btn) => {
-        const st = norm(btn.getAttribute("data-state"));
-        if (st === "closed") return true;
-        const ariaExpanded = norm(btn.getAttribute("aria-expanded"));
-        return ariaExpanded === "false";
-      });
-
-      if (!toggles.length) {
-        await sleep(200);
-        continue;
-      }
-
-      for (const btn of toggles) {
-        if (runId !== state.runId || !ctx.settings.autoExpandProjects) return clicks > 0;
-        if (ctx.helpers.humanClick(btn, "autoExpandProjects: expand project chats")) {
-          clicks += 1;
-        }
-        await sleep(70);
-      }
-
-      // Give React time to mount nested chats / update the row state.
-      await sleep(220);
-
-      const stillClosed = autoExpandFindProjectChatToggles(sec).some((btn) => {
-        const st = norm(btn.getAttribute("data-state"));
-        if (st === "closed") return true;
-        const ariaExpanded = norm(btn.getAttribute("aria-expanded"));
-        return ariaExpanded === "false";
-      });
-
-      if (!stillClosed) {
-        state.projectChatsExpandedOnce = true;
-        return clicks > 0;
-      }
-    }
-
-    // Give up after the startup window, but do not keep monitoring.
-    state.projectChatsExpandedOnce = true;
-    return clicks > 0;
-  };
-
-  const autoExpandExpandProjects = () => {
-    if (!autoExpandSidebarIsOpen()) return false;
-
-    const nav = autoExpandChatHistoryNav();
-    if (!nav || !isElementVisible(nav)) return false;
-
-    const sec = autoExpandFindProjectsSection(nav);
-    if (!sec) return false;
-
-    if (!autoExpandSectionCollapsed(sec)) return false;
-
-    const btn =
-      (sec as HTMLElement).querySelector("button.text-token-text-tertiary.flex.w-full") ||
-      (sec as HTMLElement).querySelector("button") ||
-      (sec as HTMLElement).querySelector('[role="button"]');
-
-    if (!btn || !isElementVisible(btn as HTMLElement)) return false;
-
-    autoExpandDispatchClick(btn as HTMLElement);
-    return true;
-  };
-
-  const autoExpandWaitForProjectsExpanded = async (sec: Element, timeoutMs = 1200) => {
-    const t0 = performance.now();
-    while (performance.now() - t0 < timeoutMs) {
-      if (!autoExpandSectionCollapsed(sec)) return true;
-      await sleep(25);
-    }
-    return !autoExpandSectionCollapsed(sec);
-  };
-
-  const autoExpandScheduleProjectItems = ctx.helpers.debounceScheduler(() => {
-    if (!autoExpandProjectItemsEnabled()) return;
-    const nav = autoExpandChatHistoryNav();
-    if (!nav || !isElementVisible(nav)) return;
-    const sec = autoExpandFindProjectsSection(nav);
-    if (!sec || autoExpandSectionCollapsed(sec)) return;
-    if (autoExpandExpandProjectItems(sec)) {
-      ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items after manual expand");
-    }
-  }, 150);
-
-  const autoExpandEnsureObserver = () => {
-    if (!autoExpandProjectItemsEnabled()) {
-      if (state.observer) {
-        state.observer.disconnect();
-        state.observer = null;
-        state.observerSection = null;
-        state.observerSectionWasCollapsed = null;
-      }
-      return;
-    }
-
-    const nav = autoExpandChatHistoryNav();
-    if (!nav || !isElementVisible(nav)) return;
-    const sec = autoExpandFindProjectsSection(nav);
-    if (!sec) return;
-
-    if (state.observer && state.observerSection === sec) return;
-
-    if (state.observer) {
-      state.observer.disconnect();
-      state.observer = null;
-      state.observerSection = null;
-      state.observerSectionWasCollapsed = null;
-    }
-
-    state.observerSectionWasCollapsed = autoExpandSectionCollapsed(sec);
-    const observer = new MutationObserver(() => {
-      if (state.observerSection !== sec) return;
-      const wasCollapsed = state.observerSectionWasCollapsed;
-      const isCollapsed = autoExpandSectionCollapsed(sec);
-      state.observerSectionWasCollapsed = isCollapsed;
-      if (wasCollapsed && !isCollapsed) {
-        autoExpandScheduleProjectItems.schedule();
-      }
-    });
-    observer.observe(sec, {
-      attributes: true,
-      attributeFilter: ["class"]
-    });
-    state.observer = observer;
-    state.observerSection = sec;
-  };
-
-  const autoExpandWaitForSidebar = async () => {
-    const sidebarSelector = "#stage-slideover-sidebar";
-    const openButtonSelector =
-      '#stage-sidebar-tiny-bar button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"], button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]';
-    const selector = `${sidebarSelector}, ${openButtonSelector}`;
-    return ctx.helpers.waitPresent(selector, document, AUTO_EXPAND_START_TIMEOUT_MS);
-  };
-
-  const autoExpandRunOnce = async (runId: number): Promise<boolean> => {
-    if (!ctx.settings.autoExpandProjects) return false;
-
-    const present = await autoExpandWaitForSidebar();
-    if (!present || runId !== state.runId || !ctx.settings.autoExpandProjects) {
-      if (runId === state.runId && ctx.settings.autoExpandProjects) {
-        ctx.logger.debug("AUTOEXPAND_PROJECTS", "sidebar not found on start (timeout)");
-      }
-      return false;
-    }
-
-    if (autoExpandSidebarIsOpen()) {
-      const nav = await ctx.helpers.waitPresent(
-        'nav[aria-label="Chat history"]',
-        document,
-        AUTO_EXPAND_NAV_TIMEOUT_MS
-      );
-      if (!nav || runId !== state.runId || !ctx.settings.autoExpandProjects) {
-        if (runId === state.runId && ctx.settings.autoExpandProjects) {
-          ctx.logger.debug("AUTOEXPAND_PROJECTS", "sidebar not found on start (timeout)");
-        }
-        return false;
-      }
-
-      const sec = await autoExpandWaitForProjectsSection(nav, AUTO_EXPAND_NAV_TIMEOUT_MS);
-      if (sec && !autoExpandSectionCollapsed(sec)) {
-        if (autoExpandExpandProjectItems(sec)) {
-          ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items on start");
-        }
-        await autoExpandExpandProjectChatsOnce(sec, runId);
-        ctx.logger.debug("AUTOEXPAND_PROJECTS", "already expanded on start");
-        autoExpandEnsureObserver();
-        return true;
-      }
-    }
-
-    if (!autoExpandSidebarIsOpen()) {
-      autoExpandEnsureSidebarOpen();
-    }
-
-    const nav = await ctx.helpers.waitPresent(
-      'nav[aria-label="Chat history"]',
-      document,
-      AUTO_EXPAND_NAV_TIMEOUT_MS
-    );
-    if (!nav || runId !== state.runId || !ctx.settings.autoExpandProjects) {
-      if (runId === state.runId && ctx.settings.autoExpandProjects) {
-        ctx.logger.debug("AUTOEXPAND_PROJECTS", "sidebar not found on start (timeout)");
-      }
-      return false;
-    }
-
-    const sec = await autoExpandWaitForProjectsSection(nav, AUTO_EXPAND_NAV_TIMEOUT_MS);
-    if (sec && !autoExpandSectionCollapsed(sec)) {
-      if (autoExpandExpandProjectItems(sec)) {
-        ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items on start");
-      }
-      await autoExpandExpandProjectChatsOnce(sec, runId);
-      ctx.logger.debug("AUTOEXPAND_PROJECTS", "already expanded on start");
-      autoExpandEnsureObserver();
-      return true;
-    }
-
-    if (autoExpandExpandProjects()) {
-      ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded on start");
-      const nextSec =
-        (await autoExpandWaitForProjectsSection(nav, AUTO_EXPAND_NAV_TIMEOUT_MS)) ?? sec;
-      if (nextSec && autoExpandProjectItemsEnabled()) {
-        await autoExpandWaitForProjectsExpanded(nextSec, 1200);
-        if (runId !== state.runId || !ctx.settings.autoExpandProjects) {
-          return true;
-        }
-        if (autoExpandExpandProjectItems(nextSec)) {
-          ctx.logger.debug("AUTOEXPAND_PROJECTS", "expanded project items on start");
-        }
-        await autoExpandExpandProjectChatsOnce(nextSec, runId);
-      }
-      autoExpandEnsureObserver();
-      return true;
-    }
-
-    return false;
-  };
-
-  const startAutoExpand = () => {
-    if (state.started) return;
-    state.started = true;
-    const currentRun = state.runId;
-
-    void (async () => {
-      if (!ctx.settings.autoExpandProjects) return;
-      if (currentRun !== state.runId) return;
-
-      const spaReady = await waitForSpaReady();
-      if (!spaReady) {
-        if (currentRun === state.runId && ctx.settings.autoExpandProjects) {
-          ctx.logger.debug("AUTOEXPAND_PROJECTS", "spa not ready (timeout), skip");
-        }
-        return;
-      }
-
-      if (currentRun !== state.runId || !ctx.settings.autoExpandProjects) return;
-
-      autoExpandEnsureObserver();
-
-      const done = await autoExpandRunOnce(currentRun);
-      if (!done) {
-        ctx.logger.debug("AUTOEXPAND_PROJECTS", "runOnce returned false");
-      }
-    })();
-  };
-
-  const ensureStarted = () => {
-    if (!ctx.settings.autoExpandProjects) return;
-    startAutoExpand();
-  };
-
-  ensureStarted();
+  // первичный прогон — с задержками под SPA
+  window.setTimeout(() => schedule("start"), AUTO_EXPAND_START_TIMEOUT_MS);
+  window.setTimeout(() => schedule("nav-ready"), AUTO_EXPAND_NAV_TIMEOUT_MS);
+
+  // подстраховка: периодически дожимать (settings могут включиться позже)
+  intervalId = window.setInterval(() => {
+    schedule("interval");
+  }, 2000);
+
+  // наблюдаем за изменениями DOM сайдбара (из-за SPA/рендеров)
+  const nav = getChatHistoryNav(ctx);
+  if (nav) {
+    observer = new MutationObserver(() => schedule("mutation"));
+    observer.observe(nav, { subtree: true, childList: true, attributes: true });
+  } else {
+    // если nav ещё нет — попробуем поставить observer позже
+    window.setTimeout(() => schedule("late-nav"), 1000);
+  }
 
   return {
     name: "autoExpandProjects",
-    dispose: () => {
-      state.runId += 1;
-      autoExpandScheduleProjectItems.cancel();
-      if (state.observer) {
-        state.observer.disconnect();
-        state.observer = null;
-        state.observerSection = null;
-        state.observerSectionWasCollapsed = null;
-      }
-    },
-    onSettingsChange: (next, prev) => {
-      if (!prev.autoExpandProjects && next.autoExpandProjects) {
-        autoExpandReset();
-        ensureStarted();
-      }
-      if (
-        prev.autoExpandProjectItems !== next.autoExpandProjectItems &&
-        next.autoExpandProjects &&
-        next.autoExpandProjectItems
-      ) {
-        autoExpandReset();
-        ensureStarted();
-      }
-      if (prev.autoExpandProjectItems && !next.autoExpandProjectItems) {
-        autoExpandScheduleProjectItems.cancel();
-        if (state.observer) {
-          state.observer.disconnect();
-          state.observer = null;
-          state.observerSection = null;
-          state.observerSectionWasCollapsed = null;
-        }
-      }
-      if (prev.autoExpandProjects && !next.autoExpandProjects) {
-        state.runId += 1;
-        autoExpandScheduleProjectItems.cancel();
-        if (state.observer) {
-          state.observer.disconnect();
-          state.observer = null;
-          state.observerSection = null;
-          state.observerSectionWasCollapsed = null;
-        }
-      }
-    },
-    getStatus: () => ({ active: ctx.settings.autoExpandProjects })
+    stop: () => {
+      stopped = true;
+      if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+      if (intervalId !== null) window.clearInterval(intervalId);
+      observer?.disconnect();
+      observer = null;
+    }
   };
 }
