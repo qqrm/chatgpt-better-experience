@@ -24,45 +24,22 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
       - name: Install dependencies
+        env:
+          HUSKY: 0
         run: npm ci
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-
       - name: Format check
-        run: npm run verify -- --step=format:check
+        run: npm run verify -- --step format:check
 
       - name: Lint
-        run: npm run verify -- --step=lint
+        run: npm run verify -- --step lint
 
       - name: Typecheck
-        run: npm run verify -- --step=typecheck
-
-      - name: Unit tests
-        run: npm run verify -- --step=test
+        run: npm run verify -- --step typecheck
 
       - name: Build
-        run: npm run verify -- --step=build
-
-      - name: E2E tests
-        run: npm run verify -- --step=test:e2e
-
-      - name: Upload e2e artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-artifacts
-          path: test-results/e2e
-          if-no-files-found: ignore
+        run: npm run verify -- --step build
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

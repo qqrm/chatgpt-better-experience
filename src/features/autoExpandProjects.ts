@@ -4,8 +4,6 @@ import { isElementVisible, norm } from "../lib/utils";
 const AUTO_EXPAND_START_TIMEOUT_MS = 3500;
 const AUTO_EXPAND_NAV_TIMEOUT_MS = 1500;
 const AUTO_EXPAND_RETRY_DEBOUNCE_MS = 250;
-const AUTO_EXPAND_INTERVAL_MS = 2000;
-const LATE_NAV_RETRY_MS = 1000;
 
 type ExpandStats = {
   projectsExpanded: boolean;
@@ -15,39 +13,10 @@ type ExpandStats = {
 
 function dispatchHumanClick(el: HTMLElement): void {
   // максимально “похоже на человека”, чтобы React/Radix обработали как надо
-  // pointer events
-  el.dispatchEvent(
-    new PointerEvent("pointerdown", {
-      bubbles: true,
-      pointerType: "mouse",
-      isPrimary: true,
-      buttons: 1
-    })
-  );
-  el.dispatchEvent(
-    new PointerEvent("pointerup", {
-      bubbles: true,
-      pointerType: "mouse",
-      isPrimary: true,
-      buttons: 0
-    })
-  );
-
-  // mouse events
-  el.dispatchEvent(
-    new MouseEvent("mousedown", {
-      bubbles: true,
-      buttons: 1
-    })
-  );
-  el.dispatchEvent(
-    new MouseEvent("mouseup", {
-      bubbles: true,
-      buttons: 0
-    })
-  );
-
-  // click
+  el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+  el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
   el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
 
@@ -144,6 +113,7 @@ function shouldOpenFolder(btn: HTMLButtonElement): boolean {
 
 function expandProjectItems(ctx: FeatureContext, section: HTMLElement): number {
   const links = Array.from(section.querySelectorAll<HTMLAnchorElement>('a[href*="/project"]'));
+
   let clicks = 0;
 
   for (const a of links) {
@@ -166,7 +136,7 @@ function expandProjectItems(ctx: FeatureContext, section: HTMLElement): number {
 
     if (shouldOpenFolder(btn)) {
       const href = a.getAttribute("href") ?? "";
-      ctx.logger.debug("autoExpandProjects", "click folder icon", { href });
+      ctx.logger.debug("autoExpandProjects", `click folder icon for ${href}`);
       dispatchHumanClick(btn);
       clicks += 1;
     }
@@ -176,22 +146,22 @@ function expandProjectItems(ctx: FeatureContext, section: HTMLElement): number {
 }
 
 function runOnce(ctx: FeatureContext, reason: string): ExpandStats {
-  const wantProjects = !!ctx.settings.autoExpandProjects;
-  const wantItems = !!ctx.settings.autoExpandProjectItems;
-
-  if (!wantProjects && !wantItems) {
-    return { projectsExpanded: false, projectRows: 0, folderClicks: 0 };
-  }
-
   const nav = getChatHistoryNav(ctx);
   if (!nav) {
-    ctx.logger.debug("autoExpandProjects", "no sidebar nav yet", { reason });
+    ctx.logger.debug("autoExpandProjects", `no sidebar nav yet (${reason})`);
     return { projectsExpanded: false, projectRows: 0, folderClicks: 0 };
   }
 
   const section = findProjectsSection(nav);
   if (!section) {
-    ctx.logger.debug("autoExpandProjects", "no Projects section yet", { reason });
+    ctx.logger.debug("autoExpandProjects", `no Projects section yet (${reason})`);
+    return { projectsExpanded: false, projectRows: 0, folderClicks: 0 };
+  }
+
+  const wantProjects = ctx.settings.autoExpandProjects;
+  const wantItems = ctx.settings.autoExpandProjectItems;
+
+  if (!wantProjects && !wantItems) {
     return { projectsExpanded: false, projectRows: 0, folderClicks: 0 };
   }
 
@@ -208,12 +178,10 @@ function runOnce(ctx: FeatureContext, reason: string): ExpandStats {
     folderClicks = expandProjectItems(ctx, section);
   }
 
-  ctx.logger.debug("autoExpandProjects", "run", {
-    reason,
-    expanded,
-    rows,
-    folderClicks
-  });
+  ctx.logger.debug(
+    "autoExpandProjects",
+    `${reason} expanded=${expanded} rows=${rows} folderClicks=${folderClicks}`
+  );
 
   return { projectsExpanded: expanded, projectRows: rows, folderClicks };
 }
@@ -223,31 +191,9 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   let debounceTimer: number | null = null;
   let intervalId: number | null = null;
   let observer: MutationObserver | null = null;
-  let lateNavTimer: number | null = null;
-
-  const clearAll = (): void => {
-    if (debounceTimer !== null) window.clearTimeout(debounceTimer);
-    debounceTimer = null;
-
-    if (intervalId !== null) window.clearInterval(intervalId);
-    intervalId = null;
-
-    if (lateNavTimer !== null) window.clearTimeout(lateNavTimer);
-    lateNavTimer = null;
-
-    observer?.disconnect();
-    observer = null;
-  };
-
-  const isFeatureWanted = (): boolean => {
-    return !!ctx.settings.autoExpandProjects || !!ctx.settings.autoExpandProjectItems;
-  };
 
   const schedule = (reason: string): void => {
     if (stopped) return;
-
-    // если выключено — не делаем лишней работы
-    if (!isFeatureWanted()) return;
 
     if (debounceTimer !== null) window.clearTimeout(debounceTimer);
 
@@ -257,52 +203,33 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     }, AUTO_EXPAND_RETRY_DEBOUNCE_MS);
   };
 
-  const ensureObserverAttached = (): void => {
-    if (stopped) return;
-    if (!isFeatureWanted()) return;
-    if (observer) return;
-
-    const nav = getChatHistoryNav(ctx);
-    if (nav) {
-      observer = new MutationObserver(() => schedule("mutation"));
-      observer.observe(nav, { subtree: true, childList: true, attributes: true });
-      return;
-    }
-
-    // nav ещё нет — попробуем позже (одним таймером, без спама)
-    if (lateNavTimer !== null) window.clearTimeout(lateNavTimer);
-    lateNavTimer = window.setTimeout(() => {
-      lateNavTimer = null;
-      ensureObserverAttached();
-      schedule("late-nav");
-    }, LATE_NAV_RETRY_MS);
-  };
-
   // первичный прогон — с задержками под SPA
-  window.setTimeout(() => {
-    ensureObserverAttached();
-    schedule("start");
-  }, AUTO_EXPAND_START_TIMEOUT_MS);
-
-  window.setTimeout(() => {
-    ensureObserverAttached();
-    schedule("nav-ready");
-  }, AUTO_EXPAND_NAV_TIMEOUT_MS);
+  window.setTimeout(() => schedule("start"), AUTO_EXPAND_START_TIMEOUT_MS);
+  window.setTimeout(() => schedule("nav-ready"), AUTO_EXPAND_NAV_TIMEOUT_MS);
 
   // подстраховка: периодически дожимать (settings могут включиться позже)
   intervalId = window.setInterval(() => {
-    ensureObserverAttached();
     schedule("interval");
-  }, AUTO_EXPAND_INTERVAL_MS);
+  }, 2000);
 
-  // попытка attach observer сразу, если nav уже есть
-  ensureObserverAttached();
+  // наблюдаем за изменениями DOM сайдбара (из-за SPA/рендеров)
+  const nav = getChatHistoryNav(ctx);
+  if (nav) {
+    observer = new MutationObserver(() => schedule("mutation"));
+    observer.observe(nav, { subtree: true, childList: true, attributes: true });
+  } else {
+    // если nav ещё нет — попробуем поставить observer позже
+    window.setTimeout(() => schedule("late-nav"), 1000);
+  }
 
   return {
     name: "autoExpandProjects",
     dispose: () => {
       stopped = true;
-      clearAll();
+      if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+      if (intervalId !== null) window.clearInterval(intervalId);
+      observer?.disconnect();
+      observer = null;
     }
   };
 }

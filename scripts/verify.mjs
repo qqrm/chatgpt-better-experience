@@ -3,9 +3,17 @@ import { spawn } from "node:child_process";
 const steps = ["format:check", "lint", "typecheck", "build"];
 
 const args = process.argv.slice(2);
-const stepIndex = args.indexOf("--step");
-const stepArg = stepIndex >= 0 ? args[stepIndex + 1] : null;
-const step = stepArg ? stepArg.trim() : null;
+
+const parseStep = (argv) => {
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === "--step" && i + 1 < argv.length) return String(argv[i + 1]).trim();
+    if (a.startsWith("--step=")) return String(a.slice("--step=".length)).trim();
+  }
+  return null;
+};
+
+const step = parseStep(args);
 const stepsToRun = step ? [step] : steps;
 
 const run = (command) =>
@@ -20,7 +28,10 @@ const run = (command) =>
 try {
   for (const script of stepsToRun) {
     if (!steps.includes(script)) {
-      throw new Error(`Unknown verify step: ${script}`);
+      throw new Error(
+        `Unknown verify step: ${script}. Allowed: ${steps.join(", ")}. ` +
+          `Example: npm run verify -- --step=${steps[0]}`
+      );
     }
     await run(`npm run ${script}`);
   }
