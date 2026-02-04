@@ -121,7 +121,7 @@ function expandProjectItems(ctx: FeatureContext, section: HTMLElement): number {
     const row =
       a.closest<HTMLElement>("li") ?? a.closest<HTMLElement>("div") ?? a.parentElement ?? a;
 
-    // пробуем в пределах строки и чуть шире (родитель строки), потому что кнопка может быть sibling
+    // пробуем в пределах строки и чуть шире (родитель строки), потому что кнопка может be sibling
     const scopeCandidates: HTMLElement[] = [row];
     if (row.parentElement) scopeCandidates.push(row.parentElement);
 
@@ -230,6 +230,12 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       if (intervalId !== null) window.clearInterval(intervalId);
       observer?.disconnect();
       observer = null;
+    },
+    __test: {
+      getChatHistoryNav,
+      findProjectsSection,
+      isSectionCollapsed,
+      runOnce
     }
   };
 }

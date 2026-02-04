@@ -1,7 +1,7 @@
 {
   "name": "chatgpt-dictation-auto-send",
   "private": true,
-  "version": "1.0.103",
+  "version": "0.0.1",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -11,7 +11,9 @@
     "format:write": "prettier --write .",
     "typecheck": "tsc --noEmit",
     "verify": "node scripts/verify.mjs",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
@@ -34,6 +36,8 @@
     "lint-staged": "^16.2.7",
     "prettier": "^3.8.1",
     "typescript": "^5.8.0",
-    "typescript-eslint": "^8.54.0"
+    "typescript-eslint": "^8.54.0",
+    "vitest": "^4.0.18",
+    "jsdom": "^28.0.0"
   }
 }
