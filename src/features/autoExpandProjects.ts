@@ -4,6 +4,7 @@ import { isElementVisible, norm } from "../lib/utils";
 const AUTO_EXPAND_START_TIMEOUT_MS = 3500;
 const AUTO_EXPAND_NAV_TIMEOUT_MS = 1500;
 const AUTO_EXPAND_RETRY_DEBOUNCE_MS = 250;
+const AUTO_EXPAND_PROJECT_ITEM_CLICK_DELAY_MS = 500;
 
 type ExpandStats = {
   projectsExpanded: boolean;
@@ -115,6 +116,7 @@ function expandProjectItems(ctx: FeatureContext, section: HTMLElement): number {
   const links = Array.from(section.querySelectorAll<HTMLAnchorElement>('a[href*="/project"]'));
 
   let clicks = 0;
+  let delayMs = 0;
 
   for (const a of links) {
     // строка проекта может быть вокруг ссылки, либо рядом
@@ -136,9 +138,12 @@ function expandProjectItems(ctx: FeatureContext, section: HTMLElement): number {
 
     if (shouldOpenFolder(btn)) {
       const href = a.getAttribute("href") ?? "";
-      ctx.logger.debug("autoExpandProjects", `click folder icon for ${href}`);
-      dispatchHumanClick(btn);
+      ctx.logger.debug("autoExpandProjects", `click folder icon for ${href} in ${delayMs}ms`);
+      window.setTimeout(() => {
+        dispatchHumanClick(btn);
+      }, delayMs);
       clicks += 1;
+      delayMs += AUTO_EXPAND_PROJECT_ITEM_CLICK_DELAY_MS;
     }
   }
 
