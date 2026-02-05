@@ -38,6 +38,9 @@ export interface PopupSettingsInput {
   startDictation: boolean;
   ctrlEnterSends: boolean;
   wideChatWidth: number;
+  trimChatDom: boolean;
+  trimChatDomKeep: number;
+  hideShareButton: boolean;
 }
 
 export async function savePopupSettings(

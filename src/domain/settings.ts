@@ -11,6 +11,9 @@ export interface Settings {
   startDictation: boolean;
   ctrlEnterSends: boolean;
   wideChatWidth: number;
+  trimChatDom: boolean;
+  trimChatDomKeep: number;
+  hideShareButton: boolean;
 }
 
 export type SettingsRecord = Settings & Record<string, unknown>;
@@ -27,5 +30,8 @@ export const SETTINGS_DEFAULTS: SettingsRecord = {
   oneClickDelete: false,
   startDictation: false,
   ctrlEnterSends: true,
-  wideChatWidth: 0
+  wideChatWidth: 0,
+  trimChatDom: false,
+  trimChatDomKeep: 10,
+  hideShareButton: false
 };

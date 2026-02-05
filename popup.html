@@ -439,6 +439,34 @@
     </div>
 
     <div class="row">
+      <div class="check">
+        <input id="trimChatDom" type="checkbox" />
+        <label for="trimChatDom">
+          <span>Trim chat DOM</span>
+          <span class="note">Keeps only last N messages in the page DOM</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="row" id="trimChatDomKeepRowLabel" style="display: none">
+      <label for="trimChatDomKeep">Keep messages</label>
+      <span id="trimChatDomKeepValue">10</span>
+    </div>
+
+    <div class="row" id="trimChatDomKeepRowRange" style="display: none">
+      <input id="trimChatDomKeep" type="range" min="5" max="50" step="1" />
+    </div>
+
+    <div class="hint" id="trimChatDomHint" style="display: none">Reload restores full history.</div>
+
+    <div class="row">
+      <div class="check">
+        <input id="hideShareButton" type="checkbox" />
+        <label for="hideShareButton">Hide Share button</label>
+      </div>
+    </div>
+
+    <div class="row">
       <label for="wideChatWidth">Chat width</label>
       <span id="wideChatWidthValue">0%</span>
     </div>

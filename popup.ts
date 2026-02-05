@@ -30,6 +30,13 @@ const autoTempChatEl = mustGetElement<HTMLInputElement>("autoTempChat");
 const oneClickDeleteEl = mustGetElement<HTMLInputElement>("oneClickDelete");
 const startDictationEl = mustGetElement<HTMLInputElement>("startDictation");
 const ctrlEnterSendsEl = mustGetElement<HTMLInputElement>("ctrlEnterSends");
+const trimChatDomEl = mustGetElement<HTMLInputElement>("trimChatDom");
+const trimChatDomKeepEl = mustGetElement<HTMLInputElement>("trimChatDomKeep");
+const trimChatDomKeepValueEl = mustGetElement<HTMLElement>("trimChatDomKeepValue");
+const trimChatDomKeepRowLabelEl = mustGetElement<HTMLElement>("trimChatDomKeepRowLabel");
+const trimChatDomKeepRowRangeEl = mustGetElement<HTMLElement>("trimChatDomKeepRowRange");
+const trimChatDomHintEl = mustGetElement<HTMLElement>("trimChatDomHint");
+const hideShareButtonEl = mustGetElement<HTMLInputElement>("hideShareButton");
 const wideChatWidthEl = mustGetElement<HTMLInputElement>("wideChatWidth");
 const wideChatWidthValueEl = mustGetElement<HTMLElement>("wideChatWidthValue");
 const themeToggleEl = mustGetElement<HTMLButtonElement>("qqrm-theme-toggle");
@@ -97,6 +104,13 @@ const cycleThemeMode = async () => {
   applyThemeMode(nextMode);
 };
 
+const setTrimChatKeepVisible = (visible: boolean) => {
+  const d = visible ? "" : "none";
+  trimChatDomKeepRowLabelEl.style.display = d;
+  trimChatDomKeepRowRangeEl.style.display = d;
+  trimChatDomHintEl.style.display = d;
+};
+
 async function load() {
   const [{ settings, hint }, themeData] = await Promise.all([
     loadPopupSettings(popupDeps),
@@ -113,6 +127,11 @@ async function load() {
   oneClickDeleteEl.checked = settings.oneClickDelete;
   startDictationEl.checked = settings.startDictation;
   ctrlEnterSendsEl.checked = settings.ctrlEnterSends;
+  trimChatDomEl.checked = settings.trimChatDom;
+  trimChatDomKeepEl.value = String(settings.trimChatDomKeep);
+  trimChatDomKeepValueEl.textContent = String(settings.trimChatDomKeep);
+  setTrimChatKeepVisible(settings.trimChatDom);
+  hideShareButtonEl.checked = settings.hideShareButton;
   wideChatWidthEl.value = String(settings.wideChatWidth);
   wideChatWidthValueEl.textContent = `${settings.wideChatWidth}%`;
 
@@ -123,6 +142,8 @@ async function load() {
 
 async function save() {
   const wideChatWidth = Math.min(100, Math.max(0, Number(wideChatWidthEl.value) || 0));
+  const trimChatDomKeep = Math.min(50, Math.max(5, Number(trimChatDomKeepEl.value) || 0));
+
   const input = {
     autoSend: !!autoSendEl.checked,
     allowAutoSendInCodex: !!allowCodexEl.checked,
@@ -134,11 +155,15 @@ async function save() {
     oneClickDelete: !!oneClickDeleteEl.checked,
     startDictation: !!startDictationEl.checked,
     ctrlEnterSends: !!ctrlEnterSendsEl.checked,
+    trimChatDom: !!trimChatDomEl.checked,
+    trimChatDomKeep,
+    hideShareButton: !!hideShareButtonEl.checked,
     wideChatWidth
   };
 
   const { hint } = await savePopupSettings(popupDeps, input);
   hintEl.textContent = hint;
+  trimChatDomKeepValueEl.textContent = String(trimChatDomKeep);
   wideChatWidthValueEl.textContent = `${wideChatWidth}%`;
 }
 
@@ -152,6 +177,12 @@ autoTempChatEl.addEventListener("change", () => void save().catch(() => {}));
 oneClickDeleteEl.addEventListener("change", () => void save().catch(() => {}));
 startDictationEl.addEventListener("change", () => void save().catch(() => {}));
 ctrlEnterSendsEl.addEventListener("change", () => void save().catch(() => {}));
+trimChatDomEl.addEventListener("change", () => {
+  setTrimChatKeepVisible(!!trimChatDomEl.checked);
+  void save().catch(() => {});
+});
+trimChatDomKeepEl.addEventListener("input", () => void save().catch(() => {}));
+hideShareButtonEl.addEventListener("change", () => void save().catch(() => {}));
 wideChatWidthEl.addEventListener("input", () => void save().catch(() => {}));
 themeToggleEl.addEventListener("click", () => void cycleThemeMode().catch(() => {}));
 

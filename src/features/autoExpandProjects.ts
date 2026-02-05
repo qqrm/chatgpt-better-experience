@@ -72,7 +72,7 @@ function expandSectionIfNeeded(ctx: FeatureContext, section: HTMLElement): boole
 function findFolderToggleButton(rowScope: HTMLElement): HTMLButtonElement | null {
   const buttons = Array.from(rowScope.querySelectorAll<HTMLButtonElement>("button"));
 
-  // 1) сначала ищем явные "Show/Hide chats" по aria-label/title
+  // 1) сначала ищем явные "Show/Hide Chat" по aria-label/title
   for (const b of buttons) {
     const aria = norm(b.getAttribute("aria-label"));
     const title = norm(b.getAttribute("title"));
@@ -82,7 +82,7 @@ function findFolderToggleButton(rowScope: HTMLElement): HTMLButtonElement | null
     }
   }
 
-  // 2) затем ищем кнопку-иконку с data-state (в HTML: <button class="icon" data-state="closed">)
+  // 2) затем ищем кнопку-иконку с data-state (в логах у вас это <button.icon data-state=closed>)
   const byIcon = rowScope.querySelector<HTMLButtonElement>("button.icon[data-state]");
   if (byIcon) return byIcon;
 
@@ -104,58 +104,45 @@ function shouldOpenFolder(btn: HTMLButtonElement): boolean {
   // закрыто — открываем
   if (ds === "closed") return true;
 
-  // даже если нет data-state, но текст говорит “show chats” — открываем
+  // даже если нет data-state, но текст говорит “show chat” — открываем
   const hint = `${aria} ${title}`;
   if (hint.includes("show") && hint.includes("chat")) return true;
 
   return false;
 }
 
-function isProjectExpanded(projectLink: HTMLAnchorElement): boolean {
-  const sib = projectLink.nextElementSibling as HTMLElement | null;
-  if (!sib) return false;
+function expandProjectItems(ctx: FeatureContext, section: HTMLElement): number {
+  const links = Array.from(section.querySelectorAll<HTMLAnchorElement>('a[href*="/project"]'));
 
-  // В вашем HTML после <a .../project> идёт <div class="overflow-hidden"> ... <a href=".../c/...">
-  if (!sib.className.includes("overflow-hidden")) return false;
+  let clicks = 0;
 
-  return sib.querySelector('a[href*="/c/"]') !== null;
-}
+  for (const a of links) {
+    // строка проекта может быть вокруг ссылки, либо рядом
+    const row =
+      a.closest<HTMLElement>("li") ?? a.closest<HTMLElement>("div") ?? a.parentElement ?? a;
 
-function expandFirstProjectItem(ctx: FeatureContext, section: HTMLElement): number {
-  const first = section.querySelector<HTMLAnchorElement>('a[href*="/project"]');
-  if (!first) return 0;
+    // пробуем в пределах строки и чуть шире (родитель строки), потому что кнопка может be sibling
+    const scopeCandidates: HTMLElement[] = [row];
+    if (row.parentElement) scopeCandidates.push(row.parentElement);
 
-  // Уже раскрыто — ничего не делаем (важно: не триггерить лишние ререндеры)
-  if (isProjectExpanded(first)) return 0;
+    let btn: HTMLButtonElement | null = null;
+    for (const sc of scopeCandidates) {
+      btn = findFolderToggleButton(sc);
+      if (btn) break;
+    }
 
-  const row =
-    first.closest<HTMLElement>("li") ??
-    first.closest<HTMLElement>("div") ??
-    first.parentElement ??
-    first;
+    if (!btn) continue;
+    if (!isElementVisible(btn)) continue;
 
-  // пробуем в пределах строки и чуть шире (родитель строки), потому что кнопка может быть sibling
-  const scopeCandidates: HTMLElement[] = [row];
-  if (row.parentElement) scopeCandidates.push(row.parentElement);
-
-  let btn: HTMLButtonElement | null = null;
-  for (const sc of scopeCandidates) {
-    btn = findFolderToggleButton(sc);
-    if (btn) break;
+    if (shouldOpenFolder(btn)) {
+      const href = a.getAttribute("href") ?? "";
+      ctx.logger.debug("autoExpandProjects", `click folder icon for ${href}`);
+      dispatchHumanClick(btn);
+      clicks += 1;
+    }
   }
 
-  if (!btn) return 0;
-  if (!isElementVisible(btn)) return 0;
-
-  if (!shouldOpenFolder(btn)) return 0;
-
-  const href = first.getAttribute("href") ?? "";
-  ctx.logger.debug("autoExpandProjects", `click folder icon for FIRST project ${href}`);
-
-  // небольшой “анти-дребезг” за счёт общей debounce в schedule()
-  dispatchHumanClick(btn);
-
-  return 1;
+  return clicks;
 }
 
 function runOnce(ctx: FeatureContext, reason: string): ExpandStats {
@@ -188,8 +175,7 @@ function runOnce(ctx: FeatureContext, reason: string): ExpandStats {
 
   let folderClicks = 0;
   if (expanded && wantItems) {
-    // Критично: кликаем только первый проект (VPN), не устраиваем “пляску” по всем.
-    folderClicks = expandFirstProjectItem(ctx, section);
+    folderClicks = expandProjectItems(ctx, section);
   }
 
   ctx.logger.debug(

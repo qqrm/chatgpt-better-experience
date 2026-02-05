@@ -109,7 +109,25 @@ export function normalizeSettings(data: Record<string, unknown>): Settings {
         return base.wideChatWidth;
       }
       return Math.min(100, Math.max(0, rawWidth));
-    })()
+    })(),
+
+    trimChatDom:
+      typeof (data as { trimChatDom?: unknown }).trimChatDom === "boolean"
+        ? ((data as { trimChatDom?: unknown }).trimChatDom as boolean)
+        : base.trimChatDom,
+
+    trimChatDomKeep: (() => {
+      const rawKeep = (data as { trimChatDomKeep?: unknown }).trimChatDomKeep;
+      if (typeof rawKeep !== "number" || !Number.isFinite(rawKeep)) {
+        return base.trimChatDomKeep;
+      }
+      return Math.min(50, Math.max(5, Math.round(rawKeep)));
+    })(),
+
+    hideShareButton:
+      typeof (data as { hideShareButton?: unknown }).hideShareButton === "boolean"
+        ? ((data as { hideShareButton?: unknown }).hideShareButton as boolean)
+        : base.hideShareButton
   };
 }
 
