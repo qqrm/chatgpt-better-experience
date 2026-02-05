@@ -11,8 +11,7 @@ interface InputReadResult {
 
 export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-  const qs = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
-    root.querySelector<T>(sel);
+
   const qsa = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
     Array.from(root.querySelectorAll<T>(sel));
 
@@ -78,6 +77,24 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const findActiveChat = () => {
+    // Prefer matching the current conversation id from the URL.
+    // This works for both pinned and unpinned items, and avoids "first match" bugs
+    // when the DOM contains multiple chat lists/sections.
+    try {
+      const m = /\/c\/([^/?#]+)/.exec(location.pathname);
+      const id = m?.[1] ?? null;
+      if (id) {
+        const anchors = qsa<HTMLElement>('a[data-sidebar-item="true"][href]');
+        for (const a of anchors) {
+          const href = a.getAttribute("href") ?? "";
+          if (!href.includes(`/c/${id}`)) continue;
+          if (isElementVisible(a)) return a;
+          return a; // visible check is best-effort; still prefer exact match
+        }
+      }
+    } catch (_) {}
+
+    // Fallbacks: pick any item marked as active/current.
     const selectors = [
       'a[data-sidebar-item="true"][data-active]',
       'a[data-sidebar-item="true"][aria-current="page"]',
@@ -85,20 +102,48 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
       'nav[aria-label="Chat history"] a[aria-current="page"]'
     ];
     for (const selector of selectors) {
-      const el = qs<HTMLElement>(selector);
-      if (el) return el;
+      const els = qsa<HTMLElement>(selector);
+      const visible = els.find((el) => isElementVisible(el)) ?? null;
+      if (visible) return visible;
+      if (els.length > 0) return els[0];
     }
     return null;
   };
 
   const findOptionsButton = (activeChat: HTMLElement) => {
-    const optionsSelector = 'button[data-testid^="history-item-"][data-testid$="-options"]';
-    return (
-      activeChat.querySelector<HTMLButtonElement>(optionsSelector) ??
-      activeChat.parentElement?.querySelector<HTMLButtonElement>(optionsSelector) ??
-      activeChat.closest("li, div")?.querySelector<HTMLButtonElement>(optionsSelector) ??
-      null
-    );
+    // ChatGPT UI variants:
+    // - data-testid like "history-item-0-options"
+    // - data-testid "undefined-options" (seen for pinned items sometimes)
+    // - aria-label "Open conversation options"
+    const predicates = (btn: HTMLButtonElement) => {
+      const dt = btn.getAttribute("data-testid") ?? "";
+      if (dt.endsWith("-options")) return true;
+      const a = norm(btn.getAttribute("aria-label"));
+      if (
+        a.includes("options") &&
+        (a.includes("conversation") || a.includes("chat") || a.includes("open"))
+      )
+        return true;
+      return false;
+    };
+
+    const searchRoots: Array<Element | null | undefined> = [
+      activeChat,
+      activeChat.parentElement,
+      activeChat.closest("li, div"),
+      activeChat.closest('[data-sidebar-item="true"]')
+    ];
+
+    for (const root of searchRoots) {
+      if (!(root instanceof Element)) continue;
+      const buttons = qsa<HTMLButtonElement>("button", root);
+      const btn = buttons.find((b) => predicates(b)) ?? null;
+      if (btn) return btn;
+    }
+
+    // Last resort: some layouts place the button in a sibling "trailing" container.
+    const siblingButtons = qsa<HTMLButtonElement>("button", activeChat.parentElement ?? document);
+    return siblingButtons.find((b) => predicates(b)) ?? null;
   };
 
   const triggerRenameActiveChat = async (activeChatOverride?: HTMLElement) => {
