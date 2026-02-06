@@ -54,6 +54,8 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   let transcribeHookInstalled = false;
   let lastDictationToggleAt = 0;
   let lastSubmitClickAt = 0;
+  let lastDictationSubmitViaHotkeyAt = 0;
+  let lastDictationSubmitViaMouseAt = 0;
 
   const tmLog = (scope: string, msg: string, fields?: LogFields) => {
     ctx.logger.debug(scope, msg, fields);
@@ -832,6 +834,13 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       return;
     }
 
+    const now = performance.now();
+    const hotkeySubmitRecent = now - lastDictationSubmitViaHotkeyAt < 1200;
+    if (hotkeySubmitRecent && lastDictationSubmitViaHotkeyAt > lastDictationSubmitViaMouseAt) {
+      tmLog("FLOW", "transcribe: skip, last dictation submit via hotkey");
+      return;
+    }
+
     void (async () => {
       const dictationState = getDictationUiState();
       let submitDesc = "transcribe complete";
@@ -916,6 +925,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       if (submitBtn) {
         tmLog("KEY", "dictation submit via hotkey", { btn: describeEl(submitBtn) });
         ctx.helpers.humanClick(submitBtn, "submit dictation via hotkey");
+        lastDictationSubmitViaHotkeyAt = performance.now();
         return;
       }
 
@@ -969,6 +979,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       }
 
       lastSubmitClickAt = performance.now();
+      lastDictationSubmitViaMouseAt = performance.now();
       void (async () => {
         if (!isCodexPath(location.pathname) || cfg.allowAutoSendInCodex) {
           await runFlowAfterSubmitClick(btnDesc, undefined, e.shiftKey);
