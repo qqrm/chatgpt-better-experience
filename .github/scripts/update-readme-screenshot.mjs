@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { chromium } from "playwright";
 
 const popupPath = resolve("popup.html");
-const screenshotPath = resolve("docs/images/popup-dark.png");
+const screenshotPath = resolve("docs/images/popup-dark.jpeg");
 const readmePath = resolve("README.md");
 const markerStart = "<!-- popup-screenshot:start -->";
 const markerEnd = "<!-- popup-screenshot:end -->";
@@ -24,12 +24,16 @@ try {
   });
   await page.waitForTimeout(150);
 
-  await page.locator("body").screenshot({ path: screenshotPath });
+  await page.locator("body").screenshot({
+    path: screenshotPath,
+    type: "jpeg",
+    quality: 90
+  });
 
   const readme = readFileSync(readmePath, "utf8");
   const replacement = [
     markerStart,
-    "![Extension popup in dark theme](docs/images/popup-dark.png)",
+    "![Extension popup in dark theme](docs/images/popup-dark.jpeg)",
     markerEnd
   ].join("\n");
 
