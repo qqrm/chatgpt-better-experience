@@ -83,16 +83,17 @@ jobs:
         if: steps.changes.outputs.changed == 'true'
         run: node .github/scripts/update-readme-screenshot.mjs
 
-      - name: Commit screenshot update
+      - name: Create PR with screenshot update
         if: steps.changes.outputs.changed == 'true'
-        run: |
-          set -euo pipefail
-          if [ -z "$(git status --porcelain docs/images/popup-dark.png README.md)" ]; then
-            echo "No screenshot/readme changes to commit."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/images/popup-dark.png README.md
-          git commit -m "docs: refresh dark-theme popup screenshot"
-          git push
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "docs: refresh dark-theme popup screenshot"
+          branch: "ci/update-readme-dark-screenshot"
+          delete-branch: true
+          title: "docs: refresh dark-theme popup screenshot"
+          body: |
+            Automated update of the dark-theme popup screenshot and README preview block.
+          add-paths: |
+            docs/images/popup-dark.jpeg
+            README.md
