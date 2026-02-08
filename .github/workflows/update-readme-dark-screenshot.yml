@@ -10,7 +10,7 @@ on:
         description: "Force screenshot refresh even if no UI files changed"
         required: false
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: write
