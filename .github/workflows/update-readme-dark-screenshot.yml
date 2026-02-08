@@ -1,0 +1,98 @@
+name: update-readme-dark-screenshot
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: "Force screenshot refresh even if no UI files changed"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: readme-screenshot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect popup UI changes
+        id: changes
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+          FORCE_UPDATE: ${{ inputs.force_update || false }}
+        run: |
+          set -euo pipefail
+          if [ "$FORCE_UPDATE" = "true" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$EVENT" = "push" ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            BASE="$BEFORE"
+          else
+            BASE="HEAD~1"
+          fi
+
+          if git diff --name-only "$BASE" HEAD -- popup.html popup.ts src/application/popupUseCases.ts | rg -q .; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip when popup UI is unchanged
+        if: steps.changes.outputs.changed != 'true'
+        run: echo "Popup UI files are unchanged. Nothing to update."
+
+      - name: Use Node.js
+        if: steps.changes.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          HUSKY: 0
+        run: npm ci
+
+      - name: Install Playwright
+        if: steps.changes.outputs.changed == 'true'
+        run: npm install --no-save playwright
+
+      - name: Install Playwright Chromium
+        if: steps.changes.outputs.changed == 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Regenerate dark-theme screenshot and sync README
+        if: steps.changes.outputs.changed == 'true'
+        run: node .github/scripts/update-readme-screenshot.mjs
+
+      - name: Commit screenshot update
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain docs/images/popup-dark.png README.md)" ]; then
+            echo "No screenshot/readme changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/images/popup-dark.png README.md
+          git commit -m "docs: refresh dark-theme popup screenshot"
+          git push
