@@ -1,6 +1,18 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { chromium } from "playwright";
+let chromium;
+try {
+  ({ chromium } = await import("playwright"));
+} catch (error) {
+  if (error?.code === "ERR_MODULE_NOT_FOUND") {
+    console.warn(
+      'Skipping README screenshot update: optional dependency "playwright" is not installed.'
+    );
+    process.exit(0);
+  }
+
+  throw error;
+}
 
 const popupPath = resolve("popup.html");
 const screenshotPath = resolve("docs/images/popup-dark.jpeg");
