@@ -30,34 +30,62 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect popup UI changes
+      - name: Detect whether screenshot needs refresh
         id: changes
         env:
-          BEFORE: ${{ github.event.before }}
           EVENT: ${{ github.event_name }}
-          FORCE_UPDATE: ${{ inputs.force_update || false }}
+          BEFORE: ${{ github.event.before }}
+          FORCE_UPDATE: ${{ github.event_name == 'workflow_dispatch' && inputs.force_update || false }}
+        shell: bash
         run: |
           set -euo pipefail
-          if [ "$FORCE_UPDATE" = "true" ]; then
+
+          # 1) Manual run: allow hard force.
+          if [ "${FORCE_UPDATE}" = "true" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if [ "$EVENT" = "push" ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
-            BASE="$BEFORE"
-          else
-            BASE="HEAD~1"
+          # 2) If screenshot is missing, we must generate it (initialization).
+          if [ ! -f "docs/images/popup-dark.jpeg" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-          if git diff --name-only "$BASE" HEAD -- popup.html popup.ts src/application/popupUseCases.ts | rg -q .; then
+          # 3) On push, regenerate only when UI files changed.
+          # Determine a safe BASE commit.
+          BASE=""
+          if [ "${EVENT}" = "push" ] && [ -n "${BEFORE}" ] && [ "${BEFORE}" != "0000000000000000000000000000000000000000" ]; then
+            if git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+              BASE="${BEFORE}"
+            fi
+          fi
+
+          if [ -z "${BASE}" ]; then
+            # Fallback: compare against merge-base with origin/main.
+            git fetch --no-tags --prune --depth=200 origin main || true
+            if git show-ref --verify --quiet refs/remotes/origin/main; then
+              BASE="$(git merge-base HEAD origin/main)"
+            else
+              BASE="HEAD~1"
+            fi
+          fi
+
+          # Compare only relevant UI files.
+          # (No ripgrep dependency; use grep.)
+          if git diff --name-only "${BASE}" HEAD -- \
+            popup.html \
+            popup.ts \
+            src/application/popupUseCases.ts \
+            | grep -q .; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Skip when popup UI is unchanged
+      - name: Skip when nothing to update
         if: steps.changes.outputs.changed != 'true'
-        run: echo "Popup UI files are unchanged. Nothing to update."
+        run: echo "Popup UI unchanged and screenshot exists. Nothing to update."
 
       - name: Use Node.js
         if: steps.changes.outputs.changed == 'true'
@@ -72,9 +100,12 @@ jobs:
           HUSKY: 0
         run: npm ci
 
-      - name: Install Playwright
+      - name: Cache Playwright browsers
         if: steps.changes.outputs.changed == 'true'
-        run: npm install --no-save playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}
 
       - name: Install Playwright Chromium
         if: steps.changes.outputs.changed == 'true'
