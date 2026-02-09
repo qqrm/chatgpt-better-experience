@@ -18,3 +18,9 @@ Firefox Add-ons: https://addons.mozilla.org/en-US/firefox/addon/chatgpt-better-e
 3. Build the extension bundle:
    - `npm run build`
 4. Package the build output per store requirements and submit.
+
+## UI preview
+
+<!-- popup-screenshot:start -->
+![Extension popup in dark theme](docs/images/popup-dark.jpeg)
+<!-- popup-screenshot:end -->
