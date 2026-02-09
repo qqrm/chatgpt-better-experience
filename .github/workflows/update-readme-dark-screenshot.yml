@@ -115,6 +115,16 @@ jobs:
         if: steps.changes.outputs.changed == 'true'
         run: node .github/scripts/update-readme-screenshot.mjs
 
+      - name: Assert screenshot + README updated
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f docs/images/popup-dark.jpeg
+          test -s docs/images/popup-dark.jpeg
+          grep -n "docs/images/popup-dark.jpeg" README.md >/dev/null
+          git status --porcelain
+
       - name: Create PR with screenshot update
         if: steps.changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v7
