@@ -1,9 +1,22 @@
 import { FeatureContext, FeatureHandle } from "../application/featureContext";
 import { isElementVisible, norm } from "../lib/utils";
 
+// Sidebar is very dynamic. If we keep clicking while the user interacts (or while React
+// is rerendering), the UI can jitter/shake and sometimes trigger full rerenders.
+// Therefore:
+// - No periodic polling.
+// - MutationObserver is used only until the goal is reached.
+// - We pause automation shortly after any user interaction inside the sidebar.
+// - We stop completely once we have achieved the configured goal.
+
 const AUTO_EXPAND_START_TIMEOUT_MS = 3500;
 const AUTO_EXPAND_NAV_TIMEOUT_MS = 1500;
-const AUTO_EXPAND_RETRY_DEBOUNCE_MS = 250;
+const AUTO_EXPAND_DEBOUNCE_MS = 250;
+// User interaction cooldown must be long enough to cover React re-renders caused
+// by project toggle clicks. Otherwise we can end up clicking the same toggle
+// multiple times while the UI is still animating, causing jitter/shake.
+const AUTO_EXPAND_USER_COOLDOWN_MS = 5000;
+const AUTO_EXPAND_MAX_ATTEMPTS = 25;
 
 type ExpandStats = {
   projectsExpanded: boolean;
@@ -66,33 +79,40 @@ function expandSectionIfNeeded(ctx: FeatureContext, section: HTMLElement): boole
 function isProjectExpanded(projectLink: HTMLAnchorElement): boolean {
   const sib = projectLink.nextElementSibling as HTMLElement | null;
   if (!sib) return false;
-
   if (!sib.className.includes("overflow-hidden")) return false;
-
-  // Единственный надёжный индикатор: в блоке есть ссылки на чаты /c/
   return sib.querySelector('a[href*="/c/"]') !== null;
 }
 
 function findFolderToggleButton(rowScope: HTMLElement): HTMLButtonElement | null {
   const buttons = Array.from(rowScope.querySelectorAll<HTMLButtonElement>("button"));
 
-  // 1) "Show/Hide chats" по aria-label/title (если вдруг появится)
+  // Prefer explicit toggles first.
   for (const b of buttons) {
     const aria = norm(b.getAttribute("aria-label"));
     const title = norm(b.getAttribute("title"));
     const hint = `${aria} ${title}`;
-    if ((hint.includes("show") || hint.includes("hide")) && hint.includes("chat")) {
+    if (
+      (hint.includes("show") ||
+        hint.includes("hide") ||
+        hint.includes("expand") ||
+        hint.includes("collapse")) &&
+      (hint.includes("chat") || hint.includes("project") || hint.includes("folder"))
+    ) {
       return b;
     }
   }
 
-  // 2) типовой кейс из твоего HTML: <button class="icon" data-state="...">
+  // Common case in current UI: <button class="icon" data-state="...">
   const byIcon = rowScope.querySelector<HTMLButtonElement>("button.icon");
   if (byIcon) return byIcon;
 
-  // 3) фолбэк: любая кнопка с svg внутри
+  // Fallback: only accept small icon-like buttons with an svg.
+  // Avoid clicking wide buttons (often navigation) to prevent rerender jitter.
   for (const b of buttons) {
-    if (b.querySelector("svg")) return b;
+    if (!b.querySelector("svg")) continue;
+    const r = b.getBoundingClientRect();
+    if (r.width > 48 || r.height > 48) continue;
+    return b;
   }
 
   return null;
@@ -102,18 +122,16 @@ function pickTargetProject(section: HTMLElement): HTMLAnchorElement | null {
   const projects = Array.from(section.querySelectorAll<HTMLAnchorElement>('a[href*="/project"]'));
   if (projects.length === 0) return null;
 
-  // Приоритет: VPN (по href и/или по тексту)
+  // Prefer VPN project when present.
   for (const a of projects) {
     const href = a.getAttribute("href") ?? "";
     if (href.includes("/vpn/project") || href.includes("-vpn/")) return a;
   }
-
   for (const a of projects) {
     const label = norm(a.textContent);
     if (label === "vpn" || label.includes(" vpn ")) return a;
   }
 
-  // иначе — первый проект в списке
   return projects[0];
 }
 
@@ -123,7 +141,7 @@ function expandTargetProject(ctx: FeatureContext, section: HTMLElement): number 
 
   const href = target.getAttribute("href") ?? "";
 
-  // Если уже раскрыт — НИЧЕГО НЕ ДЕЛАЕМ (это критично, иначе будут лишние клики и churn)
+  // Critical: do nothing if already expanded.
   if (isProjectExpanded(target)) {
     ctx.logger.debug("autoExpandProjects", `target already expanded: ${href}`);
     return 0;
@@ -158,28 +176,27 @@ function expandTargetProject(ctx: FeatureContext, section: HTMLElement): number 
   return 1;
 }
 
-function runOnce(ctx: FeatureContext, reason: string): ExpandStats {
+function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; done: boolean } {
   const nav = getChatHistoryNav(ctx);
   if (!nav) {
     ctx.logger.debug("autoExpandProjects", `no sidebar nav yet (${reason})`);
-    return { projectsExpanded: false, projectRows: 0, folderClicks: 0 };
+    return { stats: { projectsExpanded: false, projectRows: 0, folderClicks: 0 }, done: false };
   }
 
   const section = findProjectsSection(nav);
   if (!section) {
     ctx.logger.debug("autoExpandProjects", `no Projects section yet (${reason})`);
-    return { projectsExpanded: false, projectRows: 0, folderClicks: 0 };
+    return { stats: { projectsExpanded: false, projectRows: 0, folderClicks: 0 }, done: false };
   }
 
   const wantProjects = ctx.settings.autoExpandProjects;
   const wantItems = ctx.settings.autoExpandProjectItems;
 
   if (!wantProjects && !wantItems) {
-    return { projectsExpanded: false, projectRows: 0, folderClicks: 0 };
+    return { stats: { projectsExpanded: false, projectRows: 0, folderClicks: 0 }, done: true };
   }
 
   let expanded = !isSectionCollapsed(section);
-
   if (wantProjects && !expanded) {
     expanded = expandSectionIfNeeded(ctx, section);
   }
@@ -191,55 +208,105 @@ function runOnce(ctx: FeatureContext, reason: string): ExpandStats {
     folderClicks = expandTargetProject(ctx, section);
   }
 
+  const done = wantItems ? expanded && folderClicks === 0 && rows > 0 : expanded;
+
   ctx.logger.debug(
     "autoExpandProjects",
-    `${reason} expanded=${expanded} rows=${rows} folderClicks=${folderClicks}`
+    `${reason} expanded=${expanded} rows=${rows} folderClicks=${folderClicks} done=${done}`
   );
 
-  return { projectsExpanded: expanded, projectRows: rows, folderClicks };
+  return { stats: { projectsExpanded: expanded, projectRows: rows, folderClicks }, done };
 }
 
 export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandle {
   let stopped = false;
   let debounceTimer: number | null = null;
-  let intervalId: number | null = null;
   let observer: MutationObserver | null = null;
+  let attempts = 0;
+  let lastUserInteractionAt = 0;
+  let lastAutoClickAt = 0;
+  let cleanupUserListeners: (() => void) | null = null;
+
+  const stop = (): void => {
+    stopped = true;
+    if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+    debounceTimer = null;
+    observer?.disconnect();
+    observer = null;
+    cleanupUserListeners?.();
+    cleanupUserListeners = null;
+  };
 
   const schedule = (reason: string): void => {
     if (stopped) return;
-
     if (debounceTimer !== null) window.clearTimeout(debounceTimer);
 
     debounceTimer = window.setTimeout(() => {
       debounceTimer = null;
-      runOnce(ctx, reason);
-    }, AUTO_EXPAND_RETRY_DEBOUNCE_MS);
+      if (stopped) return;
+
+      // If user has just interacted with sidebar, do not fight them.
+      if (Date.now() - lastUserInteractionAt < AUTO_EXPAND_USER_COOLDOWN_MS) {
+        return;
+      }
+
+      // If we just clicked a project toggle, give the UI time to expand/collapse.
+      if (Date.now() - lastAutoClickAt < 1500) {
+        return;
+      }
+
+      attempts += 1;
+      if (attempts > AUTO_EXPAND_MAX_ATTEMPTS) {
+        ctx.logger.debug("autoExpandProjects", "max attempts reached, stop");
+        stop();
+        return;
+      }
+
+      const { stats, done } = runOnce(ctx, reason);
+      if (stats.folderClicks > 0) lastAutoClickAt = Date.now();
+      if (done) {
+        ctx.logger.debug("autoExpandProjects", "goal reached, stop");
+        stop();
+      }
+    }, AUTO_EXPAND_DEBOUNCE_MS);
   };
 
+  // Initial scheduling: keep it simple (like autoExpandChats), not periodic.
   window.setTimeout(() => schedule("start"), AUTO_EXPAND_START_TIMEOUT_MS);
   window.setTimeout(() => schedule("nav-ready"), AUTO_EXPAND_NAV_TIMEOUT_MS);
 
-  intervalId = window.setInterval(() => {
-    schedule("interval");
-  }, 2000);
+  const attachObserver = (): void => {
+    if (stopped) return;
+    const nav = getChatHistoryNav(ctx);
+    if (!nav) {
+      // Try again later.
+      window.setTimeout(() => schedule("late-nav"), 1000);
+      return;
+    }
 
-  const nav = getChatHistoryNav(ctx);
-  if (nav) {
+    // Track user interaction inside the sidebar so we don't fight UI.
+    const onUser = () => {
+      lastUserInteractionAt = Date.now();
+    };
+    nav.addEventListener("pointerdown", onUser, true);
+    nav.addEventListener("mousedown", onUser, true);
+    nav.addEventListener("click", onUser, true);
+
+    cleanupUserListeners = () => {
+      nav.removeEventListener("pointerdown", onUser, true);
+      nav.removeEventListener("mousedown", onUser, true);
+      nav.removeEventListener("click", onUser, true);
+    };
+
     observer = new MutationObserver(() => schedule("mutation"));
     observer.observe(nav, { subtree: true, childList: true, attributes: true });
-  } else {
-    window.setTimeout(() => schedule("late-nav"), 1000);
-  }
+  };
+
+  attachObserver();
 
   return {
     name: "autoExpandProjects",
-    dispose: () => {
-      stopped = true;
-      if (debounceTimer !== null) window.clearTimeout(debounceTimer);
-      if (intervalId !== null) window.clearInterval(intervalId);
-      observer?.disconnect();
-      observer = null;
-    },
+    dispose: () => stop(),
     __test: {
       getChatHistoryNav,
       findProjectsSection,

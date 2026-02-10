@@ -125,6 +125,43 @@
         border-top: none;
       }
 
+      .grid2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      @media (max-width: 420px) {
+        .grid2 {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .col {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .col .row:first-child {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
+      }
+
+      .sectionTitle {
+        margin-top: 10px;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        user-select: none;
+      }
+
+      .col .sectionTitle:first-child {
+        margin-top: 0;
+      }
+
       .row > label {
         color: var(--muted);
         font-weight: 500;
@@ -361,121 +398,137 @@
       </button>
     </div>
 
-    <div class="row">
-      <div class="check">
-        <input id="autoSend" type="checkbox" />
-        <label for="autoSend">Auto-send</label>
-      </div>
-    </div>
-
     <div class="hint" id="hint"></div>
 
-    <div class="row">
-      <div class="check">
-        <input id="allowAutoSendInCodex" type="checkbox" />
-        <label for="allowAutoSendInCodex">Allow auto-send in Codex</label>
+    <div class="grid2">
+      <div class="col">
+        <div class="sectionTitle">Automation</div>
+
+        <div class="row">
+          <div class="check">
+            <input id="autoSend" type="checkbox" />
+            <label for="autoSend">Auto-send</label>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="check">
+            <input id="allowAutoSendInCodex" type="checkbox" />
+            <label for="allowAutoSendInCodex">Allow auto-send in Codex</label>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="check">
+            <input id="autoTempChat" type="checkbox" />
+            <label for="autoTempChat">Auto-enable Temporary Chat</label>
+          </div>
+        </div>
+
+        <div class="sectionTitle">Input</div>
+
+        <div class="row">
+          <div class="check">
+            <input id="startDictation" type="checkbox" />
+            <label for="startDictation">
+              <span>Ctrl+Space toggle voice dictation</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="check">
+            <input id="ctrlEnterSends" type="checkbox" />
+            <label for="ctrlEnterSends">
+              <span>Ctrl+Enter sends</span>
+              <span class="note">Enter inserts newline, Ctrl+Enter sends</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="check">
+            <input id="editLastMessageOnArrowUp" type="checkbox" />
+            <label for="editLastMessageOnArrowUp">Arrow up edits last message</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="sectionTitle">Sidebar</div>
+
+        <div class="row">
+          <div class="check">
+            <input id="autoExpandChats" type="checkbox" />
+            <label for="autoExpandChats">Auto-expand chat list</label>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="check">
+            <input id="autoExpandProjects" type="checkbox" />
+            <label for="autoExpandProjects">Auto-expand projects list</label>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="check">
+            <input id="autoExpandProjectItems" type="checkbox" />
+            <label for="autoExpandProjectItems">Auto-expand each project</label>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="check">
+            <input id="oneClickDelete" type="checkbox" />
+            <label for="oneClickDelete">One-click delete in chat list</label>
+          </div>
+        </div>
+
+        <div class="sectionTitle">Performance & UI</div>
+
+        <div class="row">
+          <div class="check">
+            <input id="trimChatDom" type="checkbox" />
+            <label for="trimChatDom">
+              <span>Trim chat DOM</span>
+              <span class="note">Keeps only last N messages in the page DOM</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="row" id="trimChatDomKeepRowLabel" style="display: none">
+          <label for="trimChatDomKeep">Keep messages</label>
+          <span id="trimChatDomKeepValue">10</span>
+        </div>
+
+        <div class="row" id="trimChatDomKeepRowRange" style="display: none">
+          <input id="trimChatDomKeep" type="range" min="5" max="50" step="1" />
+        </div>
+
+        <div class="hint" id="trimChatDomHint" style="display: none">
+          Older messages are hidden in-page; use the restore buttons shown in the chat.
+        </div>
+
+        <div class="row">
+          <div class="check">
+            <input id="hideShareButton" type="checkbox" />
+            <label for="hideShareButton">Hide Share button</label>
+          </div>
+        </div>
+
+        <div class="row">
+          <label for="wideChatWidth">Chat width</label>
+          <span id="wideChatWidthValue">0%</span>
+        </div>
+
+        <div class="row">
+          <input id="wideChatWidth" type="range" min="0" max="100" step="1" />
+        </div>
+
+        <div class="hint">0 = base width · 100 = 95% of the viewport</div>
       </div>
     </div>
-
-    <div class="row">
-      <div class="check">
-        <input id="editLastMessageOnArrowUp" type="checkbox" />
-        <label for="editLastMessageOnArrowUp">Arrow up edits last message</label>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="check">
-        <input id="autoExpandChats" type="checkbox" />
-        <label for="autoExpandChats">Auto-expand chat list</label>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="check">
-        <input id="autoExpandProjects" type="checkbox" />
-        <label for="autoExpandProjects">Auto-expand projects list</label>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="check">
-        <input id="autoExpandProjectItems" type="checkbox" />
-        <label for="autoExpandProjectItems">Auto-expand each project</label>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="check">
-        <input id="autoTempChat" type="checkbox" />
-        <label for="autoTempChat">Auto-enable Temporary Chat</label>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="check">
-        <input id="oneClickDelete" type="checkbox" />
-        <label for="oneClickDelete">One-click delete in chat list</label>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="check">
-        <input id="startDictation" type="checkbox" />
-        <label for="startDictation">
-          <span>Ctrl+Space toggle voice dictation</span>
-        </label>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="check">
-        <input id="ctrlEnterSends" type="checkbox" />
-        <label for="ctrlEnterSends">
-          <span>Ctrl+Enter sends</span>
-          <span class="note">Enter inserts newline, Ctrl+Enter sends</span>
-        </label>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="check">
-        <input id="trimChatDom" type="checkbox" />
-        <label for="trimChatDom">
-          <span>Trim chat DOM</span>
-          <span class="note">Keeps only last N messages in the page DOM</span>
-        </label>
-      </div>
-    </div>
-
-    <div class="row" id="trimChatDomKeepRowLabel" style="display: none">
-      <label for="trimChatDomKeep">Keep messages</label>
-      <span id="trimChatDomKeepValue">10</span>
-    </div>
-
-    <div class="row" id="trimChatDomKeepRowRange" style="display: none">
-      <input id="trimChatDomKeep" type="range" min="5" max="50" step="1" />
-    </div>
-
-    <div class="hint" id="trimChatDomHint" style="display: none">Reload restores full history.</div>
-
-    <div class="row">
-      <div class="check">
-        <input id="hideShareButton" type="checkbox" />
-        <label for="hideShareButton">Hide Share button</label>
-      </div>
-    </div>
-
-    <div class="row">
-      <label for="wideChatWidth">Chat width</label>
-      <span id="wideChatWidthValue">0%</span>
-    </div>
-
-    <div class="row">
-      <input id="wideChatWidth" type="range" min="0" max="100" step="1" />
-    </div>
-
-    <div class="hint">0 = base width · 100 = 95% of the viewport</div>
 
     <div class="hint">Press F2 to rename current chat</div>
 

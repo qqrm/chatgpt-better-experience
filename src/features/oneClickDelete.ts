@@ -76,6 +76,34 @@ export const patchConversation = async (
   }
 };
 
+const animateCollapseRow = async (row: HTMLElement): Promise<void> => {
+  try {
+    const r = row.getBoundingClientRect();
+    // If the row is already detached/hidden, do nothing.
+    if (r.height <= 0) return;
+    row.style.willChange = "height, margin, padding, opacity";
+    row.style.overflow = "hidden";
+    row.style.height = `${r.height}px`;
+    row.style.opacity = "1";
+    row.style.transition =
+      "height 180ms ease, margin 180ms ease, padding 180ms ease, opacity 160ms ease";
+
+    // Force layout.
+    void row.offsetHeight;
+
+    row.style.opacity = "0";
+    row.style.height = "0px";
+    row.style.paddingTop = "0px";
+    row.style.paddingBottom = "0px";
+    row.style.marginTop = "0px";
+    row.style.marginBottom = "0px";
+
+    await new Promise((resolve) => window.setTimeout(resolve, 220));
+  } catch {
+    // ignore
+  }
+};
+
 type DirectPatchResult = {
   attempted: boolean;
   ok: boolean;
@@ -87,7 +115,10 @@ export const directDeleteConversationFromRow = async (
   const conversationId = extractConversationIdFromRow(row);
   if (!conversationId) return { attempted: false, ok: false };
   const ok = await patchConversation(conversationId, { is_visible: false });
-  if (ok && row.isConnected) row.remove();
+  if (ok && row.isConnected) {
+    await animateCollapseRow(row);
+    if (row.isConnected) row.remove();
+  }
   return { attempted: true, ok };
 };
 
@@ -97,7 +128,10 @@ export const directArchiveConversationFromRow = async (
   const conversationId = extractConversationIdFromRow(row);
   if (!conversationId) return { attempted: false, ok: false };
   const ok = await patchConversation(conversationId, { is_archived: true });
-  if (ok && row.isConnected) row.remove();
+  if (ok && row.isConnected) {
+    await animateCollapseRow(row);
+    if (row.isConnected) row.remove();
+  }
   return { attempted: true, ok };
 };
 

@@ -53,7 +53,6 @@ jobs:
           fi
 
           # 3) On push, regenerate only when UI files changed.
-          # Determine a safe BASE commit.
           BASE=""
           if [ "${EVENT}" = "push" ] && [ -n "${BEFORE}" ] && [ "${BEFORE}" != "0000000000000000000000000000000000000000" ]; then
             if git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
@@ -62,7 +61,6 @@ jobs:
           fi
 
           if [ -z "${BASE}" ]; then
-            # Fallback: compare against merge-base with origin/main.
             git fetch --no-tags --prune --depth=200 origin main || true
             if git show-ref --verify --quiet refs/remotes/origin/main; then
               BASE="$(git merge-base HEAD origin/main)"
@@ -71,8 +69,6 @@ jobs:
             fi
           fi
 
-          # Compare only relevant UI files.
-          # (No ripgrep dependency; use grep.)
           if git diff --name-only "${BASE}" HEAD -- \
             popup.html \
             popup.ts \
@@ -111,6 +107,10 @@ jobs:
         if: steps.changes.outputs.changed == 'true'
         run: npx playwright install --with-deps chromium
 
+      - name: Build extension
+        if: steps.changes.outputs.changed == 'true'
+        run: npm run build
+
       - name: Regenerate dark-theme screenshot and sync README
         if: steps.changes.outputs.changed == 'true'
         run: node .github/scripts/update-readme-screenshot.mjs
@@ -139,3 +139,5 @@ jobs:
           add-paths: |
             docs/images/popup-dark.jpeg
             README.md
+          enable-automerge: true
+          merge-method: squash
