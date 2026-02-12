@@ -230,6 +230,11 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
     return target === textbox || textbox.contains(target);
   };
 
+  const isConversationContext = () => {
+    if (/\/c\/[^/?#]+/.test(location.pathname)) return true;
+    return !!document.querySelector('[data-message-author-role="user"]');
+  };
+
   const findLastUserMessage = () => {
     const candidates = qsa<HTMLElement>('[data-message-author-role="user"]');
     for (let i = candidates.length - 1; i >= 0; i -= 1) {
@@ -345,6 +350,10 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
       }
     }
 
+    const targetEl = e.target instanceof Element ? e.target : null;
+    const triggeredFromConversation =
+      !isEditableElement(targetEl) && isConversationContext() && !isTextboxTarget(e.target);
+
     if (
       shouldTriggerArrowUpEdit({
         enabled: ctx.settings.editLastMessageOnArrowUp,
@@ -356,7 +365,7 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
         isComposing: e.isComposing,
         inputText: readInputText().text
       }) &&
-      isTextboxTarget(e.target)
+      (isTextboxTarget(e.target) || triggeredFromConversation)
     ) {
       void (async () => {
         const ok = await triggerEditLastMessage();
