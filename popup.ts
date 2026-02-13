@@ -2,15 +2,6 @@ import { loadPopupSettings, savePopupSettings } from "./src/application/popupUse
 import { StoragePort } from "./src/domain/ports/storagePort";
 import { StorageApi, createStoragePort } from "./src/infra/storageAdapter";
 
-declare const chrome: {
-  runtime?: { lastError?: unknown };
-  storage?: StorageApi;
-};
-
-declare const browser: {
-  storage?: StorageApi;
-};
-
 function mustGetElement<T extends HTMLElement>(id: string) {
   const el = document.getElementById(id);
   if (!el) throw new Error(`Missing element: ${id}`);
@@ -41,11 +32,18 @@ const wideChatWidthEl = mustGetElement<HTMLInputElement>("wideChatWidth");
 const wideChatWidthValueEl = mustGetElement<HTMLElement>("wideChatWidthValue");
 const themeToggleEl = mustGetElement<HTMLButtonElement>("qqrm-theme-toggle");
 
-const storageApi = (
-  (typeof browser !== "undefined" ? browser : chrome) as { storage?: StorageApi } | undefined
-)?.storage;
+type ExtensionLike = {
+  runtime?: { lastError?: unknown };
+  storage?: StorageApi;
+};
 
-const lastError = () => chrome?.runtime?.lastError ?? null;
+const extensionApi =
+  (globalThis as typeof globalThis & { browser?: ExtensionLike; chrome?: ExtensionLike }).browser ??
+  (globalThis as typeof globalThis & { browser?: ExtensionLike; chrome?: ExtensionLike }).chrome;
+
+const storageApi = extensionApi?.storage;
+
+const lastError = () => extensionApi?.runtime?.lastError ?? null;
 
 const storagePort: StoragePort = createStoragePort({ storageApi, lastError });
 const popupDeps = { storagePort };

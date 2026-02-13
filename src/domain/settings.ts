@@ -27,7 +27,7 @@ export const SETTINGS_DEFAULTS: SettingsRecord = {
   autoExpandProjectItems: false,
   autoTempChat: false,
   tempChatEnabled: false,
-  oneClickDelete: false,
+  oneClickDelete: true,
   startDictation: false,
   ctrlEnterSends: true,
   wideChatWidth: 0,
