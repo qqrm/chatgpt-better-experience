@@ -19,6 +19,20 @@ const screenshotPath = resolve("docs/images/popup-dark.jpeg");
 const readmePath = resolve("README.md");
 const markerStart = "<!-- popup-screenshot:start -->";
 const markerEnd = "<!-- popup-screenshot:end -->";
+const popupDefaults = {
+  autoSend: true,
+  allowAutoSendInCodex: true,
+  editLastMessageOnArrowUp: true,
+  autoExpandChats: true,
+  autoExpandProjects: true,
+  autoExpandProjectItems: false,
+  autoTempChat: false,
+  oneClickDelete: true,
+  startDictation: false,
+  ctrlEnterSends: true,
+  trimChatDom: false,
+  hideShareButton: false
+};
 
 const browser = await chromium.launch({ headless: true });
 
@@ -34,6 +48,15 @@ try {
     const toggle = document.getElementById("qqrm-theme-toggle");
     if (toggle) toggle.setAttribute("data-mode", "dark");
   });
+  await page.waitForFunction(
+    ({ expected }) => {
+      return Object.entries(expected).every(([id, value]) => {
+        const el = document.getElementById(id);
+        return el instanceof HTMLInputElement && el.checked === value;
+      });
+    },
+    { expected: popupDefaults }
+  );
   await page.waitForTimeout(150);
 
   await page.locator("body").screenshot({
