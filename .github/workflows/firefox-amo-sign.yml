@@ -52,7 +52,7 @@ jobs:
         run: web-ext sign --source-dir dist --artifacts-dir web-ext-artifacts --api-key "$AMO_API_KEY" --api-secret "$AMO_API_SECRET" --channel listed --amo-metadata amo-metadata.json --timeout 900000
 
       - name: Upload signed XPI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: signed-xpi
           path: web-ext-artifacts/*.xpi
