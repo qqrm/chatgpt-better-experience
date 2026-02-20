@@ -6,21 +6,41 @@ const WIDE_CHAT_STYLE_ID = "qqrm-wide-chat-style";
 export function initWideChatFeature(ctx: FeatureContext): FeatureHandle {
   const state: {
     started: boolean;
-    observer: MutationObserver | null;
+    mainObserver: MutationObserver | null;
+    resizeObserver: ResizeObserver | null;
     resizeHandler: (() => void) | null;
+    pathUnsubscribe: (() => void) | null;
+    watchedMain: Element | null;
+    watchedContent: Element | null;
     baseWidthPx: number | null;
-    scheduled: boolean;
+    stats: { observerCalls: number; applyRuns: number; nodesProcessed: number };
   } = {
     started: false,
-    observer: null,
+    mainObserver: null,
+    resizeObserver: null,
     resizeHandler: null,
+    pathUnsubscribe: null,
+    watchedMain: null,
+    watchedContent: null,
     baseWidthPx: null,
-    scheduled: false
+    stats: { observerCalls: 0, applyRuns: 0, nodesProcessed: 0 }
+  };
+
+  const scheduleApply = ctx.helpers.createRafScheduler(() => applyWideChatWidth());
+
+  const logStats = (reason: string) => {
+    if (!ctx.logger.isEnabled) return;
+    ctx.logger.debug("wideChat", `${reason}`, {
+      preview: `observer=${state.stats.observerCalls} apply=${state.stats.applyRuns} nodes=${state.stats.nodesProcessed}`
+    });
   };
 
   const findWideChatContentEl = () =>
     document.querySelector('main [class*="max-w-(--thread-content-max-width)"]') ||
     document.querySelector('[class*="max-w-(--thread-content-max-width)"]');
+
+  const findMainRoot = () =>
+    document.querySelector("main") || document.querySelector('[role="main"]');
 
   const ensureWideChatBaseWidth = () => {
     if (state.baseWidthPx !== null) return state.baseWidthPx;
@@ -37,7 +57,7 @@ export function initWideChatFeature(ctx: FeatureContext): FeatureHandle {
     if (!style) {
       style = document.createElement("style");
       style.id = WIDE_CHAT_STYLE_ID;
-      document.documentElement.appendChild(style);
+      (document.head ?? document.documentElement)?.appendChild(style);
     }
     return style;
   };
@@ -48,10 +68,12 @@ export function initWideChatFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const applyWideChatWidth = () => {
-    if (ctx.settings.wideChatWidth <= 0) return;
+    if (!state.started || ctx.settings.wideChatWidth <= 0) return;
+    state.stats.applyRuns += 1;
     const basePx = ensureWideChatBaseWidth();
     if (!basePx) return;
     const style = ensureWideChatStyle();
+    if (!style) return;
     updateWideChatStyle(style, {
       basePx,
       wideChatWidth: ctx.settings.wideChatWidth,
@@ -59,55 +81,101 @@ export function initWideChatFeature(ctx: FeatureContext): FeatureHandle {
     });
   };
 
-  const scheduleWideChatUpdate = () => {
-    if (state.scheduled) return;
-    state.scheduled = true;
-    requestAnimationFrame(() => {
-      state.scheduled = false;
-      applyWideChatWidth();
+  const bindResizeObserver = () => {
+    const nextContent = findWideChatContentEl();
+    if (!nextContent || nextContent === state.watchedContent) return;
+
+    state.resizeObserver?.disconnect();
+    state.watchedContent = nextContent;
+    state.baseWidthPx = null;
+    state.resizeObserver = new ResizeObserver(() => {
+      state.baseWidthPx = null;
+      scheduleApply.schedule();
     });
+    state.resizeObserver.observe(nextContent);
+    scheduleApply.schedule();
+  };
+
+  const bindMainObserver = () => {
+    const nextMain = findMainRoot();
+    if (!nextMain || nextMain === state.watchedMain) return;
+
+    state.mainObserver?.disconnect();
+    state.watchedMain = nextMain;
+    state.mainObserver = new MutationObserver((records) => {
+      state.stats.observerCalls += 1;
+      let relevant = false;
+      for (const record of records) {
+        state.stats.nodesProcessed += record.addedNodes.length + record.removedNodes.length;
+        if (record.type !== "childList") continue;
+        for (const node of Array.from(record.addedNodes)) {
+          if (!(node instanceof Element)) continue;
+          if (node.matches('[class*="max-w-(--thread-content-max-width)"]')) {
+            relevant = true;
+            break;
+          }
+          if (node.querySelector?.('[class*="max-w-(--thread-content-max-width)"]')) {
+            relevant = true;
+            break;
+          }
+        }
+        if (relevant) break;
+      }
+      if (!relevant) return;
+      state.baseWidthPx = null;
+      bindResizeObserver();
+      scheduleApply.schedule();
+    });
+    state.mainObserver.observe(nextMain, { childList: true, subtree: true });
+  };
+
+  const rebindAll = () => {
+    state.baseWidthPx = null;
+    bindMainObserver();
+    bindResizeObserver();
+    scheduleApply.schedule();
   };
 
   const startWideChat = () => {
     if (state.started) return;
     state.started = true;
-    state.baseWidthPx = null;
-    state.resizeHandler = () => scheduleWideChatUpdate();
+    state.resizeHandler = () => {
+      state.baseWidthPx = null;
+      scheduleApply.schedule();
+    };
     window.addEventListener("resize", state.resizeHandler, { passive: true });
-    state.observer = new MutationObserver((mutations) => {
-      const style = document.getElementById(WIDE_CHAT_STYLE_ID);
-      if (
-        style &&
-        mutations.length > 0 &&
-        mutations.every((mutation) => style.contains(mutation.target))
-      ) {
-        return;
-      }
-      scheduleWideChatUpdate();
+    state.pathUnsubscribe = ctx.helpers.onPathChange(() => {
+      rebindAll();
     });
-    state.observer.observe(document.documentElement, { childList: true, subtree: true });
-    scheduleWideChatUpdate();
+    rebindAll();
   };
 
   const stopWideChat = () => {
     if (!state.started) return;
     state.started = false;
+
     if (state.resizeHandler) {
       window.removeEventListener("resize", state.resizeHandler);
       state.resizeHandler = null;
     }
-    if (state.observer) {
-      state.observer.disconnect();
-      state.observer = null;
-    }
+    state.mainObserver?.disconnect();
+    state.mainObserver = null;
+    state.resizeObserver?.disconnect();
+    state.resizeObserver = null;
+    state.pathUnsubscribe?.();
+    state.pathUnsubscribe = null;
+    state.watchedMain = null;
+    state.watchedContent = null;
     state.baseWidthPx = null;
+    scheduleApply.cancel();
     removeWideChatStyle();
+    logStats("stopped");
   };
 
   const updateWideChatState = () => {
     if (ctx.settings.wideChatWidth > 0) {
       if (!state.started) startWideChat();
-      else scheduleWideChatUpdate();
+      else scheduleApply.schedule();
       return;
     }
     stopWideChat();

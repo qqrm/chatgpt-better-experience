@@ -54,6 +54,43 @@ export function makeTestContext(settings: Partial<Settings> = {}): FeatureContex
           }
         };
       },
+      createRafScheduler: (fn: () => void) => {
+        let frame: number | null = null;
+        return {
+          schedule: () => {
+            if (frame !== null) return;
+            frame = window.requestAnimationFrame(() => {
+              frame = null;
+              fn();
+            });
+          },
+          cancel: () => {
+            if (frame === null) return;
+            window.cancelAnimationFrame(frame);
+            frame = null;
+          }
+        };
+      },
+      observe: (
+        root: Element,
+        cb: (records: MutationRecord[]) => void,
+        options?: MutationObserverInit
+      ) => {
+        const observer = new MutationObserver((records) => cb(records));
+        observer.observe(root, options ?? { childList: true, subtree: true });
+        return { observer, disconnect: () => observer.disconnect() };
+      },
+      extractAddedElements: (records: MutationRecord[]) => {
+        const out: Element[] = [];
+        for (const record of records) {
+          if (record.type !== "childList") continue;
+          for (const node of Array.from(record.addedNodes)) {
+            if (node instanceof Element) out.push(node);
+          }
+        }
+        return out;
+      },
+      onPathChange: () => () => {},
       safeQuery: <T extends Element = Element>(
         sel: string,
         root: Document | Element = document
