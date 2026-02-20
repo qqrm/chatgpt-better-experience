@@ -1,0 +1,131 @@
+name: Dependabot autoupdate & automerge
+
+on:
+  schedule:
+    - cron: "0 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+
+concurrency:
+  group: dependabot-autoupdate-automerge
+  cancel-in-progress: false
+
+jobs:
+  label-failing:
+    name: Label failing Dependabot PRs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (optional)
+        uses: actions/checkout@v4
+
+      - name: Ensure labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          ensure_label() {
+            local label_name="$1"
+            local color="$2"
+            local description="$3"
+            if gh api "repos/${GITHUB_REPOSITORY}/labels/${label_name}" >/dev/null 2>&1; then
+              echo "Label '${label_name}' already exists"
+            else
+              gh api --method POST "repos/${GITHUB_REPOSITORY}/labels" \
+                -f name="${label_name}" \
+                -f color="${color}" \
+                -f description="${description}"
+              echo "Created label '${label_name}'"
+            fi
+          }
+
+          ensure_label "ci-failed" "b60205" "Sticky: CI failed; excluded from Dependabot auto-rebase/automerge until manually removed"
+          ensure_label "do-not-automerge" "5319e7" "Manual override: do not enable auto-merge"
+          ensure_label "needs-human" "fbca04" "Needs manual maintainer follow-up"
+
+      - name: Label failing Dependabot PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t prs < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" \
+              --jq '.[] | select(.user.login == "dependabot[bot]") | "\(.number) \(.head.sha)"'
+          )
+
+          echo "Dependabot PRs found against main: ${#prs[@]}"
+
+          for pr in "${prs[@]}"; do
+            number="${pr%% *}"
+            sha="${pr#* }"
+
+            combined_state="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/status" --jq '.state')"
+            failing_checks_count="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs" --jq '[.check_runs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")] | length')"
+
+            echo "PR #${number}: combined-status=${combined_state}, failing-checks=${failing_checks_count}"
+
+            if [[ "${combined_state}" == "failure" || "${failing_checks_count}" -gt 0 ]]; then
+              gh pr edit "${number}" --repo "${GITHUB_REPOSITORY}" --add-label "ci-failed,needs-human"
+              echo "Applied ci-failed (+needs-human) to #${number}"
+            else
+              echo "No failing CI detected for #${number}"
+            fi
+          done
+
+  rebase-and-automerge:
+    name: Rebase Dependabot PRs and collect auto-merge candidates
+    needs: label-failing
+    runs-on: ubuntu-latest
+    outputs:
+      eligible_pr_numbers: ${{ steps.eligible-prs.outputs.numbers }}
+    steps:
+      - name: Rebase Dependabot dependency PRs that are not blocked
+        uses: peter-evans/rebase@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: main
+          include-labels: dependencies
+          exclude-labels: |
+            ci-failed
+            do-not-automerge
+
+      - name: Build list of PRs eligible for auto-merge
+        id: eligible-prs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          prs_json="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '[.[] | select(.user.login == "dependabot[bot]") | select((([.labels[].name] | index("ci-failed")) | not) and (([.labels[].name] | index("do-not-automerge")) | not)) | .number]')"
+
+          echo "Eligible PR numbers: ${prs_json}"
+          echo "numbers=${prs_json}" >> "$GITHUB_OUTPUT"
+
+  enable-automerge:
+    name: Enable auto-merge on eligible Dependabot PRs
+    needs: rebase-and-automerge
+    if: ${{ needs.rebase-and-automerge.outputs.eligible_pr_numbers != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pr_number: ${{ fromJson(needs.rebase-and-automerge.outputs.eligible_pr_numbers) }}
+    steps:
+      - name: Enable GitHub auto-merge
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          pull-request-number: ${{ matrix.pr_number }}
+          merge-method: squash
+
+# Requires repository setting "Allow auto-merge" to be enabled.
+# Label semantics:
+# - ci-failed (sticky): CI failed at least once; excluded from rebase/update and auto-merge.
+# - do-not-automerge: manual maintainer override to prevent auto-merge.
+# - needs-human: visibility label for manual intervention.
