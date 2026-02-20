@@ -464,24 +464,28 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
 
   const state: {
     started: boolean;
-    observer: MutationObserver | null;
+    navObserver: MutationObserver | null;
     deleteSweepObserver: MutationObserver | null;
     deleteSweepSchedule: (() => void) | null;
     deleteSweepCancel: (() => void) | null;
     deleteSweepNav: Element | null;
-    intervalId: number | null;
+    pathUnsubscribe: (() => void) | null;
+    navRetryTimeoutId: number | null;
+    stats: { observerCalls: number; applyRuns: number; nodesProcessed: number };
     pendingByRow: Map<HTMLElement, PendingAction>;
     deleteQueue: Promise<void>;
     sweepTimeoutsById: Map<string, number[]>;
     recentlyDeleted: Map<string, number>;
   } = {
     started: false,
-    observer: null,
+    navObserver: null,
     deleteSweepObserver: null,
     deleteSweepSchedule: null,
     deleteSweepCancel: null,
     deleteSweepNav: null,
-    intervalId: null,
+    pathUnsubscribe: null,
+    navRetryTimeoutId: null,
+    stats: { observerCalls: 0, applyRuns: 0, nodesProcessed: 0 },
     pendingByRow: new Map(),
     deleteQueue: Promise.resolve(),
     sweepTimeoutsById: new Map(),
@@ -490,20 +494,6 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
 
   const enqueueDelete = (job: () => Promise<void>) => {
     state.deleteQueue = state.deleteQueue.then(job).catch(() => {});
-  };
-
-  const waitPresent = async <T extends Element>(
-    selector: string,
-    root: Document | Element = document,
-    timeoutMs = 1200
-  ): Promise<T | null> => {
-    const t0 = performance.now();
-    while (performance.now() - t0 < timeoutMs) {
-      const el = root.querySelector<T>(selector);
-      if (el) return el;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    return null;
   };
 
   const findButtonByExactText = (root: ParentNode, text: string) => {
@@ -604,50 +594,93 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     state.sweepTimeoutsById.set(conversationId, timers);
   };
 
-  const ensureDeleteSweepObserver = async () => {
-    if (state.deleteSweepObserver || !state.started) return;
+  const runSweep = () => {
+    pruneDeleted();
+    if (state.recentlyDeleted.size === 0) return;
+    for (const conversationId of state.recentlyDeleted.keys()) {
+      removeConversationEverywhere(
+        conversationId,
+        "observer sweep",
+        state.deleteSweepNav ?? undefined
+      );
+    }
+  };
 
-    await ctx.helpers.waitPresent("#stage-slideover-sidebar", document, 2000);
+  const ensureDeleteSweepObserver = (nav: Element | null) => {
+    state.deleteSweepObserver?.disconnect();
+    state.deleteSweepObserver = null;
+    state.deleteSweepNav = nav;
+    if (!nav || !state.started) return;
+
+    const sched = ctx.helpers.debounceScheduler(runSweep, 250);
+    state.deleteSweepSchedule = sched.schedule;
+    state.deleteSweepCancel = sched.cancel;
+
+    state.deleteSweepObserver = new MutationObserver((records) => {
+      state.stats.observerCalls += 1;
+      let hasNavDelta = false;
+      for (const record of records) {
+        state.stats.nodesProcessed += record.addedNodes.length + record.removedNodes.length;
+        if (record.type !== "childList") continue;
+        if (record.addedNodes.length > 0 || record.removedNodes.length > 0) {
+          hasNavDelta = true;
+          break;
+        }
+      }
+      if (!hasNavDelta) return;
+      state.deleteSweepSchedule?.();
+    });
+    state.deleteSweepObserver.observe(nav, { childList: true, subtree: true });
+  };
+
+  const hookOptionsButtonsInNav = (nav: Element) => {
+    const buttons = qsa<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR, nav);
+    for (const button of buttons) {
+      hookOneClickDeleteButton(button);
+      state.stats.applyRuns += 1;
+    }
+  };
+
+  const processAddedNodes = (nodes: NodeList) => {
+    for (const node of Array.from(nodes)) {
+      if (!(node instanceof Element)) continue;
+      if (node.matches(ONE_CLICK_DELETE_BUTTON_SELECTOR)) {
+        hookOneClickDeleteButton(node as HTMLElement);
+        state.stats.applyRuns += 1;
+      }
+      const nested = node.querySelectorAll<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
+      for (const btn of Array.from(nested)) {
+        hookOneClickDeleteButton(btn);
+        state.stats.applyRuns += 1;
+      }
+    }
+  };
+
+  const bindNavObserver = async () => {
+    if (!state.started) return;
     const nav = await ctx.helpers.waitPresent('nav[aria-label="Chat history"]', document, 2000);
     if (!state.started) return;
 
-    state.deleteSweepNav = nav ?? null;
-    const observeRoot = nav ?? document.documentElement;
+    state.navObserver?.disconnect();
+    state.navObserver = null;
 
-    const runSweep = () => {
-      pruneDeleted();
-      if (state.recentlyDeleted.size === 0) return;
-      for (const conversationId of state.recentlyDeleted.keys()) {
-        removeConversationEverywhere(conversationId, "observer sweep", nav ?? undefined);
-      }
-    };
-
-    if (ctx.helpers.debounceScheduler) {
-      const sched = ctx.helpers.debounceScheduler(runSweep, 300);
-      state.deleteSweepSchedule = sched.schedule;
-      state.deleteSweepCancel = sched.cancel;
-    } else {
-      let debTimer: number | null = null;
-      state.deleteSweepSchedule = () => {
-        if (debTimer !== null) return;
-        debTimer = window.setTimeout(() => {
-          debTimer = null;
-          runSweep();
-        }, 300);
-      };
-      state.deleteSweepCancel = () => {
-        if (debTimer !== null) {
-          window.clearTimeout(debTimer);
-          debTimer = null;
-        }
-      };
+    if (!nav) {
+      ensureDeleteSweepObserver(null);
+      return;
     }
 
-    state.deleteSweepObserver = new MutationObserver(() => {
-      pruneDeleted();
-      state.deleteSweepSchedule?.();
+    hookOptionsButtonsInNav(nav);
+    ensureDeleteSweepObserver(nav);
+
+    state.navObserver = new MutationObserver((records) => {
+      state.stats.observerCalls += 1;
+      for (const record of records) {
+        if (record.type !== "childList") continue;
+        state.stats.nodesProcessed += record.addedNodes.length;
+        processAddedNodes(record.addedNodes);
+      }
     });
-    state.deleteSweepObserver.observe(observeRoot, { childList: true, subtree: true });
+    state.navObserver.observe(nav, { childList: true, subtree: true });
   };
 
   const ensureOneClickDeleteStyle = () => {
@@ -727,7 +760,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const clearOneClickDeleteButtons = () => {
-    const btns = qsa<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
+    const nav = document.querySelector('nav[aria-label="Chat history"]');
+    const btns = qsa<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR, nav ?? document);
     for (const btn of btns) {
       btn.removeAttribute(ONE_CLICK_DELETE_HOOK_MARK);
       const x = btn.querySelector(`span[${ONE_CLICK_DELETE_X_MARK}="1"]`);
@@ -947,7 +981,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       if (!deleteItem) return;
       ctx.helpers.humanClick(deleteItem, "oneclick-delete-menu");
 
-      const modal = await waitPresent<HTMLElement>(
+      const modal = await ctx.helpers.waitPresent(
         'div[data-testid="modal-delete-conversation-confirmation"]',
         document,
         1500
@@ -958,11 +992,11 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
         modal.querySelector<HTMLElement>(
           'button[data-testid="delete-conversation-confirm-button"]'
         ) ??
-        (await waitPresent<HTMLElement>(
+        ((await ctx.helpers.waitPresent(
           'button[data-testid="delete-conversation-confirm-button"]',
           modal,
           1200
-        )) ??
+        )) as HTMLElement | null) ??
         findButtonByExactText(modal, "Delete");
 
       if (!confirmBtn) return;
@@ -1017,11 +1051,11 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       if (!archiveItem) return;
       ctx.helpers.humanClick(archiveItem, "oneclick-archive-menu");
 
-      const modal = await waitPresent<HTMLElement>(
+      const modal = (await ctx.helpers.waitPresent(
         '[role="dialog"], [role="alertdialog"]',
         document,
         1200
-      );
+      )) as HTMLElement | null;
       if (!modal) return;
 
       const confirmTexts = [
@@ -1121,12 +1155,24 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     // Do not cancel pending deletes on focus loss
   };
 
-  const refreshOneClickDelete = () => {
+  const refreshOneClickDelete = async () => {
     if (!ctx.settings.oneClickDelete) return;
     ensureOneClickDeleteStyle();
-    const btns = qsa<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
-    for (const btn of btns) hookOneClickDeleteButton(btn);
     cleanupDetachedPendingRows();
+    await bindNavObserver();
+    if (ctx.logger.isEnabled) {
+      ctx.logger.debug("oneClickDelete", "refresh", {
+        preview: `observer=${state.stats.observerCalls} apply=${state.stats.applyRuns} nodes=${state.stats.nodesProcessed}`
+      });
+    }
+  };
+
+  const scheduleNavRetry = () => {
+    if (state.navRetryTimeoutId !== null) return;
+    state.navRetryTimeoutId = window.setTimeout(() => {
+      state.navRetryTimeoutId = null;
+      void bindNavObserver();
+    }, 350);
   };
 
   const startOneClickDelete = () => {
@@ -1137,16 +1183,10 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     document.addEventListener("click", handleClick, true);
     window.addEventListener("blur", handleBlur, true);
 
-    refreshOneClickDelete();
-    state.intervalId = window.setInterval(refreshOneClickDelete, 1200);
-
-    state.observer = new MutationObserver(() => refreshOneClickDelete());
-    state.observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true
+    void refreshOneClickDelete();
+    state.pathUnsubscribe = ctx.helpers.onPathChange(() => {
+      scheduleNavRetry();
     });
-
-    void ensureDeleteSweepObserver();
   };
 
   const stopOneClickDelete = () => {
@@ -1158,14 +1198,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     window.removeEventListener("blur", handleBlur, true);
     clearAllPendingActions();
 
-    if (state.intervalId !== null) {
-      window.clearInterval(state.intervalId);
-      state.intervalId = null;
-    }
-    if (state.observer) {
-      state.observer.disconnect();
-      state.observer = null;
-    }
+    state.navObserver?.disconnect();
+    state.navObserver = null;
     if (state.deleteSweepObserver) {
       state.deleteSweepObserver.disconnect();
       state.deleteSweepObserver = null;
@@ -1176,6 +1210,12 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     }
     state.deleteSweepSchedule = null;
     state.deleteSweepNav = null;
+    state.pathUnsubscribe?.();
+    state.pathUnsubscribe = null;
+    if (state.navRetryTimeoutId !== null) {
+      window.clearTimeout(state.navRetryTimeoutId);
+      state.navRetryTimeoutId = null;
+    }
     for (const [conversationId] of state.sweepTimeoutsById) {
       clearSweepTimeouts(conversationId);
     }

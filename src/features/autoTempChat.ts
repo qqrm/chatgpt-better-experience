@@ -2,34 +2,26 @@ import { FeatureContext, FeatureHandle } from "../application/featureContext";
 
 const TEMP_CHAT_CHECKBOX_SELECTOR = "#temporary-chat-checkbox";
 const TEMP_CHAT_LABEL_SELECTOR = 'h1[data-testid="temporary-chat-label"]';
-const NAVIGATION_EVENT_NAME = "qqrm:navigation";
-const NAVIGATION_FALLBACK_DELAY_MS = 10000;
-const NAVIGATION_FALLBACK_INTERVAL_MS = 2500;
+const MAX_RETRIES = 10;
 
 export function initAutoTempChatFeature(ctx: FeatureContext): FeatureHandle {
   const state: {
     started: boolean;
     observer: MutationObserver | null;
-    lastPath: string;
-    domReady: boolean;
-    lastNavigationEventAt: number;
-    fallbackTimeoutId: number | null;
-    fallbackIntervalId: number | null;
-    historyPatched: boolean;
-    originalPushState: History["pushState"] | null;
-    originalReplaceState: History["replaceState"] | null;
+    pathUnsubscribe: (() => void) | null;
+    retryTimerId: number | null;
+    retryAttempt: number;
+    stats: { observerCalls: number; applyRuns: number; nodesProcessed: number };
   } = {
     started: false,
     observer: null,
-    lastPath: "",
-    domReady: document.readyState !== "loading",
-    lastNavigationEventAt: Date.now(),
-    fallbackTimeoutId: null,
-    fallbackIntervalId: null,
-    historyPatched: false,
-    originalPushState: null,
-    originalReplaceState: null
+    pathUnsubscribe: null,
+    retryTimerId: null,
+    retryAttempt: 0,
+    stats: { observerCalls: 0, applyRuns: 0, nodesProcessed: 0 }
   };
+
+  const applyScheduler = ctx.helpers.debounceScheduler(() => applyAutoTempChatState(), 200);
 
   const getTempChatCheckbox = () =>
     document.querySelector<HTMLInputElement>(TEMP_CHAT_CHECKBOX_SELECTOR);
@@ -45,158 +37,109 @@ export function initAutoTempChatFeature(ctx: FeatureContext): FeatureHandle {
 
   const ensureTempChatOn = () => {
     const checkbox = getTempChatCheckbox();
-    if (!checkbox) return;
-    if (checkbox.disabled) return;
-    if (checkbox.checked) return;
+    if (!checkbox || checkbox.disabled || checkbox.checked) return true;
     const target = getTempChatClickTarget();
-    if (!target) return;
+    if (!target) return false;
     ctx.helpers.humanClick(target, "tempchat-enable");
-    ctx.logger.debug("TEMPCHAT", "forced on");
+    return true;
   };
 
-  const ensureTempChatOff = () => {
-    const checkbox = getTempChatCheckbox();
-    if (!checkbox) return;
-    if (checkbox.disabled) return;
-    if (!checkbox.checked) return;
-    const target = getTempChatClickTarget();
-    if (!target) return;
-    ctx.helpers.humanClick(target, "tempchat-disable");
-    ctx.logger.debug("TEMPCHAT", "forced off");
+  const scheduleRetry = () => {
+    if (!state.started || !ctx.settings.autoTempChat || state.retryAttempt >= MAX_RETRIES) return;
+    if (state.retryTimerId !== null) return;
+    const delay = Math.min(200 * 2 ** state.retryAttempt, 2000);
+    state.retryAttempt += 1;
+    state.retryTimerId = window.setTimeout(() => {
+      state.retryTimerId = null;
+      const ok = ensureTempChatOn();
+      if (!ok || !getTempChatCheckbox()?.checked) {
+        scheduleRetry();
+      }
+    }, delay);
+  };
+
+  const clearRetry = () => {
+    if (state.retryTimerId !== null) {
+      window.clearTimeout(state.retryTimerId);
+      state.retryTimerId = null;
+    }
+    state.retryAttempt = 0;
   };
 
   const applyAutoTempChatState = () => {
-    if (ctx.settings.autoTempChat) {
-      ensureTempChatOn();
+    if (!state.started || !ctx.settings.autoTempChat) return;
+    state.stats.applyRuns += 1;
+    const ok = ensureTempChatOn();
+    if (!ok || !getTempChatCheckbox()?.checked) {
+      scheduleRetry();
     } else {
-      ensureTempChatOff();
+      clearRetry();
+    }
+    if (ctx.logger.isEnabled) {
+      ctx.logger.debug("autoTempChat", "apply", {
+        preview: `observer=${state.stats.observerCalls} apply=${state.stats.applyRuns} nodes=${state.stats.nodesProcessed}`
+      });
     }
   };
 
-  const handleNavigationChange = () => {
-    const current = location.pathname + location.search;
-    if (current === state.lastPath) return;
-    state.lastPath = current;
-    applyAutoTempChatState();
-  };
-
-  const scheduleFallbackNavigationCheck = () => {
-    if (state.fallbackTimeoutId !== null) {
-      window.clearTimeout(state.fallbackTimeoutId);
-    }
-    state.fallbackTimeoutId = window.setTimeout(() => {
-      if (Date.now() - state.lastNavigationEventAt < NAVIGATION_FALLBACK_DELAY_MS) return;
-      if (state.fallbackIntervalId !== null) return;
-      state.fallbackIntervalId = window.setInterval(() => {
-        handleNavigationChange();
-      }, NAVIGATION_FALLBACK_INTERVAL_MS);
-    }, NAVIGATION_FALLBACK_DELAY_MS);
-  };
-
-  const handleNavigationEvent = () => {
-    state.lastNavigationEventAt = Date.now();
-    if (state.fallbackIntervalId !== null) {
-      window.clearInterval(state.fallbackIntervalId);
-      state.fallbackIntervalId = null;
-    }
-    scheduleFallbackNavigationCheck();
-    handleNavigationChange();
-  };
-
-  const patchHistory = () => {
-    if (state.historyPatched) return;
-    state.historyPatched = true;
-    state.originalPushState = history.pushState.bind(history);
-    state.originalReplaceState = history.replaceState.bind(history);
-    history.pushState = (...args) => {
-      const result = state.originalPushState?.(...args);
-      window.dispatchEvent(new CustomEvent(NAVIGATION_EVENT_NAME));
-      return result;
-    };
-    history.replaceState = (...args) => {
-      const result = state.originalReplaceState?.(...args);
-      window.dispatchEvent(new CustomEvent(NAVIGATION_EVENT_NAME));
-      return result;
-    };
+  const bindObserver = () => {
+    const root =
+      (document.querySelector("main") as HTMLElement | null) ||
+      (document.querySelector("header") as HTMLElement | null);
+    if (!root) return;
+    state.observer?.disconnect();
+    state.observer = new MutationObserver((records) => {
+      state.stats.observerCalls += 1;
+      let relevant = false;
+      for (const record of records) {
+        if (record.type !== "childList") continue;
+        state.stats.nodesProcessed += record.addedNodes.length;
+        for (const node of Array.from(record.addedNodes)) {
+          if (!(node instanceof Element)) continue;
+          if (
+            node.matches(TEMP_CHAT_CHECKBOX_SELECTOR) ||
+            node.querySelector(TEMP_CHAT_CHECKBOX_SELECTOR)
+          ) {
+            relevant = true;
+            break;
+          }
+        }
+        if (relevant) break;
+      }
+      if (relevant) applyScheduler.schedule();
+    });
+    state.observer.observe(root, { childList: true, subtree: true });
   };
 
   const startAutoTempChat = () => {
-    if (state.started) return;
+    if (state.started || !ctx.settings.autoTempChat) return;
     state.started = true;
-    state.lastPath = location.pathname + location.search;
-    let applyScheduled = false;
-    const scheduleApply = () => {
-      if (applyScheduled) return;
-      applyScheduled = true;
-      window.setTimeout(() => {
-        applyScheduled = false;
-        if (!state.started) return;
-        applyAutoTempChatState();
-      }, 200);
-    };
-
-    patchHistory();
-    window.addEventListener("popstate", handleNavigationEvent);
-    window.addEventListener(NAVIGATION_EVENT_NAME, handleNavigationEvent);
-
-    state.observer = new MutationObserver(() => scheduleApply());
-    state.observer.observe(document.documentElement, { childList: true, subtree: true });
-
-    scheduleFallbackNavigationCheck();
-
-    applyAutoTempChatState();
+    bindObserver();
+    state.pathUnsubscribe = ctx.helpers.onPathChange(() => {
+      bindObserver();
+      applyScheduler.schedule();
+    });
+    applyScheduler.schedule();
   };
 
   const stopAutoTempChat = () => {
     if (!state.started) return;
     state.started = false;
-
-    window.removeEventListener("popstate", handleNavigationEvent);
-    window.removeEventListener(NAVIGATION_EVENT_NAME, handleNavigationEvent);
-
-    if (state.historyPatched) {
-      if (state.originalPushState) {
-        history.pushState = state.originalPushState;
-      }
-      if (state.originalReplaceState) {
-        history.replaceState = state.originalReplaceState;
-      }
-      state.historyPatched = false;
-    }
-
-    if (state.observer) {
-      state.observer.disconnect();
-      state.observer = null;
-    }
-    if (state.fallbackIntervalId !== null) {
-      window.clearInterval(state.fallbackIntervalId);
-      state.fallbackIntervalId = null;
-    }
-    if (state.fallbackTimeoutId !== null) {
-      window.clearTimeout(state.fallbackTimeoutId);
-      state.fallbackTimeoutId = null;
-    }
+    state.observer?.disconnect();
+    state.observer = null;
+    state.pathUnsubscribe?.();
+    state.pathUnsubscribe = null;
+    applyScheduler.cancel();
+    clearRetry();
   };
 
-  const ensureStarted = () => {
-    if (state.domReady) {
+  if (ctx.settings.autoTempChat) {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", () => startAutoTempChat(), { once: true });
+    } else {
       startAutoTempChat();
-      applyAutoTempChatState();
-      return;
     }
-    document.addEventListener(
-      "DOMContentLoaded",
-      () => {
-        state.domReady = true;
-        startAutoTempChat();
-        applyAutoTempChatState();
-      },
-      { once: true }
-    );
-  };
-
-  ensureStarted();
-  applyAutoTempChatState();
+  }
 
   return {
     name: "autoTempChat",
@@ -204,12 +147,8 @@ export function initAutoTempChatFeature(ctx: FeatureContext): FeatureHandle {
       stopAutoTempChat();
     },
     onSettingsChange: (next, prev) => {
-      if (!prev.autoTempChat && next.autoTempChat) {
-        ensureStarted();
-      }
-      if (prev.autoTempChat !== next.autoTempChat) {
-        applyAutoTempChatState();
-      }
+      if (!prev.autoTempChat && next.autoTempChat) startAutoTempChat();
+      if (prev.autoTempChat && !next.autoTempChat) stopAutoTempChat();
     },
     getStatus: () => ({
       active: ctx.settings.autoTempChat,
