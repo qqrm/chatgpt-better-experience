@@ -466,6 +466,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     started: boolean;
     deleteSweepSchedule: (() => void) | null;
     deleteSweepCancel: (() => void) | null;
+    hookScanSchedule: (() => void) | null;
+    hookScanCancel: (() => void) | null;
     deleteSweepNav: Element | null;
     unsubNavDelta: (() => void) | null;
     unsubRoots: (() => void) | null;
@@ -478,6 +480,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     started: false,
     deleteSweepSchedule: null,
     deleteSweepCancel: null,
+    hookScanSchedule: null,
+    hookScanCancel: null,
     deleteSweepNav: null,
     unsubNavDelta: null,
     unsubRoots: null,
@@ -613,25 +617,30 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const hookOptionsButtonsInNav = (nav: Element) => {
-    const buttons = qsa<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR, nav);
+    const selector = `${ONE_CLICK_DELETE_BUTTON_SELECTOR}:not([${ONE_CLICK_DELETE_HOOK_MARK}="1"])`;
+    const buttons = qsa<HTMLElement>(selector, nav);
     for (const button of buttons) {
       hookOneClickDeleteButton(button);
       state.stats.applyRuns += 1;
     }
   };
 
-  const processAddedNodes = (nodes: Element[]) => {
-    for (const node of nodes) {
-      if (node.matches(ONE_CLICK_DELETE_BUTTON_SELECTOR)) {
-        hookOneClickDeleteButton(node as HTMLElement);
-        state.stats.applyRuns += 1;
-      }
-      const nested = node.querySelectorAll<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
-      for (const btn of Array.from(nested)) {
-        hookOneClickDeleteButton(btn);
-        state.stats.applyRuns += 1;
-      }
+  const runHookScan = () => {
+    const nav = ctx.domBus?.getNavRoot();
+    if (!nav) return;
+    const selector = `${ONE_CLICK_DELETE_BUTTON_SELECTOR}:not([${ONE_CLICK_DELETE_HOOK_MARK}="1"])`;
+    const buttons = qsa<HTMLElement>(selector, nav);
+    for (const button of buttons) {
+      hookOneClickDeleteButton(button);
+      state.stats.applyRuns += 1;
     }
+  };
+
+  const ensureHookScanScheduler = () => {
+    if (state.hookScanSchedule && state.hookScanCancel) return;
+    const sched = ctx.helpers.debounceScheduler(runHookScan, 250);
+    state.hookScanSchedule = sched.schedule;
+    state.hookScanCancel = sched.cancel;
   };
 
   const ensureOneClickDeleteStyle = () => {
@@ -1129,19 +1138,20 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     window.addEventListener("blur", handleBlur, true);
 
     ensureDeleteSweepScheduler();
+    ensureHookScanScheduler();
     refreshOneClickDelete();
 
     state.unsubRoots =
       ctx.domBus?.onRoots((roots) => {
         state.deleteSweepNav = roots.nav;
-        if (roots.nav) hookOptionsButtonsInNav(roots.nav);
+        if (roots.nav) state.hookScanSchedule?.();
       }) ?? null;
 
     state.unsubNavDelta =
       ctx.domBus?.onDelta("nav", (delta) => {
         state.stats.observerCalls += 1;
         state.stats.nodesProcessed += delta.added.length + delta.removed.length;
-        processAddedNodes(delta.added);
+        state.hookScanSchedule?.();
         if (state.recentlyDeleted.size > 0) state.deleteSweepSchedule?.();
       }) ?? null;
   };
@@ -1164,6 +1174,11 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       state.deleteSweepCancel = null;
     }
     state.deleteSweepSchedule = null;
+    if (state.hookScanCancel) {
+      state.hookScanCancel();
+      state.hookScanCancel = null;
+    }
+    state.hookScanSchedule = null;
     state.deleteSweepNav = null;
     for (const [conversationId] of state.sweepTimeoutsById) {
       clearSweepTimeouts(conversationId);

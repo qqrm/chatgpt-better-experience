@@ -52,7 +52,6 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     });
     const domBus = createDomEventBus(ctx);
     ctx.domBus = domBus;
-    domBus.start();
 
     const features: FeatureHandle[] = [
       initDictationAutoSendFeature(ctx),
@@ -119,10 +118,21 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
 
     resolvedStorage.onChanged?.(handleStorageChange);
 
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        domBus.stop();
+      } else {
+        domBus.start();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     window.addEventListener(
       "unload",
       () => {
-        domBus.stop();
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        domBus.dispose();
       },
       { once: true }
     );
