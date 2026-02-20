@@ -18,30 +18,66 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Detect code-relevant changes
+        id: changes
+        uses: dorny/paths-filter@v3.0.2
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'tests/**'
+              - 'content.ts'
+              - 'popup.ts'
+              - 'popup.html'
+              - 'settings.ts'
+              - 'scripts/**'
+              - 'manifest.json'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig*.json'
+              - 'vitest.config.*'
+              - 'eslint.config.*'
+              - '.github/workflows/ci.yml'
+            docs_only:
+              - 'README.md'
+              - 'docs/**'
+              - 'docs/images/**'
+
+      - name: Skip heavy CI for docs/image-only changes
+        if: steps.changes.outputs.code != 'true'
+        run: echo "docs/image-only change; skipping heavy CI"
+
       - name: Use Node.js
+        if: steps.changes.outputs.code == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
 
       - name: Install dependencies
+        if: steps.changes.outputs.code == 'true'
         env:
           HUSKY: 0
         run: npm ci
 
       - name: Format check
+        if: steps.changes.outputs.code == 'true'
         run: npm run verify -- --step format:check
 
       - name: Lint
+        if: steps.changes.outputs.code == 'true'
         run: npm run verify -- --step lint
 
       - name: Typecheck
+        if: steps.changes.outputs.code == 'true'
         run: npm run verify -- --step typecheck
 
       - name: Build
+        if: steps.changes.outputs.code == 'true'
         run: npm run verify -- --step build
 
       - name: Upload build artifact
+        if: steps.changes.outputs.code == 'true' && hashFiles('dist/**') != ''
         uses: actions/upload-artifact@v6
         with:
           name: extension-dist
