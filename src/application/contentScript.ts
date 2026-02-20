@@ -2,6 +2,7 @@ import { SETTINGS_DEFAULTS } from "../domain/settings";
 import { StoragePort } from "../domain/ports/storagePort";
 import { normalizeSettings } from "../lib/utils";
 import { createFeatureContext, FeatureHandle } from "./featureContext";
+import { createDomEventBus } from "./domEventBus";
 import { initDictationAutoSendFeature } from "../features/dictationAutoSend";
 import { initEditLastMessageFeature } from "../features/editLastMessage";
 import { initOneClickDeleteFeature } from "../features/oneClickDelete";
@@ -48,6 +49,9 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       storagePort: resolvedStorage,
       debugEnabled: DEBUG
     });
+    const domBus = createDomEventBus(ctx);
+    ctx.domBus = domBus;
+    domBus.start();
 
     const features: FeatureHandle[] = [
       initDictationAutoSendFeature(ctx),
@@ -112,6 +116,14 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     };
 
     resolvedStorage.onChanged?.(handleStorageChange);
+
+    window.addEventListener(
+      "unload",
+      () => {
+        domBus.stop();
+      },
+      { once: true }
+    );
   };
 
   void init();

@@ -39,3 +39,14 @@ Verify there is no continuous idle CPU burn from content-script DOM watchers.
 - `autoTempChat`: observer callbacks / apply runs / processed nodes.
 
 Counters should increase during real UI changes and stop growing quickly when idle.
+
+## Bus stats
+
+When debug logger is enabled in the content script (`DEBUG = true`), the shared DOM bus emits counters through feature logs.
+
+- `mainObserverCalls` / `navObserverCalls`: MutationObserver callback invocations for each channel.
+- `mainNodes` / `navNodes`: total nodes touched by mutation records.
+- `emits`: number of coalesced bus delta events delivered.
+- `rebinds`: root rebind attempts from route changes/root replacement.
+
+Expected behavior: after route settles and the page is idle, `emits` (and per-feature counters) should stop increasing.

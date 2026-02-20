@@ -1,6 +1,7 @@
 import type { FeatureContext, Logger } from "../../src/application/featureContext";
 import type { Settings } from "../../src/domain/settings";
 import type { StoragePort } from "../../src/domain/ports/storagePort";
+import type { DomDelta } from "../../src/application/domEventBus";
 
 const noopLogger: Logger = {
   isEnabled: false,
@@ -36,6 +37,22 @@ export function makeTestContext(settings: Partial<Settings> = {}): FeatureContex
     settings: merged,
     storagePort: noopStoragePort,
     logger: noopLogger,
+    domBus: {
+      start: () => {},
+      stop: () => {},
+      getMainRoot: () => document.querySelector('main, [role="main"]'),
+      getNavRoot: () => document.querySelector('nav[aria-label="Chat history"]'),
+      onDelta: (_channel: "main" | "nav", _cb: (delta: DomDelta) => void) => () => {},
+      onRoots: (_cb) => () => {},
+      stats: () => ({
+        mainObserverCalls: 0,
+        navObserverCalls: 0,
+        mainNodes: 0,
+        navNodes: 0,
+        emits: 0,
+        rebinds: 0
+      })
+    },
     keyState: { shift: false, ctrl: false, alt: false },
     helpers: {
       waitPresent: async () => null,

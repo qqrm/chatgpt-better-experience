@@ -7,18 +7,18 @@ const MAX_RETRIES = 10;
 export function initAutoTempChatFeature(ctx: FeatureContext): FeatureHandle {
   const state: {
     started: boolean;
-    observer: MutationObserver | null;
-    pathUnsubscribe: (() => void) | null;
     retryTimerId: number | null;
     retryAttempt: number;
-    stats: { observerCalls: number; applyRuns: number; nodesProcessed: number };
+    unsubMainDelta: (() => void) | null;
+    unsubRoots: (() => void) | null;
+    stats: { applyRuns: number; busEvents: number; nodesProcessed: number };
   } = {
     started: false,
-    observer: null,
-    pathUnsubscribe: null,
     retryTimerId: null,
     retryAttempt: 0,
-    stats: { observerCalls: 0, applyRuns: 0, nodesProcessed: 0 }
+    unsubMainDelta: null,
+    unsubRoots: null,
+    stats: { applyRuns: 0, busEvents: 0, nodesProcessed: 0 }
   };
 
   const applyScheduler = ctx.helpers.debounceScheduler(() => applyAutoTempChatState(), 200);
@@ -37,11 +37,11 @@ export function initAutoTempChatFeature(ctx: FeatureContext): FeatureHandle {
 
   const ensureTempChatOn = () => {
     const checkbox = getTempChatCheckbox();
-    if (!checkbox || checkbox.disabled || checkbox.checked) return true;
+    if (!checkbox || checkbox.disabled) return false;
+    if (checkbox.checked) return true;
     const target = getTempChatClickTarget();
     if (!target) return false;
-    ctx.helpers.humanClick(target, "tempchat-enable");
-    return true;
+    return ctx.helpers.humanClick(target, "tempchat-enable");
   };
 
   const scheduleRetry = () => {
@@ -52,9 +52,7 @@ export function initAutoTempChatFeature(ctx: FeatureContext): FeatureHandle {
     state.retryTimerId = window.setTimeout(() => {
       state.retryTimerId = null;
       const ok = ensureTempChatOn();
-      if (!ok || !getTempChatCheckbox()?.checked) {
-        scheduleRetry();
-      }
+      if (!ok || !getTempChatCheckbox()?.checked) scheduleRetry();
     }, delay);
   };
 
@@ -70,65 +68,54 @@ export function initAutoTempChatFeature(ctx: FeatureContext): FeatureHandle {
     if (!state.started || !ctx.settings.autoTempChat) return;
     state.stats.applyRuns += 1;
     const ok = ensureTempChatOn();
-    if (!ok || !getTempChatCheckbox()?.checked) {
-      scheduleRetry();
-    } else {
-      clearRetry();
-    }
+    if (!ok || !getTempChatCheckbox()?.checked) scheduleRetry();
+    else clearRetry();
+
     if (ctx.logger.isEnabled) {
       ctx.logger.debug("autoTempChat", "apply", {
-        preview: `observer=${state.stats.observerCalls} apply=${state.stats.applyRuns} nodes=${state.stats.nodesProcessed}`
+        preview: `bus=${state.stats.busEvents} apply=${state.stats.applyRuns} nodes=${state.stats.nodesProcessed}`
       });
     }
   };
 
-  const bindObserver = () => {
-    const root =
-      (document.querySelector("main") as HTMLElement | null) ||
-      (document.querySelector("header") as HTMLElement | null);
-    if (!root) return;
-    state.observer?.disconnect();
-    state.observer = new MutationObserver((records) => {
-      state.stats.observerCalls += 1;
-      let relevant = false;
-      for (const record of records) {
-        if (record.type !== "childList") continue;
-        state.stats.nodesProcessed += record.addedNodes.length;
-        for (const node of Array.from(record.addedNodes)) {
-          if (!(node instanceof Element)) continue;
-          if (
-            node.matches(TEMP_CHAT_CHECKBOX_SELECTOR) ||
-            node.querySelector(TEMP_CHAT_CHECKBOX_SELECTOR)
-          ) {
-            relevant = true;
-            break;
-          }
-        }
-        if (relevant) break;
+  const isRelevantDelta = (elements: Element[]) => {
+    for (const el of elements) {
+      if (
+        el.matches(TEMP_CHAT_CHECKBOX_SELECTOR) ||
+        el.querySelector(TEMP_CHAT_CHECKBOX_SELECTOR)
+      ) {
+        return true;
       }
-      if (relevant) applyScheduler.schedule();
-    });
-    state.observer.observe(root, { childList: true, subtree: true });
+    }
+    return false;
   };
 
   const startAutoTempChat = () => {
     if (state.started || !ctx.settings.autoTempChat) return;
     state.started = true;
-    bindObserver();
-    state.pathUnsubscribe = ctx.helpers.onPathChange(() => {
-      bindObserver();
-      applyScheduler.schedule();
-    });
+
+    state.unsubMainDelta =
+      ctx.domBus?.onDelta("main", (delta) => {
+        state.stats.busEvents += 1;
+        state.stats.nodesProcessed += delta.added.length + delta.removed.length;
+        if (isRelevantDelta(delta.added)) applyScheduler.schedule();
+      }) ?? null;
+
+    state.unsubRoots =
+      ctx.domBus?.onRoots(() => {
+        applyScheduler.schedule();
+      }) ?? null;
+
     applyScheduler.schedule();
   };
 
   const stopAutoTempChat = () => {
     if (!state.started) return;
     state.started = false;
-    state.observer?.disconnect();
-    state.observer = null;
-    state.pathUnsubscribe?.();
-    state.pathUnsubscribe = null;
+    state.unsubMainDelta?.();
+    state.unsubMainDelta = null;
+    state.unsubRoots?.();
+    state.unsubRoots = null;
     applyScheduler.cancel();
     clearRetry();
   };
@@ -143,9 +130,7 @@ export function initAutoTempChatFeature(ctx: FeatureContext): FeatureHandle {
 
   return {
     name: "autoTempChat",
-    dispose: () => {
-      stopAutoTempChat();
-    },
+    dispose: () => stopAutoTempChat(),
     onSettingsChange: (next, prev) => {
       if (!prev.autoTempChat && next.autoTempChat) startAutoTempChat();
       if (prev.autoTempChat && !next.autoTempChat) stopAutoTempChat();

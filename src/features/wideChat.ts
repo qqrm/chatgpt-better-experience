@@ -2,45 +2,33 @@ import { FeatureContext, FeatureHandle } from "../application/featureContext";
 import { updateWideChatStyle } from "../application/wideChat";
 
 const WIDE_CHAT_STYLE_ID = "qqrm-wide-chat-style";
+const CONTENT_SELECTOR = '[class*="max-w-(--thread-content-max-width)"]';
 
 export function initWideChatFeature(ctx: FeatureContext): FeatureHandle {
   const state: {
     started: boolean;
-    mainObserver: MutationObserver | null;
     resizeObserver: ResizeObserver | null;
     resizeHandler: (() => void) | null;
-    pathUnsubscribe: (() => void) | null;
-    watchedMain: Element | null;
     watchedContent: Element | null;
     baseWidthPx: number | null;
-    stats: { observerCalls: number; applyRuns: number; nodesProcessed: number };
+    unsubMainDelta: (() => void) | null;
+    unsubRoots: (() => void) | null;
+    stats: { applyRuns: number; nodesProcessed: number; busEvents: number };
   } = {
     started: false,
-    mainObserver: null,
     resizeObserver: null,
     resizeHandler: null,
-    pathUnsubscribe: null,
-    watchedMain: null,
     watchedContent: null,
     baseWidthPx: null,
-    stats: { observerCalls: 0, applyRuns: 0, nodesProcessed: 0 }
+    unsubMainDelta: null,
+    unsubRoots: null,
+    stats: { applyRuns: 0, nodesProcessed: 0, busEvents: 0 }
   };
 
   const scheduleApply = ctx.helpers.createRafScheduler(() => applyWideChatWidth());
 
-  const logStats = (reason: string) => {
-    if (!ctx.logger.isEnabled) return;
-    ctx.logger.debug("wideChat", `${reason}`, {
-      preview: `observer=${state.stats.observerCalls} apply=${state.stats.applyRuns} nodes=${state.stats.nodesProcessed}`
-    });
-  };
-
   const findWideChatContentEl = () =>
-    document.querySelector('main [class*="max-w-(--thread-content-max-width)"]') ||
-    document.querySelector('[class*="max-w-(--thread-content-max-width)"]');
-
-  const findMainRoot = () =>
-    document.querySelector("main") || document.querySelector('[role="main"]');
+    document.querySelector(`main ${CONTENT_SELECTOR}`) ?? document.querySelector(CONTENT_SELECTOR);
 
   const ensureWideChatBaseWidth = () => {
     if (state.baseWidthPx !== null) return state.baseWidthPx;
@@ -63,8 +51,7 @@ export function initWideChatFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const removeWideChatStyle = () => {
-    const style = document.getElementById(WIDE_CHAT_STYLE_ID);
-    if (style) style.remove();
+    document.getElementById(WIDE_CHAT_STYLE_ID)?.remove();
   };
 
   const applyWideChatWidth = () => {
@@ -73,7 +60,6 @@ export function initWideChatFeature(ctx: FeatureContext): FeatureHandle {
     const basePx = ensureWideChatBaseWidth();
     if (!basePx) return;
     const style = ensureWideChatStyle();
-    if (!style) return;
     updateWideChatStyle(style, {
       basePx,
       wideChatWidth: ctx.settings.wideChatWidth,
@@ -96,58 +82,41 @@ export function initWideChatFeature(ctx: FeatureContext): FeatureHandle {
     scheduleApply.schedule();
   };
 
-  const bindMainObserver = () => {
-    const nextMain = findMainRoot();
-    if (!nextMain || nextMain === state.watchedMain) return;
-
-    state.mainObserver?.disconnect();
-    state.watchedMain = nextMain;
-    state.mainObserver = new MutationObserver((records) => {
-      state.stats.observerCalls += 1;
-      let relevant = false;
-      for (const record of records) {
-        state.stats.nodesProcessed += record.addedNodes.length + record.removedNodes.length;
-        if (record.type !== "childList") continue;
-        for (const node of Array.from(record.addedNodes)) {
-          if (!(node instanceof Element)) continue;
-          if (node.matches('[class*="max-w-(--thread-content-max-width)"]')) {
-            relevant = true;
-            break;
-          }
-          if (node.querySelector?.('[class*="max-w-(--thread-content-max-width)"]')) {
-            relevant = true;
-            break;
-          }
-        }
-        if (relevant) break;
-      }
-      if (!relevant) return;
-      state.baseWidthPx = null;
-      bindResizeObserver();
-      scheduleApply.schedule();
-    });
-    state.mainObserver.observe(nextMain, { childList: true, subtree: true });
-  };
-
-  const rebindAll = () => {
-    state.baseWidthPx = null;
-    bindMainObserver();
-    bindResizeObserver();
-    scheduleApply.schedule();
-  };
+  const containsContentSelector = (el: Element) =>
+    el.matches(CONTENT_SELECTOR) || !!el.querySelector(CONTENT_SELECTOR);
 
   const startWideChat = () => {
     if (state.started) return;
     state.started = true;
+
     state.resizeHandler = () => {
       state.baseWidthPx = null;
       scheduleApply.schedule();
     };
     window.addEventListener("resize", state.resizeHandler, { passive: true });
-    state.pathUnsubscribe = ctx.helpers.onPathChange(() => {
-      rebindAll();
-    });
-    rebindAll();
+
+    state.unsubMainDelta =
+      ctx.domBus?.onDelta("main", (delta) => {
+        state.stats.busEvents += 1;
+        state.stats.nodesProcessed += delta.added.length + delta.removed.length;
+        for (const el of delta.added) {
+          if (!containsContentSelector(el)) continue;
+          state.baseWidthPx = null;
+          bindResizeObserver();
+          scheduleApply.schedule();
+          return;
+        }
+      }) ?? null;
+
+    state.unsubRoots =
+      ctx.domBus?.onRoots(() => {
+        state.baseWidthPx = null;
+        bindResizeObserver();
+        scheduleApply.schedule();
+      }) ?? null;
+
+    bindResizeObserver();
+    scheduleApply.schedule();
   };
 
   const stopWideChat = () => {
@@ -158,18 +127,22 @@ export function initWideChatFeature(ctx: FeatureContext): FeatureHandle {
       window.removeEventListener("resize", state.resizeHandler);
       state.resizeHandler = null;
     }
-    state.mainObserver?.disconnect();
-    state.mainObserver = null;
     state.resizeObserver?.disconnect();
     state.resizeObserver = null;
-    state.pathUnsubscribe?.();
-    state.pathUnsubscribe = null;
-    state.watchedMain = null;
+    state.unsubMainDelta?.();
+    state.unsubMainDelta = null;
+    state.unsubRoots?.();
+    state.unsubRoots = null;
     state.watchedContent = null;
     state.baseWidthPx = null;
     scheduleApply.cancel();
     removeWideChatStyle();
-    logStats("stopped");
+
+    if (ctx.logger.isEnabled) {
+      ctx.logger.debug("wideChat", "stopped", {
+        preview: `bus=${state.stats.busEvents} apply=${state.stats.applyRuns} nodes=${state.stats.nodesProcessed}`
+      });
+    }
   };
 
   const updateWideChatState = () => {
@@ -185,13 +158,9 @@ export function initWideChatFeature(ctx: FeatureContext): FeatureHandle {
 
   return {
     name: "wideChat",
-    dispose: () => {
-      stopWideChat();
-    },
+    dispose: () => stopWideChat(),
     onSettingsChange: (next, prev) => {
-      if (next.wideChatWidth !== prev.wideChatWidth) {
-        updateWideChatState();
-      }
+      if (next.wideChatWidth !== prev.wideChatWidth) updateWideChatState();
     },
     getStatus: () => ({
       active: ctx.settings.wideChatWidth > 0,

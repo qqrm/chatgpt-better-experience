@@ -1,6 +1,7 @@
 import { Settings } from "../domain/settings";
 import { StoragePort } from "../domain/ports/storagePort";
 import { onPathChange as subscribePathChange } from "../lib/locationWatcher";
+import type { DomEventBus } from "./domEventBus";
 
 export interface KeyState {
   shift: boolean;
@@ -22,6 +23,7 @@ export interface Logger {
 export interface FeatureContext {
   settings: Settings;
   storagePort: StoragePort;
+  domBus: DomEventBus | null;
   logger: Logger;
   keyState: KeyState;
   helpers: {
@@ -293,6 +295,7 @@ export function createFeatureContext({
   return {
     settings,
     storagePort,
+    domBus: null,
     logger,
     keyState: { shift: false, ctrl: false, alt: false },
     helpers: {
