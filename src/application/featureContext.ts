@@ -1,5 +1,6 @@
 import { Settings } from "../domain/settings";
 import { StoragePort } from "../domain/ports/storagePort";
+import { onPathChange as subscribePathChange } from "../lib/locationWatcher";
 
 export interface KeyState {
   shift: boolean;
@@ -35,6 +36,14 @@ export interface FeatureContext {
       fn: () => void,
       delayMs: number
     ) => { schedule: () => void; cancel: () => void };
+    createRafScheduler: (fn: () => void) => { schedule: () => void; cancel: () => void };
+    observe: (
+      root: Element,
+      cb: (records: MutationRecord[]) => void,
+      options?: MutationObserverInit
+    ) => { observer: MutationObserver; disconnect: () => void };
+    extractAddedElements: (records: MutationRecord[]) => Element[];
+    onPathChange: (cb: (path: string) => void) => () => void;
     safeQuery: <T extends Element = Element>(sel: string, root?: Document | Element) => T | null;
   };
 }
@@ -232,6 +241,44 @@ export function createFeatureContext({
     return { schedule, cancel };
   };
 
+  const createRafScheduler = (fn: () => void) => {
+    let rafId: number | null = null;
+    const schedule = () => {
+      if (rafId !== null) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        fn();
+      });
+    };
+    const cancel = () => {
+      if (rafId === null) return;
+      window.cancelAnimationFrame(rafId);
+      rafId = null;
+    };
+    return { schedule, cancel };
+  };
+
+  const observe = (
+    root: Element,
+    cb: (records: MutationRecord[]) => void,
+    options: MutationObserverInit = { childList: true, subtree: true }
+  ) => {
+    const observer = new MutationObserver((records) => cb(records));
+    observer.observe(root, options);
+    return { observer, disconnect: () => observer.disconnect() };
+  };
+
+  const extractAddedElements = (records: MutationRecord[]) => {
+    const out: Element[] = [];
+    for (const record of records) {
+      if (record.type !== "childList") continue;
+      for (const node of Array.from(record.addedNodes)) {
+        if (node instanceof Element) out.push(node);
+      }
+    }
+    return out;
+  };
+
   const safeQuery = <T extends Element = Element>(
     sel: string,
     root: Document | Element = document
@@ -248,6 +295,16 @@ export function createFeatureContext({
     storagePort,
     logger,
     keyState: { shift: false, ctrl: false, alt: false },
-    helpers: { waitPresent, waitGone, humanClick, debounceScheduler, safeQuery }
+    helpers: {
+      waitPresent,
+      waitGone,
+      humanClick,
+      debounceScheduler,
+      createRafScheduler,
+      observe,
+      extractAddedElements,
+      onPathChange: subscribePathChange,
+      safeQuery
+    }
   };
 }
