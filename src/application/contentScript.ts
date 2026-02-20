@@ -13,6 +13,7 @@ import { initWideChatFeature } from "../features/wideChat";
 import { initCtrlEnterSendFeature } from "../features/ctrlEnterSend";
 import { initTrimChatDomFeature } from "../features/trimChatDom";
 import { initHideShareButtonFeature } from "../features/hideShareButton";
+import { initDownloadPatchMenuItemFeature } from "../features/downloadPatchMenuItem";
 
 declare global {
   interface Window {
@@ -61,6 +62,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       initOneClickDeleteFeature(ctx),
       initTrimChatDomFeature(ctx),
       initHideShareButtonFeature(ctx),
+      initDownloadPatchMenuItemFeature(ctx),
       initWideChatFeature(ctx),
       initCtrlEnterSendFeature(ctx)
     ];
