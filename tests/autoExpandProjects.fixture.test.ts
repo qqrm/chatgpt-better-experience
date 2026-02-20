@@ -10,7 +10,10 @@ type AutoExpandProjectsTestApi = {
   runOnce: (
     ctx: FeatureContext,
     reason: string
-  ) => { projectsExpanded: boolean; projectRows: number; folderClicks: number };
+  ) => {
+    stats: { projectsExpanded: boolean; projectRows: number; folderClicks: number };
+    done: boolean;
+  };
 };
 
 describe("autoExpandProjects (DOM fixture contract)", () => {
@@ -38,9 +41,9 @@ describe("autoExpandProjects (DOM fixture contract)", () => {
     const section = t.findProjectsSection(nav!);
     expect(section).toBeTruthy();
 
-    const stats = t.runOnce(ctx, "test");
-    expect(typeof stats.projectRows).toBe("number");
-    expect(stats.projectRows).toBeGreaterThanOrEqual(0);
+    const result = t.runOnce(ctx, "test");
+    expect(typeof result.stats.projectRows).toBe("number");
+    expect(result.stats.projectRows).toBeGreaterThanOrEqual(0);
 
     handle.dispose();
   });

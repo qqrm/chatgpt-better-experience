@@ -212,26 +212,52 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     return false;
   };
 
+  const findComposerScope = () => {
+    const composer = findComposerInput();
+    const form = composer?.closest("form");
+    return form ?? composer?.closest("footer") ?? document;
+  };
+
   const findDictationStopButton = (): HTMLElement | null => {
-    const buttons = Array.from(document.querySelectorAll("button, [role='button']")).filter(
-      (btn): btn is HTMLElement => btn instanceof HTMLElement
-    );
+    const buttons = Array.from(
+      findComposerScope().querySelectorAll("button, [role='button']")
+    ).filter((btn): btn is HTMLElement => btn instanceof HTMLElement);
     for (const btn of buttons) {
       if (!isVisible(btn)) continue;
       if (isDisabled(btn)) continue;
       if (isDictationStopButton(btn)) return btn;
     }
+    if (findComposerScope() !== document) {
+      const fallback = Array.from(document.querySelectorAll("button, [role='button']")).filter(
+        (btn): btn is HTMLElement => btn instanceof HTMLElement
+      );
+      for (const btn of fallback) {
+        if (!isVisible(btn)) continue;
+        if (isDisabled(btn)) continue;
+        if (isDictationStopButton(btn)) return btn;
+      }
+    }
     return null;
   };
 
   const findSubmitDictationButton = (): HTMLElement | null => {
-    const buttons = Array.from(document.querySelectorAll("button, [role='button']")).filter(
-      (btn): btn is HTMLElement => btn instanceof HTMLElement
-    );
+    const buttons = Array.from(
+      findComposerScope().querySelectorAll("button, [role='button']")
+    ).filter((btn): btn is HTMLElement => btn instanceof HTMLElement);
     for (const btn of buttons) {
       if (!isVisible(btn)) continue;
       if (isDisabled(btn)) continue;
       if (isSubmitDictationButton(btn)) return btn;
+    }
+    if (findComposerScope() !== document) {
+      const fallback = Array.from(document.querySelectorAll("button, [role='button']")).filter(
+        (btn): btn is HTMLElement => btn instanceof HTMLElement
+      );
+      for (const btn of fallback) {
+        if (!isVisible(btn)) continue;
+        if (isDisabled(btn)) continue;
+        if (isSubmitDictationButton(btn)) return btn;
+      }
     }
     return null;
   };
