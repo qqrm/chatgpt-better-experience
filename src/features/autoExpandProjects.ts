@@ -221,18 +221,41 @@ function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; don
 export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandle {
   let stopped = false;
   let debounceTimer: number | null = null;
-  let observer: MutationObserver | null = null;
+  let navRetryTimeout: number | null = null;
   let attempts = 0;
   let lastUserInteractionAt = 0;
   let lastAutoClickAt = 0;
   let cleanupUserListeners: (() => void) | null = null;
+  let unsubNavDelta: (() => void) | null = null;
+  let unsubRoots: (() => void) | null = null;
+
+  const bindUserInteractionGuards = (nav: HTMLElement | null) => {
+    cleanupUserListeners?.();
+    cleanupUserListeners = null;
+    if (!nav) return;
+    const onUser = () => {
+      lastUserInteractionAt = Date.now();
+    };
+    nav.addEventListener("pointerdown", onUser, true);
+    nav.addEventListener("mousedown", onUser, true);
+    nav.addEventListener("click", onUser, true);
+    cleanupUserListeners = () => {
+      nav.removeEventListener("pointerdown", onUser, true);
+      nav.removeEventListener("mousedown", onUser, true);
+      nav.removeEventListener("click", onUser, true);
+    };
+  };
 
   const stop = (): void => {
     stopped = true;
     if (debounceTimer !== null) window.clearTimeout(debounceTimer);
     debounceTimer = null;
-    observer?.disconnect();
-    observer = null;
+    if (navRetryTimeout !== null) window.clearTimeout(navRetryTimeout);
+    navRetryTimeout = null;
+    unsubNavDelta?.();
+    unsubNavDelta = null;
+    unsubRoots?.();
+    unsubRoots = null;
     cleanupUserListeners?.();
     cleanupUserListeners = null;
   };
@@ -245,15 +268,8 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       debounceTimer = null;
       if (stopped) return;
 
-      // If user has just interacted with sidebar, do not fight them.
-      if (Date.now() - lastUserInteractionAt < AUTO_EXPAND_USER_COOLDOWN_MS) {
-        return;
-      }
-
-      // If we just clicked a project toggle, give the UI time to expand/collapse.
-      if (Date.now() - lastAutoClickAt < 1500) {
-        return;
-      }
+      if (Date.now() - lastUserInteractionAt < AUTO_EXPAND_USER_COOLDOWN_MS) return;
+      if (Date.now() - lastAutoClickAt < 1500) return;
 
       attempts += 1;
       if (attempts > AUTO_EXPAND_MAX_ATTEMPTS) {
@@ -271,38 +287,32 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     }, AUTO_EXPAND_DEBOUNCE_MS);
   };
 
-  // Initial scheduling: keep it simple (like autoExpandChats), not periodic.
   window.setTimeout(() => schedule("start"), AUTO_EXPAND_START_TIMEOUT_MS);
   window.setTimeout(() => schedule("nav-ready"), AUTO_EXPAND_NAV_TIMEOUT_MS);
 
-  const attachObserver = (): void => {
-    if (stopped) return;
+  const refreshNavBindings = () => {
     const nav = getChatHistoryNav(ctx);
-    if (!nav) {
-      // Try again later.
-      window.setTimeout(() => schedule("late-nav"), 1000);
-      return;
+    bindUserInteractionGuards(nav);
+    if (!nav && navRetryTimeout === null && !stopped) {
+      navRetryTimeout = window.setTimeout(() => {
+        navRetryTimeout = null;
+        schedule("late-nav");
+      }, 1000);
     }
-
-    // Track user interaction inside the sidebar so we don't fight UI.
-    const onUser = () => {
-      lastUserInteractionAt = Date.now();
-    };
-    nav.addEventListener("pointerdown", onUser, true);
-    nav.addEventListener("mousedown", onUser, true);
-    nav.addEventListener("click", onUser, true);
-
-    cleanupUserListeners = () => {
-      nav.removeEventListener("pointerdown", onUser, true);
-      nav.removeEventListener("mousedown", onUser, true);
-      nav.removeEventListener("click", onUser, true);
-    };
-
-    observer = new MutationObserver(() => schedule("mutation"));
-    observer.observe(nav, { subtree: true, childList: true, attributes: true });
   };
 
-  attachObserver();
+  refreshNavBindings();
+
+  unsubRoots =
+    ctx.domBus?.onRoots((roots) => {
+      bindUserInteractionGuards((roots.nav as HTMLElement | null) ?? null);
+      schedule("route");
+    }) ?? null;
+
+  unsubNavDelta =
+    ctx.domBus?.onDelta("nav", () => {
+      schedule("mutation");
+    }) ?? null;
 
   return {
     name: "autoExpandProjects",

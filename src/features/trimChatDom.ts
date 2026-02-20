@@ -9,42 +9,43 @@ type RestoreMode = "quarter" | "half" | "all";
 
 type State = {
   started: boolean;
-  observer: MutationObserver | null;
-  pathUnsubscribe: (() => void) | null;
-  observedRoot: HTMLElement | null;
+  trackedMainRoot: HTMLElement | null;
   extraKeep: number;
   hiddenUntilIndex: number;
   lastTurnCount: number;
   pendingReason: string;
-  stats: { observerCalls: number; applyRuns: number; nodesProcessed: number };
+  unsubMainDelta: (() => void) | null;
+  unsubRoots: (() => void) | null;
+  stats: { applyRuns: number; nodesProcessed: number; busEvents: number };
 };
 
 export function initTrimChatDomFeature(ctx: FeatureContext): FeatureHandle {
   const state: State = {
     started: false,
-    observer: null,
-    pathUnsubscribe: null,
-    observedRoot: null,
+    trackedMainRoot: null,
     extraKeep: 0,
     hiddenUntilIndex: 0,
     lastTurnCount: -1,
     pendingReason: "init",
-    stats: { observerCalls: 0, applyRuns: 0, nodesProcessed: 0 }
+    unsubMainDelta: null,
+    unsubRoots: null,
+    stats: { applyRuns: 0, nodesProcessed: 0, busEvents: 0 }
   };
 
   const scheduleEnforce = ctx.helpers.createRafScheduler(() => enforce(state.pendingReason));
 
   const findRoot = (): HTMLElement | null =>
-    (document.querySelector("main") as HTMLElement | null) ||
-    (document.querySelector('[role="main"]') as HTMLElement | null) ||
+    (ctx.domBus?.getMainRoot() as HTMLElement | null) ??
+    (document.querySelector("main") as HTMLElement | null) ??
+    (document.querySelector('[role="main"]') as HTMLElement | null) ??
     null;
 
   const findChatContainer = (root: HTMLElement): HTMLElement => {
-    const thread =
-      root.querySelector<HTMLElement>("[data-testid='conversation-turns']") ||
-      root.querySelector<HTMLElement>("section") ||
-      root;
-    return thread;
+    return (
+      root.querySelector<HTMLElement>("[data-testid='conversation-turns']") ??
+      root.querySelector<HTMLElement>("section") ??
+      root
+    );
   };
 
   const findTurns = (root: HTMLElement) => {
@@ -60,13 +61,8 @@ export function initTrimChatDomFeature(ctx: FeatureContext): FeatureHandle {
     (document.head ?? document.documentElement)?.appendChild(style);
   };
 
-  const removeStyle = () => {
-    document.getElementById(STYLE_ID)?.remove();
-  };
-
-  const removePlaceholder = () => {
-    document.getElementById(PLACEHOLDER_ID)?.remove();
-  };
+  const removeStyle = () => document.getElementById(STYLE_ID)?.remove();
+  const removePlaceholder = () => document.getElementById(PLACEHOLDER_ID)?.remove();
 
   const computeRestoreExtra = (hiddenCount: number, mode: RestoreMode): number => {
     if (hiddenCount <= 0) return 0;
@@ -80,38 +76,21 @@ export function initTrimChatDomFeature(ctx: FeatureContext): FeatureHandle {
     if (el) return el;
     el = document.createElement("div");
     el.id = PLACEHOLDER_ID;
-    el.style.margin = "10px 0";
-    el.style.padding = "10px 12px";
-    el.style.border = "1px solid rgba(127,127,127,0.35)";
-    el.style.borderRadius = "10px";
-    el.style.fontSize = "12px";
-    el.style.opacity = "0.9";
-    el.style.userSelect = "text";
-    el.style.whiteSpace = "pre-wrap";
-    el.style.display = "flex";
-    el.style.gap = "10px";
-    el.style.alignItems = "center";
-    el.style.flexWrap = "wrap";
+    el.style.cssText =
+      "margin:10px 0;padding:10px 12px;border:1px solid rgba(127,127,127,0.35);border-radius:10px;font-size:12px;opacity:0.9;user-select:text;white-space:pre-wrap;display:flex;gap:10px;align-items:center;flex-wrap:wrap;";
 
     const msg = document.createElement("div");
     msg.setAttribute("data-qqrm-part", "msg");
     const btnWrap = document.createElement("div");
-    btnWrap.style.display = "flex";
-    btnWrap.style.gap = "8px";
-    btnWrap.style.flexWrap = "wrap";
+    btnWrap.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;";
 
     const mkBtn = (label: string, mode: RestoreMode) => {
       const b = document.createElement("button");
       b.type = "button";
       b.textContent = label;
       b.setAttribute("data-qqrm-restore", mode);
-      b.style.border = "1px solid rgba(127,127,127,0.35)";
-      b.style.borderRadius = "10px";
-      b.style.padding = "4px 8px";
-      b.style.fontSize = "12px";
-      b.style.background = "transparent";
-      b.style.cursor = "pointer";
-      b.style.color = "inherit";
+      b.style.cssText =
+        "border:1px solid rgba(127,127,127,0.35);border-radius:10px;padding:4px 8px;font-size:12px;background:transparent;cursor:pointer;color:inherit;";
       return b;
     };
 
@@ -178,13 +157,16 @@ export function initTrimChatDomFeature(ctx: FeatureContext): FeatureHandle {
     const root = findRoot();
     if (!root) return;
 
-    const turns = findTurns(root);
+    const turns = findTurns(findChatContainer(root));
     const keepBase = Math.min(50, Math.max(5, ctx.settings.trimChatDomKeep | 0));
     const keep = keepBase + Math.max(0, state.extraKeep | 0);
     const desiredHidden = Math.max(0, turns.length - keep);
 
     const forceBoundary =
-      reason === "restore" || reason === "route" || state.lastTurnCount !== turns.length;
+      reason === "restore" ||
+      reason === "route" ||
+      reason === "rebind" ||
+      state.lastTurnCount !== turns.length;
     if (!forceBoundary && desiredHidden === state.hiddenUntilIndex) return;
 
     state.stats.applyRuns += 1;
@@ -215,88 +197,72 @@ export function initTrimChatDomFeature(ctx: FeatureContext): FeatureHandle {
 
     if (ctx.logger.isEnabled) {
       ctx.logger.debug("trimChatDom", `enforce:${reason}`, {
-        preview: `observer=${state.stats.observerCalls} apply=${state.stats.applyRuns} nodes=${state.stats.nodesProcessed}`
+        preview: `bus=${state.stats.busEvents} apply=${state.stats.applyRuns} nodes=${state.stats.nodesProcessed}`
       });
     }
   };
 
-  const shouldReactToMutations = (records: MutationRecord[]) => {
-    const placeholder = document.getElementById(PLACEHOLDER_ID);
-    for (const record of records) {
-      if (!(record.target instanceof Node)) continue;
-      if (placeholder && placeholder.contains(record.target)) continue;
-      if (record.type !== "childList") continue;
-      for (const node of Array.from(record.addedNodes)) {
-        if (!(node instanceof Element)) continue;
-        if (node.matches("article") || node.querySelector("article, [data-message-author-role]"))
-          return true;
-      }
-      for (const node of Array.from(record.removedNodes)) {
-        if (!(node instanceof Element)) continue;
-        if (node.matches("article") || node.querySelector("article, [data-message-author-role]"))
-          return true;
-      }
-    }
+  const isRelevantElement = (el: Element) =>
+    el.matches("article") ||
+    el.matches("[data-message-author-role]") ||
+    !!el.querySelector("article, [data-message-author-role]");
+
+  const isRelevantDelta = (added: Element[], removed: Element[]) => {
+    for (const el of added) if (isRelevantElement(el)) return true;
+    for (const el of removed) if (isRelevantElement(el)) return true;
     return false;
   };
 
-  const bindObserver = () => {
-    const root = findRoot();
-    if (!root) return;
-    const container = findChatContainer(root);
-    if (container === state.observedRoot && state.observer) return;
-
-    state.observer?.disconnect();
-    state.observedRoot = container;
-    state.observer = new MutationObserver((records) => {
-      state.stats.observerCalls += 1;
-      if (!shouldReactToMutations(records)) return;
-      state.pendingReason = "mutation";
-      scheduleEnforce.schedule();
-    });
-    state.observer.observe(container, { childList: true, subtree: true });
-  };
-
-  const handlePathChange = () => {
+  const resetForRootChange = (nextRoot: HTMLElement | null, reason: string) => {
+    const previousRoot = state.trackedMainRoot;
+    state.trackedMainRoot = nextRoot;
     state.extraKeep = 0;
     state.hiddenUntilIndex = 0;
     state.lastTurnCount = -1;
-    restoreAllInRoot(findRoot());
+    restoreAllInRoot(previousRoot);
     removePlaceholder();
-    bindObserver();
-    state.pendingReason = "route";
+    state.pendingReason = reason;
     scheduleEnforce.schedule();
   };
 
   const start = async () => {
     if (state.started) return;
     state.started = true;
-    state.extraKeep = 0;
-    state.hiddenUntilIndex = 0;
-    state.lastTurnCount = -1;
     ensureStyle();
 
     await ctx.helpers.waitPresent('main, [role="main"]', document, 12000);
     if (!state.started) return;
 
-    bindObserver();
-    state.pathUnsubscribe = ctx.helpers.onPathChange(() => handlePathChange());
-    state.pendingReason = "start";
+    state.unsubRoots =
+      ctx.domBus?.onRoots((roots) => {
+        resetForRootChange(roots.main as HTMLElement | null, roots.reason);
+      }) ?? null;
+
+    state.unsubMainDelta =
+      ctx.domBus?.onDelta("main", (delta) => {
+        state.stats.busEvents += 1;
+        state.stats.nodesProcessed += delta.added.length + delta.removed.length;
+        if (!isRelevantDelta(delta.added, delta.removed)) return;
+        state.pendingReason = "mutation";
+        scheduleEnforce.schedule();
+      }) ?? null;
+
+    resetForRootChange(findRoot(), "start");
     enforce("start");
-    scheduleEnforce.schedule();
   };
 
   const stop = () => {
     if (!state.started) return;
     state.started = false;
-    state.observer?.disconnect();
-    state.observer = null;
-    state.pathUnsubscribe?.();
-    state.pathUnsubscribe = null;
+    state.unsubMainDelta?.();
+    state.unsubMainDelta = null;
+    state.unsubRoots?.();
+    state.unsubRoots = null;
     scheduleEnforce.cancel();
     restoreAllInRoot(findRoot());
     removePlaceholder();
     removeStyle();
+    state.trackedMainRoot = null;
     state.extraKeep = 0;
     state.hiddenUntilIndex = 0;
     state.lastTurnCount = -1;
@@ -311,9 +277,7 @@ export function initTrimChatDomFeature(ctx: FeatureContext): FeatureHandle {
 
   return {
     name: "trimChatDom",
-    dispose: () => {
-      stop();
-    },
+    dispose: () => stop(),
     onSettingsChange: (next, prev) => {
       if (next.trimChatDom !== prev.trimChatDom) {
         update();

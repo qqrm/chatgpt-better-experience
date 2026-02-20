@@ -464,13 +464,11 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
 
   const state: {
     started: boolean;
-    navObserver: MutationObserver | null;
-    deleteSweepObserver: MutationObserver | null;
     deleteSweepSchedule: (() => void) | null;
     deleteSweepCancel: (() => void) | null;
     deleteSweepNav: Element | null;
-    pathUnsubscribe: (() => void) | null;
-    navRetryTimeoutId: number | null;
+    unsubNavDelta: (() => void) | null;
+    unsubRoots: (() => void) | null;
     stats: { observerCalls: number; applyRuns: number; nodesProcessed: number };
     pendingByRow: Map<HTMLElement, PendingAction>;
     deleteQueue: Promise<void>;
@@ -478,13 +476,11 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     recentlyDeleted: Map<string, number>;
   } = {
     started: false,
-    navObserver: null,
-    deleteSweepObserver: null,
     deleteSweepSchedule: null,
     deleteSweepCancel: null,
     deleteSweepNav: null,
-    pathUnsubscribe: null,
-    navRetryTimeoutId: null,
+    unsubNavDelta: null,
+    unsubRoots: null,
     stats: { observerCalls: 0, applyRuns: 0, nodesProcessed: 0 },
     pendingByRow: new Map(),
     deleteQueue: Promise.resolve(),
@@ -606,31 +602,14 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     }
   };
 
-  const ensureDeleteSweepObserver = (nav: Element | null) => {
-    state.deleteSweepObserver?.disconnect();
-    state.deleteSweepObserver = null;
-    state.deleteSweepNav = nav;
-    if (!nav || !state.started) return;
-
-    const sched = ctx.helpers.debounceScheduler(runSweep, 250);
+  const ensureDeleteSweepScheduler = () => {
+    if (state.deleteSweepSchedule && state.deleteSweepCancel) return;
+    const sched = ctx.helpers.debounceScheduler(() => {
+      state.deleteSweepNav = ctx.domBus?.getNavRoot() ?? null;
+      runSweep();
+    }, 250);
     state.deleteSweepSchedule = sched.schedule;
     state.deleteSweepCancel = sched.cancel;
-
-    state.deleteSweepObserver = new MutationObserver((records) => {
-      state.stats.observerCalls += 1;
-      let hasNavDelta = false;
-      for (const record of records) {
-        state.stats.nodesProcessed += record.addedNodes.length + record.removedNodes.length;
-        if (record.type !== "childList") continue;
-        if (record.addedNodes.length > 0 || record.removedNodes.length > 0) {
-          hasNavDelta = true;
-          break;
-        }
-      }
-      if (!hasNavDelta) return;
-      state.deleteSweepSchedule?.();
-    });
-    state.deleteSweepObserver.observe(nav, { childList: true, subtree: true });
   };
 
   const hookOptionsButtonsInNav = (nav: Element) => {
@@ -641,9 +620,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     }
   };
 
-  const processAddedNodes = (nodes: NodeList) => {
-    for (const node of Array.from(nodes)) {
-      if (!(node instanceof Element)) continue;
+  const processAddedNodes = (nodes: Element[]) => {
+    for (const node of nodes) {
       if (node.matches(ONE_CLICK_DELETE_BUTTON_SELECTOR)) {
         hookOneClickDeleteButton(node as HTMLElement);
         state.stats.applyRuns += 1;
@@ -654,33 +632,6 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
         state.stats.applyRuns += 1;
       }
     }
-  };
-
-  const bindNavObserver = async () => {
-    if (!state.started) return;
-    const nav = await ctx.helpers.waitPresent('nav[aria-label="Chat history"]', document, 2000);
-    if (!state.started) return;
-
-    state.navObserver?.disconnect();
-    state.navObserver = null;
-
-    if (!nav) {
-      ensureDeleteSweepObserver(null);
-      return;
-    }
-
-    hookOptionsButtonsInNav(nav);
-    ensureDeleteSweepObserver(nav);
-
-    state.navObserver = new MutationObserver((records) => {
-      state.stats.observerCalls += 1;
-      for (const record of records) {
-        if (record.type !== "childList") continue;
-        state.stats.nodesProcessed += record.addedNodes.length;
-        processAddedNodes(record.addedNodes);
-      }
-    });
-    state.navObserver.observe(nav, { childList: true, subtree: true });
   };
 
   const ensureOneClickDeleteStyle = () => {
@@ -1155,24 +1106,18 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     // Do not cancel pending deletes on focus loss
   };
 
-  const refreshOneClickDelete = async () => {
+  const refreshOneClickDelete = () => {
     if (!ctx.settings.oneClickDelete) return;
     ensureOneClickDeleteStyle();
     cleanupDetachedPendingRows();
-    await bindNavObserver();
+    const nav = ctx.domBus?.getNavRoot();
+    state.deleteSweepNav = nav ?? null;
+    if (nav) hookOptionsButtonsInNav(nav);
     if (ctx.logger.isEnabled) {
       ctx.logger.debug("oneClickDelete", "refresh", {
-        preview: `observer=${state.stats.observerCalls} apply=${state.stats.applyRuns} nodes=${state.stats.nodesProcessed}`
+        preview: `bus=${state.stats.observerCalls} apply=${state.stats.applyRuns} nodes=${state.stats.nodesProcessed}`
       });
     }
-  };
-
-  const scheduleNavRetry = () => {
-    if (state.navRetryTimeoutId !== null) return;
-    state.navRetryTimeoutId = window.setTimeout(() => {
-      state.navRetryTimeoutId = null;
-      void bindNavObserver();
-    }, 350);
   };
 
   const startOneClickDelete = () => {
@@ -1183,10 +1128,22 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     document.addEventListener("click", handleClick, true);
     window.addEventListener("blur", handleBlur, true);
 
-    void refreshOneClickDelete();
-    state.pathUnsubscribe = ctx.helpers.onPathChange(() => {
-      scheduleNavRetry();
-    });
+    ensureDeleteSweepScheduler();
+    refreshOneClickDelete();
+
+    state.unsubRoots =
+      ctx.domBus?.onRoots((roots) => {
+        state.deleteSweepNav = roots.nav;
+        if (roots.nav) hookOptionsButtonsInNav(roots.nav);
+      }) ?? null;
+
+    state.unsubNavDelta =
+      ctx.domBus?.onDelta("nav", (delta) => {
+        state.stats.observerCalls += 1;
+        state.stats.nodesProcessed += delta.added.length + delta.removed.length;
+        processAddedNodes(delta.added);
+        if (state.recentlyDeleted.size > 0) state.deleteSweepSchedule?.();
+      }) ?? null;
   };
 
   const stopOneClickDelete = () => {
@@ -1198,24 +1155,16 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     window.removeEventListener("blur", handleBlur, true);
     clearAllPendingActions();
 
-    state.navObserver?.disconnect();
-    state.navObserver = null;
-    if (state.deleteSweepObserver) {
-      state.deleteSweepObserver.disconnect();
-      state.deleteSweepObserver = null;
-    }
+    state.unsubNavDelta?.();
+    state.unsubNavDelta = null;
+    state.unsubRoots?.();
+    state.unsubRoots = null;
     if (state.deleteSweepCancel) {
       state.deleteSweepCancel();
       state.deleteSweepCancel = null;
     }
     state.deleteSweepSchedule = null;
     state.deleteSweepNav = null;
-    state.pathUnsubscribe?.();
-    state.pathUnsubscribe = null;
-    if (state.navRetryTimeoutId !== null) {
-      window.clearTimeout(state.navRetryTimeoutId);
-      state.navRetryTimeoutId = null;
-    }
     for (const [conversationId] of state.sweepTimeoutsById) {
       clearSweepTimeouts(conversationId);
     }
