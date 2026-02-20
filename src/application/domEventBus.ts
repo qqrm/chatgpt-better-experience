@@ -44,6 +44,7 @@ export function createDomEventBus(ctx: FeatureContext) {
   };
 
   let started = false;
+  let disposed = false;
   let pathUnsubscribe: Unsubscribe | null = null;
 
   const makeChannelState = (channel: BusChannel): ChannelState => {
@@ -72,6 +73,15 @@ export function createDomEventBus(ctx: FeatureContext) {
     }
     return document.querySelector('nav[aria-label="Chat history"]');
   };
+
+  const getDeltaSubscriberCount = (channel: BusChannel) => deltaSubscribers.get(channel)?.size ?? 0;
+
+  const hasAnyDeltaSubscribers = () =>
+    getDeltaSubscriberCount("main") + getDeltaSubscriberCount("nav") > 0;
+
+  const hasAnySubscribers = () => hasAnyDeltaSubscribers() || rootSubscribers.size > 0;
+
+  const channelNeedsObservation = (channel: BusChannel) => getDeltaSubscriberCount(channel) > 0;
 
   const notifyRoots = (reason: DomDelta["reason"]) => {
     const payload: RootSnapshot = { main: mainState.root, nav: navState.root, reason };
@@ -119,6 +129,13 @@ export function createDomEventBus(ctx: FeatureContext) {
     state.rafCancel();
   };
 
+  const disconnectChannel = (channel: BusChannel) => {
+    const state = getState(channel);
+    state.observer?.disconnect();
+    state.observer = null;
+    clearPending(state);
+  };
+
   const flushChannel = (channel: BusChannel, reasonOverride?: DomDelta["reason"]) => {
     const state = getState(channel);
     if (!started) return;
@@ -145,6 +162,8 @@ export function createDomEventBus(ctx: FeatureContext) {
   };
 
   const handleMutations = (channel: BusChannel, records: MutationRecord[]) => {
+    if (getDeltaSubscriberCount(channel) === 0) return;
+
     const state = getState(channel);
     if (!started) return;
 
@@ -183,32 +202,34 @@ export function createDomEventBus(ctx: FeatureContext) {
 
   const bindChannel = (channel: BusChannel, reason: DomDelta["reason"]) => {
     const state = getState(channel);
-    state.observer?.disconnect();
-    state.observer = null;
-    clearPending(state);
+    disconnectChannel(channel);
 
     state.root = resolveRoot(channel);
-    if (!state.root) {
-      emit(channel, reason, [], []);
-      return;
-    }
 
-    state.observer = new MutationObserver((records) => handleMutations(channel, records));
-    state.observer.observe(state.root, { childList: true, subtree: true });
+    if (started && channelNeedsObservation(channel) && state.root) {
+      state.observer = new MutationObserver((records) => handleMutations(channel, records));
+      state.observer.observe(state.root, { childList: true, subtree: true });
+    }
 
     emit(channel, reason, [], []);
   };
 
   const rebind = (reason: DomDelta["reason"]) => {
-    if (!started) return;
+    if (!started || disposed) return;
     stats.rebinds += 1;
     bindChannel("main", reason);
     bindChannel("nav", reason);
     notifyRoots(reason);
   };
 
+  const stopIfIdle = () => {
+    if (!started) return;
+    if (hasAnySubscribers()) return;
+    stop();
+  };
+
   const start = () => {
-    if (started) return;
+    if (disposed || started || !hasAnySubscribers()) return;
     started = true;
     pathUnsubscribe = ctx.helpers.onPathChange(() => {
       rebind("route");
@@ -223,13 +244,15 @@ export function createDomEventBus(ctx: FeatureContext) {
     pathUnsubscribe = null;
 
     for (const channel of ["main", "nav"] as const) {
-      const state = getState(channel);
-      state.observer?.disconnect();
-      state.observer = null;
-      state.root = null;
-      clearPending(state);
+      disconnectChannel(channel);
+      getState(channel).root = null;
     }
+  };
 
+  const dispose = () => {
+    if (disposed) return;
+    stop();
+    disposed = true;
     deltaSubscribers.get("main")?.clear();
     deltaSubscribers.get("nav")?.clear();
     rootSubscribers.clear();
@@ -237,23 +260,52 @@ export function createDomEventBus(ctx: FeatureContext) {
 
   const onDelta = (channel: BusChannel, cb: (delta: DomDelta) => void): Unsubscribe => {
     const listeners = deltaSubscribers.get(channel);
-    if (!listeners) return () => {};
+    if (!listeners || disposed) return () => {};
+
+    const wasStarted = started;
+    const wasEmpty = listeners.size === 0;
+
     listeners.add(cb);
+
+    if (!wasStarted) {
+      start();
+    } else if (wasEmpty) {
+      bindChannel(channel, "route");
+    }
+
     return () => {
-      listeners.delete(cb);
+      const cur = deltaSubscribers.get(channel);
+      if (!cur) return;
+      cur.delete(cb);
+      if (cur.size === 0) {
+        disconnectChannel(channel);
+      }
+      stopIfIdle();
     };
   };
 
   const onRoots = (cb: (roots: RootSnapshot) => void): Unsubscribe => {
+    if (disposed) return () => {};
+
+    const wasStarted = started;
     rootSubscribers.add(cb);
+
+    if (!wasStarted) {
+      start();
+    } else {
+      cb({ main: mainState.root, nav: navState.root, reason: "route" });
+    }
+
     return () => {
       rootSubscribers.delete(cb);
+      stopIfIdle();
     };
   };
 
   return {
     start,
     stop,
+    dispose,
     getMainRoot: () => mainState.root,
     getNavRoot: () => navState.root,
     onDelta,
