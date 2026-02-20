@@ -50,8 +50,10 @@ function makeCtx(pathWatcher: { active: boolean }): FeatureContext {
           }
         };
       },
-      observe: () => {
-        throw new Error("not used");
+      observe: (root: Element, cb: MutationCallback) => {
+        const observer = new MutationObserver(cb);
+        observer.observe(root, { childList: true, subtree: true });
+        return { observer, disconnect: () => observer.disconnect() };
       },
       extractAddedElements: () => [],
       onPathChange: () => {
@@ -69,7 +71,7 @@ function makeCtx(pathWatcher: { active: boolean }): FeatureContext {
 describe("domEventBus lazy binding", () => {
   it("binds observers only when subscribed and disconnects after unsubscribe", () => {
     document.body.innerHTML = `
-      <main><div>main</div></main>
+      <main role="main"><div>main</div></main>
       <nav aria-label="Chat history"><div>nav</div></nav>
     `;
 
