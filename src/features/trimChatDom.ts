@@ -259,7 +259,9 @@ export function initTrimChatDomFeature(ctx: FeatureContext): FeatureHandle {
     state.unsubRoots?.();
     state.unsubRoots = null;
     scheduleEnforce.cancel();
-    restoreAllInRoot(findRoot());
+    restoreAllInRoot(state.trackedMainRoot);
+    const currentRoot = findRoot();
+    if (currentRoot !== state.trackedMainRoot) restoreAllInRoot(currentRoot);
     removePlaceholder();
     removeStyle();
     state.trackedMainRoot = null;
