@@ -5,7 +5,7 @@ import { isElementVisible, norm } from "../lib/utils";
 // is rerendering), the UI can jitter/shake and sometimes trigger full rerenders.
 // Therefore:
 // - No periodic polling.
-// - MutationObserver is used only until the goal is reached.
+// - Shared DOM bus events are consumed only until the goal is reached.
 // - We pause automation shortly after any user interaction inside the sidebar.
 // - We stop completely once we have achieved the configured goal.
 
@@ -33,7 +33,10 @@ function dispatchHumanClick(el: HTMLElement): void {
 }
 
 function getChatHistoryNav(ctx: FeatureContext): HTMLElement | null {
-  return ctx.helpers.safeQuery<HTMLElement>('nav[aria-label="Chat history"]');
+  return (
+    (ctx.domBus?.getNavRoot() as HTMLElement | null) ??
+    ctx.helpers.safeQuery<HTMLElement>('nav[aria-label="Chat history"]')
+  );
 }
 
 function findProjectsSection(nav: HTMLElement): HTMLElement | null {
@@ -228,6 +231,8 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   let cleanupUserListeners: (() => void) | null = null;
   let unsubNavDelta: (() => void) | null = null;
   let unsubRoots: (() => void) | null = null;
+  let startTimer: number | null = null;
+  let navReadyTimer: number | null = null;
 
   const bindUserInteractionGuards = (nav: HTMLElement | null) => {
     cleanupUserListeners?.();
@@ -252,6 +257,10 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     debounceTimer = null;
     if (navRetryTimeout !== null) window.clearTimeout(navRetryTimeout);
     navRetryTimeout = null;
+    if (startTimer !== null) window.clearTimeout(startTimer);
+    startTimer = null;
+    if (navReadyTimer !== null) window.clearTimeout(navReadyTimer);
+    navReadyTimer = null;
     unsubNavDelta?.();
     unsubNavDelta = null;
     unsubRoots?.();
@@ -287,8 +296,14 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     }, AUTO_EXPAND_DEBOUNCE_MS);
   };
 
-  window.setTimeout(() => schedule("start"), AUTO_EXPAND_START_TIMEOUT_MS);
-  window.setTimeout(() => schedule("nav-ready"), AUTO_EXPAND_NAV_TIMEOUT_MS);
+  startTimer = window.setTimeout(() => {
+    startTimer = null;
+    schedule("start");
+  }, AUTO_EXPAND_START_TIMEOUT_MS);
+  navReadyTimer = window.setTimeout(() => {
+    navReadyTimer = null;
+    schedule("nav-ready");
+  }, AUTO_EXPAND_NAV_TIMEOUT_MS);
 
   const refreshNavBindings = () => {
     const nav = getChatHistoryNav(ctx);
