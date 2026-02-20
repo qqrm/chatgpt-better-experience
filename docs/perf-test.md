@@ -33,10 +33,10 @@ Verify there is no continuous idle CPU burn from content-script DOM watchers.
 
 ## Internal debug counters (when debug logger enabled)
 
-- `wideChat`: observer callbacks / apply runs / processed nodes.
-- `trimChatDom`: observer callbacks / apply runs / processed nodes.
-- `oneClickDelete`: observer callbacks / hook/apply runs / processed nodes.
-- `autoTempChat`: observer callbacks / apply runs / processed nodes.
+- `wideChat`: bus events / apply runs / processed nodes.
+- `trimChatDom`: bus events / apply runs / processed nodes.
+- `oneClickDelete`: bus events / hook/apply runs / processed nodes.
+- `autoTempChat`: bus events / apply runs / processed nodes.
 
 Counters should increase during real UI changes and stop growing quickly when idle.
 
