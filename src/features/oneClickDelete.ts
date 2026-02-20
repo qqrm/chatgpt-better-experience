@@ -7,7 +7,7 @@ const ONE_CLICK_DELETE_X_MARK = "data-qqrm-oneclick-del-x";
 const ONE_CLICK_DELETE_STYLE_ID = "cgptbe-silent-delete-style";
 const ONE_CLICK_DELETE_ROOT_FLAG = "data-cgptbe-silent-delete";
 const ONE_CLICK_DELETE_BUTTON_SELECTOR =
-  'button[data-testid^="history-item-"][data-testid$="-options"]';
+  'button[data-testid$="-options"], [role="button"][data-testid$="-options"]';
 
 const ONE_CLICK_DELETE_BTN_H = 36;
 const ONE_CLICK_DELETE_BTN_W = 118;
