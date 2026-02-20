@@ -14,7 +14,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["pageTranscribeHook.js", "pageClipboardHook.js"],
+      "resources": ["pageClipboardHook.js"],
       "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"]
     }
   ],
