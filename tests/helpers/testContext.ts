@@ -45,6 +45,19 @@ export function makeTestContext(settings: Partial<Settings> = {}): FeatureContex
       getNavRoot: () => document.querySelector('nav[aria-label="Chat history"]'),
       onDelta: (_channel: "main" | "nav", _cb: (delta: DomDelta) => void) => () => {},
       onRoots: (_cb) => () => {},
+      getStats: () => ({
+        startedAt: 0,
+        channelMutations: { main: 0, nav: 0 },
+        emits: { main: 0, nav: 0 },
+        rebinds: 0,
+        disconnects: { main: 0, nav: 0 },
+        lastEmitAt: 0,
+        started: false,
+        disposed: false,
+        mainSubs: 0,
+        navSubs: 0,
+        rootSubs: 0
+      }),
       stats: () => ({
         mainObserverCalls: 0,
         navObserverCalls: 0,
