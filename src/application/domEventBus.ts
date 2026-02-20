@@ -36,10 +36,22 @@ export function createDomEventBus(ctx: FeatureContext) {
 
   const MAIN_ROOT_SELECTOR = 'main[role="main"]';
   const NAV_ROOT_SELECTOR = 'nav[aria-label="Chat history"]';
+  const HISTORY_OPTIONS_SELECTOR = '[data-testid^="history-item-"][data-testid$="-options"]';
+  const HISTORY_ITEM_SELECTOR = '[data-testid^="history-item-"]';
+  const ROOT_FINDER_TIMEOUT_MS = 15_000;
 
   const resolveRoot = (channel: BusChannel): Element | null => {
-    const selector = channel === "main" ? MAIN_ROOT_SELECTOR : NAV_ROOT_SELECTOR;
-    return ctx.helpers.safeQuery(selector);
+    if (channel === "main") return ctx.helpers.safeQuery(MAIN_ROOT_SELECTOR);
+
+    const directNav = ctx.helpers.safeQuery(NAV_ROOT_SELECTOR);
+    if (directNav) return directNav;
+
+    const historyOptions = ctx.helpers.safeQuery(HISTORY_OPTIONS_SELECTOR);
+    const navFromOptions = historyOptions?.closest("nav") ?? null;
+    if (navFromOptions) return navFromOptions;
+
+    const historyItem = ctx.helpers.safeQuery(HISTORY_ITEM_SELECTOR);
+    return historyItem?.closest("nav") ?? null;
   };
 
   const extractAddedElements = (records: MutationRecord[]) =>
@@ -57,6 +69,8 @@ export function createDomEventBus(ctx: FeatureContext) {
   let started = false;
   let disposed = false;
   let pathUnsubscribe: Unsubscribe | null = null;
+  let rootFinderObserver: MutationObserver | null = null;
+  let rootFinderTimeoutId: number | null = null;
 
   const listeners = new Map<BusChannel, Set<(delta: DomDelta) => void>>([
     ["main", new Set()],
@@ -94,6 +108,88 @@ export function createDomEventBus(ctx: FeatureContext) {
 
   const channelWantsBinding = (channel: BusChannel) =>
     channelNeedsObservation(channel) || rootSubscribers.size > 0;
+
+  const channelNeedsRoot = (channel: BusChannel) =>
+    rootSubscribers.size > 0 || channelNeedsObservation(channel);
+
+  const channelRootMissing = (channel: BusChannel) => {
+    if (!channelNeedsRoot(channel)) return false;
+    const root = getState(channel).root;
+    return root === null || !root.isConnected;
+  };
+
+  const stopRootFinder = () => {
+    if (rootFinderObserver) {
+      rootFinderObserver.disconnect();
+      rootFinderObserver = null;
+    }
+
+    rootFinderRafCancel();
+
+    if (rootFinderTimeoutId !== null) {
+      window.clearTimeout(rootFinderTimeoutId);
+      rootFinderTimeoutId = null;
+    }
+  };
+
+  const shouldRunRootFinder = () => {
+    if (!started || disposed || !hasAnySubscribers()) return false;
+    return channelRootMissing("main") || channelRootMissing("nav");
+  };
+
+  const rootFinderFlush = () => {
+    if (!started || disposed) {
+      stopRootFinder();
+      return;
+    }
+
+    let didRootChange = false;
+
+    for (const channel of ["main", "nav"] as const) {
+      if (!channelNeedsRoot(channel)) continue;
+      if (!channelRootMissing(channel)) continue;
+
+      const state = getState(channel);
+      const prevRoot = state.root;
+      bindChannel(channel, "rebind");
+
+      if (prevRoot !== state.root) didRootChange = true;
+    }
+
+    if (didRootChange) notifyRoots("rebind");
+
+    if (!shouldRunRootFinder()) stopRootFinder();
+  };
+
+  const { schedule: rootFinderRafSchedule, cancel: rootFinderRafCancel } =
+    ctx.helpers.createRafScheduler(rootFinderFlush);
+
+  const startRootFinder = () => {
+    if (rootFinderObserver) return;
+
+    const root = document.documentElement ?? document.body;
+    if (!root) return;
+
+    rootFinderObserver = new MutationObserver(() => {
+      if (!started || disposed) return;
+      rootFinderRafSchedule();
+    });
+
+    rootFinderObserver.observe(root, { childList: true, subtree: true });
+
+    rootFinderTimeoutId = window.setTimeout(() => {
+      stopRootFinder();
+    }, ROOT_FINDER_TIMEOUT_MS);
+  };
+
+  const updateRootFinder = () => {
+    if (shouldRunRootFinder()) {
+      startRootFinder();
+      return;
+    }
+
+    stopRootFinder();
+  };
 
   const disconnectChannel = (channel: BusChannel) => {
     const state = getState(channel);
@@ -229,6 +325,7 @@ export function createDomEventBus(ctx: FeatureContext) {
     }
 
     notifyRoots(reason);
+    updateRootFinder();
   };
 
   const stop = () => {
@@ -241,6 +338,7 @@ export function createDomEventBus(ctx: FeatureContext) {
 
     pathUnsubscribe?.();
     pathUnsubscribe = null;
+    stopRootFinder();
 
     disconnectChannel("main");
     disconnectChannel("nav");
@@ -272,6 +370,7 @@ export function createDomEventBus(ctx: FeatureContext) {
     });
 
     rebind("initial");
+    updateRootFinder();
   };
 
   const dispose = () => {
@@ -298,8 +397,11 @@ export function createDomEventBus(ctx: FeatureContext) {
     // ensure that channel is bound immediately.
     if (started && wasEmpty) {
       bindChannel(channel, "route");
+      updateRootFinder();
     } else if (!started) {
       start();
+    } else {
+      updateRootFinder();
     }
 
     return () => {
@@ -312,6 +414,7 @@ export function createDomEventBus(ctx: FeatureContext) {
         getState(channel).root = null;
       }
 
+      updateRootFinder();
       stopIfIdle();
     };
   };
@@ -338,10 +441,12 @@ export function createDomEventBus(ctx: FeatureContext) {
           error: String(e)
         });
       }
+      updateRootFinder();
     }
 
     return () => {
       rootSubscribers.delete(cb);
+      updateRootFinder();
       stopIfIdle();
     };
   };
