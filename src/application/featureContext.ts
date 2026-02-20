@@ -63,8 +63,6 @@ export interface FeatureHandle {
   __test?: Record<string, unknown>;
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 function short(value: string, n = 140) {
   if (value == null) return "";
   const t = String(value).replace(/\s+/g, " ").trim();
@@ -150,23 +148,77 @@ export function createFeatureContext({
     root: Document | Element = document,
     timeoutMs = 2500
   ) => {
-    const t0 = performance.now();
-    while (performance.now() - t0 < timeoutMs) {
-      const el = root.querySelector(sel);
-      if (el) return el;
-      await sleep(25);
-    }
-    return null;
+    const found = root.querySelector(sel);
+    if (found) return found;
+
+    const observedRoot = root instanceof Document ? root.documentElement : root;
+    if (!observedRoot) return null;
+
+    return await new Promise<Element | null>((resolve) => {
+      let done = false;
+      let timeoutId = 0;
+      const observer = new MutationObserver(() => {
+        if (done) return;
+        const next = root.querySelector(sel);
+        if (!next) return;
+        done = true;
+        window.clearTimeout(timeoutId);
+        observer.disconnect();
+        resolve(next);
+      });
+
+      timeoutId = window.setTimeout(() => {
+        if (done) return;
+        done = true;
+        observer.disconnect();
+        resolve(null);
+      }, timeoutMs);
+
+      try {
+        observer.observe(observedRoot, { childList: true, subtree: true });
+      } catch {
+        done = true;
+        window.clearTimeout(timeoutId);
+        observer.disconnect();
+        resolve(null);
+      }
+    });
   };
 
   const waitGone = async (sel: string, root: Document | Element = document, timeoutMs = 2500) => {
-    const t0 = performance.now();
-    while (performance.now() - t0 < timeoutMs) {
-      const el = root.querySelector(sel);
-      if (!el) return true;
-      await sleep(25);
-    }
-    return !root.querySelector(sel);
+    if (!root.querySelector(sel)) return true;
+
+    const observedRoot = root instanceof Document ? root.documentElement : root;
+    if (!observedRoot) return !root.querySelector(sel);
+
+    return await new Promise<boolean>((resolve) => {
+      let done = false;
+      let timeoutId = 0;
+      const observer = new MutationObserver(() => {
+        if (done) return;
+        if (root.querySelector(sel)) return;
+        done = true;
+        window.clearTimeout(timeoutId);
+        observer.disconnect();
+        resolve(true);
+      });
+
+      timeoutId = window.setTimeout(() => {
+        if (done) return;
+        done = true;
+        observer.disconnect();
+        resolve(!root.querySelector(sel));
+      }, timeoutMs);
+
+      try {
+        observer.observe(observedRoot, { childList: true, subtree: true });
+      } catch {
+        done = true;
+        window.clearTimeout(timeoutId);
+        observer.disconnect();
+        resolve(!root.querySelector(sel));
+      }
+    });
   };
 
   const humanClick = (el: HTMLElement | null, why: string) => {

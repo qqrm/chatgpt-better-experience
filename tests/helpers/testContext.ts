@@ -40,6 +40,7 @@ export function makeTestContext(settings: Partial<Settings> = {}): FeatureContex
     domBus: {
       start: () => {},
       stop: () => {},
+      dispose: () => {},
       getMainRoot: () => document.querySelector('main, [role="main"]'),
       getNavRoot: () => document.querySelector('nav[aria-label="Chat history"]'),
       onDelta: (_channel: "main" | "nav", _cb: (delta: DomDelta) => void) => () => {},
