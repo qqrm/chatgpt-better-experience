@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "chat-gpt-better-experience",
-  "version": "1.0.134",
+  "version": "1.0.135",
   "description": "Auto-sends ChatGPT dictation transcripts, with optional Temporary Chat auto-enable and chat list auto-expand.",
   "permissions": ["storage", "downloads"],
   "background": {
@@ -17,7 +17,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["pageClipboardHook.js"],
+      "resources": ["pageClipboardHook.js", "pageTranscribeHook.js"],
       "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"]
     }
   ],

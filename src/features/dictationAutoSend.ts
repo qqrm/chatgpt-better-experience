@@ -31,6 +31,8 @@ interface WaitForFinalTextResult extends InputReadResult {
 
 type DictationUiState = "NONE" | "STOP" | "SUBMIT";
 
+const TRANSCRIBE_HOOK_SOURCE = "tm-dictation-transcribe";
+
 const DEFAULT_CONFIG: DictationConfig = {
   autoSendEnabled: true,
   allowAutoSendInCodex: true,
@@ -50,6 +52,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   const cfg: DictationConfig = { ...DEFAULT_CONFIG };
 
   let inFlight = false;
+  let transcribeHookInstalled = false;
   let dictationUiObserver: MutationObserver | null = null;
   let dictationUiObserverRoot: Element | null = null;
   let lastDictationUiState: DictationUiState = "NONE";
@@ -774,6 +777,95 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     }
   };
 
+  const injectPageTranscribeHook = () => {
+    const runtime =
+      (
+        globalThis as typeof globalThis & {
+          chrome?: { runtime?: { getURL?: (p: string) => string } };
+        }
+      ).chrome?.runtime ??
+      (
+        globalThis as typeof globalThis & {
+          browser?: { runtime?: { getURL?: (p: string) => string } };
+        }
+      ).browser?.runtime;
+
+    if (!runtime?.getURL) {
+      tmLog("TRANSCRIBE", "runtime.getURL not available");
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.setAttribute("data-tm-transcribe-hook", "1");
+    script.dataset.source = TRANSCRIBE_HOOK_SOURCE;
+    script.src = runtime.getURL("pageTranscribeHook.js");
+    script.onload = () => script.remove();
+    document.documentElement.appendChild(script);
+  };
+
+  const installTranscribeHook = () => {
+    if (transcribeHookInstalled) return;
+    transcribeHookInstalled = true;
+
+    injectPageTranscribeHook();
+
+    window.addEventListener("message", handleTranscribeMessage);
+  };
+
+  const handleTranscribeMessage = (event: MessageEvent) => {
+    if (event.source !== window) return;
+    const raw = event.data as unknown;
+    if (!raw || typeof raw !== "object") return;
+    const data = raw as { source?: string; type?: string; id?: string };
+    if (data.source !== TRANSCRIBE_HOOK_SOURCE) return;
+    if (!data.type || !data.id) return;
+
+    if (data.type === "start") return;
+    if (data.type !== "complete") return;
+
+    if (!cfg.autoSendEnabled) return;
+
+    if (isCodexPath(location.pathname) && !cfg.allowAutoSendInCodex) {
+      tmLog("FLOW", "transcribe: auto-send skipped on Codex path");
+      return;
+    }
+
+    if (inFlight) {
+      tmLog("FLOW", "transcribe: skip, flow already in flight");
+      return;
+    }
+
+    if (performance.now() - lastSubmitClickAt < 1000) {
+      tmLog("FLOW", "transcribe: skip, submit recently clicked");
+      return;
+    }
+
+    const now = performance.now();
+    const hotkeySubmitRecent = now - lastDictationSubmitViaHotkeyAt < 1200;
+    if (hotkeySubmitRecent && lastDictationSubmitViaHotkeyAt > lastDictationSubmitViaMouseAt) {
+      tmLog("FLOW", "transcribe: skip, last dictation submit via hotkey");
+      return;
+    }
+
+    void (async () => {
+      const dictationState = getDictationUiState();
+      let submitDesc = "transcribe complete";
+
+      if (dictationState === "SUBMIT") {
+        const submitBtn = findSubmitDictationButton();
+        if (submitBtn) {
+          submitDesc = describeEl(submitBtn);
+          tmLog("FLOW", "transcribe: submit dictation", { btn: submitDesc });
+          ctx.helpers.humanClick(submitBtn, "submit-dictation");
+        } else {
+          tmLog("FLOW", "transcribe: submit button not found");
+        }
+      }
+
+      await runFlowAfterSubmitClick(submitDesc, undefined, false);
+    })();
+  };
+
   const ensureDictationUiScheduler = () => {
     if (dictationUiSchedule && dictationUiCancel) return;
     const sched = ctx.helpers.debounceScheduler(() => {
@@ -1023,6 +1115,8 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   window.addEventListener("keydown", handleKeyDown, true);
   document.addEventListener("click", handleClick, true);
 
+  installTranscribeHook();
+
   let unsubscribePath: Unsubscribe | null = null;
 
   const setPathWatcherEnabled = (enabled: boolean) => {
@@ -1049,6 +1143,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     dispose: () => {
       window.removeEventListener("keydown", handleKeyDown, true);
       document.removeEventListener("click", handleClick, true);
+      window.removeEventListener("message", handleTranscribeMessage);
       setPathWatcherEnabled(false);
       disconnectDictationObserver();
     },
