@@ -1,7 +1,7 @@
 {
   "name": "chatgpt-dictation-auto-send",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -23,6 +23,10 @@
     "*.{js,mjs,cjs,json,md,html,css,scss,yml,yaml}": [
       "prettier --write"
     ]
+  },
+  "dependencies": {
+    "@rrweb/record": "^2.0.0-alpha.18",
+    "@rrweb/types": "^2.0.0-alpha.18"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

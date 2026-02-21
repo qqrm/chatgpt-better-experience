@@ -355,6 +355,87 @@
       #qqrm-theme-toggle[data-mode="light"] .theme-icon--light {
         display: block;
       }
+
+      .miniControl {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+      }
+
+      .miniControlRow {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .miniControlLabel {
+        font-size: 12px;
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      .tinySwitch {
+        position: relative;
+        display: inline-flex;
+        width: 26px;
+        height: 14px;
+      }
+
+      .tinySwitch input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        border: 0;
+        clip: rect(0 0 0 0);
+        overflow: hidden;
+      }
+
+      .tinySwitchTrack {
+        width: 100%;
+        height: 100%;
+        border-radius: 999px;
+        border: 1px solid var(--control-border);
+        background: color-mix(in srgb, var(--muted) 18%, transparent);
+        position: relative;
+        transition: background 140ms ease;
+      }
+
+      .tinySwitchTrack::after {
+        content: "";
+        position: absolute;
+        top: 1px;
+        left: 1px;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--surface);
+        border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+        transition: transform 140ms ease;
+      }
+
+      .tinySwitch input:checked + .tinySwitchTrack {
+        background: color-mix(in srgb, var(--muted) 30%, transparent);
+      }
+
+      .tinySwitch input:checked + .tinySwitchTrack::after {
+        transform: translateX(12px);
+      }
+
+      .tinySwitch input:focus-visible + .tinySwitchTrack {
+        box-shadow: 0 0 0 2px var(--focus);
+      }
+      .statusChip {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid var(--control-border);
+        border-radius: 999px;
+        padding: 1px 6px;
+        font-size: 10px;
+        color: var(--muted);
+      }
     </style>
   </head>
 
@@ -531,6 +612,20 @@
     </div>
 
     <div class="hint">Press F2 to rename current chat</div>
+
+    <div class="miniControl" aria-label="Macro Recorder">
+      <div class="miniControlRow">
+        <div class="miniControlLabel">Macro recorder</div>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <span id="macroRecorderStatus" class="statusChip">Off</span>
+          <label class="tinySwitch" aria-label="Enable macro recorder">
+            <input id="macroRecorderEnabled" type="checkbox" />
+            <span class="tinySwitchTrack" aria-hidden="true"></span>
+          </label>
+        </div>
+      </div>
+      <div class="hint" id="macroRecorderMeta" style="margin-top: 4px">F5 start • F6 stop+save</div>
+    </div>
 
     <script src="dist/popup.js"></script>
   </body>
