@@ -2,26 +2,31 @@ import { FeatureContext, FeatureHandle } from "../application/featureContext";
 
 const ONE_CLICK_DELETE_HOOK_MARK = "data-qqrm-oneclick-del-hooked";
 const ONE_CLICK_DELETE_ARCHIVE_MARK = "data-qqrm-oneclick-archive";
+const ONE_CLICK_DELETE_PIN_MARK = "data-qqrm-oneclick-pin";
 const ONE_CLICK_DELETE_NATIVE_DOTS_MARK = "data-qqrm-native-dots";
 const ONE_CLICK_DELETE_X_MARK = "data-qqrm-oneclick-del-x";
 const ONE_CLICK_DELETE_STYLE_ID = "cgptbe-silent-delete-style";
 const ONE_CLICK_DELETE_ROOT_FLAG = "data-cgptbe-silent-delete";
 const ONE_CLICK_DELETE_BUTTON_SELECTOR =
-  'button[data-testid^="history-item-"][data-testid$="-options"]';
+  'button.__menu-item-trailing-btn[data-trailing-button][data-testid^="history-item-"]';
 
 const ONE_CLICK_DELETE_BTN_H = 36;
-const ONE_CLICK_DELETE_BTN_W = 118;
+const ONE_CLICK_DELETE_BTN_W = 150;
 const ONE_CLICK_DELETE_X_SIZE = 26;
 const ONE_CLICK_DELETE_X_RIGHT = 6;
 const ONE_CLICK_DELETE_GAP = 6;
 const ONE_CLICK_DELETE_ARCHIVE_SIZE = 26;
 const ONE_CLICK_DELETE_ARCHIVE_RIGHT =
   ONE_CLICK_DELETE_X_RIGHT + ONE_CLICK_DELETE_X_SIZE + ONE_CLICK_DELETE_GAP;
+const ONE_CLICK_DELETE_PIN_SIZE = 26;
+const ONE_CLICK_DELETE_PIN_RIGHT =
+  ONE_CLICK_DELETE_ARCHIVE_RIGHT + ONE_CLICK_DELETE_ARCHIVE_SIZE + ONE_CLICK_DELETE_GAP;
 const ONE_CLICK_DELETE_DOTS_LEFT = 10;
 const ONE_CLICK_DELETE_WIPE_MS = 4500;
 const ONE_CLICK_DELETE_UNDO_TOTAL_MS = 5000;
 const ONE_CLICK_DELETE_TOOLTIP = "Click to delete";
 const ONE_CLICK_DELETE_ARCHIVE_TOOLTIP = "Archive";
+const ONE_CLICK_DELETE_PIN_TOOLTIP = "Pin / unpin";
 const CHAT_CONVERSATION_ID_REGEX = /\/c\/([^/?#]+)/;
 
 export const extractConversationIdFromRow = (row: HTMLElement | null): string | null => {
@@ -149,6 +154,12 @@ export const buildOneClickDeleteStyleText = () => `
     --qqrm-archive-muted: #6b7280;
     --qqrm-archive-muted-bg: rgba(107, 114, 128, 0.1);
     --qqrm-archive-muted-border: rgba(107, 114, 128, 0.28);
+    --qqrm-pin: #16a34a;
+    --qqrm-pin-bg: rgba(22, 163, 74, 0.14);
+    --qqrm-pin-border: rgba(22, 163, 74, 0.35);
+    --qqrm-pin-muted: #6b7280;
+    --qqrm-pin-muted-bg: rgba(107, 114, 128, 0.1);
+    --qqrm-pin-muted-border: rgba(107, 114, 128, 0.28);
   }
 
   @media (prefers-color-scheme: dark) {
@@ -165,6 +176,12 @@ export const buildOneClickDeleteStyleText = () => `
       --qqrm-archive-muted: #9ca3af;
       --qqrm-archive-muted-bg: rgba(148, 163, 184, 0.14);
       --qqrm-archive-muted-border: rgba(148, 163, 184, 0.3);
+      --qqrm-pin: #4ade80;
+      --qqrm-pin-bg: rgba(74, 222, 128, 0.16);
+      --qqrm-pin-border: rgba(74, 222, 128, 0.35);
+      --qqrm-pin-muted: #9ca3af;
+      --qqrm-pin-muted-bg: rgba(148, 163, 184, 0.14);
+      --qqrm-pin-muted-border: rgba(148, 163, 184, 0.3);
     }
   }
 
@@ -216,6 +233,36 @@ export const buildOneClickDeleteStyleText = () => `
   }
 
   ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"] svg{
+    display: block;
+  }
+
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_PIN_MARK}="1"]{
+    position: absolute;
+    right: ${ONE_CLICK_DELETE_PIN_RIGHT}px;
+    top: 50%;
+    transform: translate3d(0, -50%, 0);
+    width: ${ONE_CLICK_DELETE_PIN_SIZE}px;
+    height: ${ONE_CLICK_DELETE_PIN_SIZE}px;
+    border-radius: 9px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 18px;
+    color: var(--qqrm-pin-muted, #6b7280);
+    background: var(--qqrm-pin-muted-bg, rgba(107, 114, 128, 0.1));
+    border: 1px solid var(--qqrm-pin-muted-border, rgba(107, 114, 128, 0.28));
+    box-shadow: -1px 0 0 rgba(255, 255, 255, 0.08) inset;
+    opacity: 0.0;
+    will-change: opacity, transform;
+    transition: opacity 140ms ease, background 140ms ease;
+    user-select: none;
+    pointer-events: auto;
+    cursor: pointer;
+  }
+
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_PIN_MARK}="1"] svg{
     display: block;
   }
 
@@ -280,6 +327,15 @@ export const buildOneClickDeleteStyleText = () => `
     color: var(--qqrm-archive, #2563eb);
     background: var(--qqrm-archive-bg, rgba(37, 99, 235, 0.18));
     border-color: var(--qqrm-archive-border, rgba(37, 99, 235, 0.35));
+    transform: translate3d(0, -50%, 0);
+  }
+
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:hover > span[${ONE_CLICK_DELETE_PIN_MARK}="1"],
+  ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:focus-visible > span[${ONE_CLICK_DELETE_PIN_MARK}="1"]{
+    opacity: 1.0;
+    color: var(--qqrm-pin, #16a34a);
+    background: var(--qqrm-pin-bg, rgba(22, 163, 74, 0.18));
+    border-color: var(--qqrm-pin-border, rgba(22, 163, 74, 0.35));
     transform: translate3d(0, -50%, 0);
   }
 
@@ -714,9 +770,32 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     const native = svgs.find(
       (svg) =>
         !svg.closest(`span[${ONE_CLICK_DELETE_X_MARK}="1"]`) &&
-        !svg.closest(`span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]`)
+        !svg.closest(`span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]`) &&
+        !svg.closest(`span[${ONE_CLICK_DELETE_PIN_MARK}="1"]`)
     );
     if (native) native.setAttribute(ONE_CLICK_DELETE_NATIVE_DOTS_MARK, "1");
+  };
+
+  const ensureOneClickPinSpan = (btn: HTMLElement) => {
+    let pin = btn.querySelector<HTMLSpanElement>(`span[${ONE_CLICK_DELETE_PIN_MARK}="1"]`);
+    if (pin) return pin;
+    pin = document.createElement("span");
+    pin.setAttribute(ONE_CLICK_DELETE_PIN_MARK, "1");
+    pin.setAttribute("aria-label", ONE_CLICK_DELETE_PIN_TOOLTIP);
+    pin.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M7 4h10l-3 6v5l-4 2v-7L7 4z"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    `;
+    btn.appendChild(pin);
+    return pin;
   };
 
   const clearOneClickDeleteButtons = () => {
@@ -728,6 +807,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       if (x) x.remove();
       const archive = btn.querySelector(`span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]`);
       if (archive) archive.remove();
+      const pin = btn.querySelector(`span[${ONE_CLICK_DELETE_PIN_MARK}="1"]`);
+      if (pin) pin.remove();
       const dots = btn.querySelector(`svg[${ONE_CLICK_DELETE_NATIVE_DOTS_MARK}="1"]`);
       if (dots) dots.removeAttribute(ONE_CLICK_DELETE_NATIVE_DOTS_MARK);
     }
@@ -903,13 +984,125 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   const getOptionsButtonFromArchive = (archive: HTMLElement) =>
     archive.closest<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
 
+  const getPinFromEvent = (target: EventTarget | null) => {
+    if (!(target instanceof Element)) return null;
+    return target.closest<HTMLElement>(`span[${ONE_CLICK_DELETE_PIN_MARK}="1"]`);
+  };
+
+  const getOptionsButtonFromPin = (pin: HTMLElement) =>
+    pin.closest<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
+
   const hookOneClickDeleteButton = (btn: HTMLElement) => {
     if (!btn || btn.nodeType !== 1) return;
     if (btn.hasAttribute(ONE_CLICK_DELETE_HOOK_MARK)) return;
     btn.setAttribute(ONE_CLICK_DELETE_HOOK_MARK, "1");
     ensureOneClickDeleteXSpan(btn);
     ensureOneClickArchiveSpan(btn);
+    ensureOneClickPinSpan(btn);
     ensureNativeDotsMark(btn);
+  };
+
+  const closeOpenMenuSilently = async (optionsBtn?: HTMLElement | null) => {
+    try {
+      const dispatchEscape = (type: "keydown" | "keyup") => {
+        document.dispatchEvent(
+          new KeyboardEvent(type, {
+            key: "Escape",
+            code: "Escape",
+            bubbles: true,
+            cancelable: true
+          })
+        );
+      };
+
+      dispatchEscape("keydown");
+      dispatchEscape("keyup");
+      await new Promise((resolve) => setTimeout(resolve, 40));
+
+      if (document.querySelector('[role="menu"]') && optionsBtn) {
+        ctx.helpers.humanClick(optionsBtn, "oneclick-pin-close-menu");
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+
+      if (document.querySelector('[role="menu"]')) {
+        const outsideTarget =
+          document.querySelector<HTMLElement>('nav[aria-label="Chat history"]') ??
+          document.body ??
+          document.documentElement;
+        if (outsideTarget) {
+          ctx.helpers.humanClick(outsideTarget, "oneclick-pin-close-menu-outside");
+          await new Promise((resolve) => setTimeout(resolve, 40));
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const runOneClickPinUiFlow = async (btn: HTMLElement) => {
+    let pinActionClicked = false;
+    try {
+      setSilentDeleteMode(true);
+      ctx.helpers.humanClick(btn, "oneclick-pin-open-menu");
+
+      const pinItem = await (async () => {
+        const pinTextVariants = [
+          "Pin",
+          "Pin chat",
+          "Pin conversation",
+          "Unpin",
+          "Unpin chat",
+          "Unpin conversation",
+          "Закрепить",
+          "Открепить",
+          "Закрепить чат",
+          "Открепить чат"
+        ];
+        const pinSelectors = [
+          'div[role="menuitem"][data-testid*="unpin" i]',
+          'div[role="menuitem"][data-testid*="pin" i]',
+          'button[role="menuitem"][data-testid*="unpin" i]',
+          'button[role="menuitem"][data-testid*="pin" i]',
+          'div[role="menuitem"][id*="unpin" i]',
+          'div[role="menuitem"][id*="pin" i]',
+          'button[role="menuitem"][id*="unpin" i]',
+          'button[role="menuitem"][id*="pin" i]'
+        ];
+
+        const t0 = performance.now();
+        while (performance.now() - t0 < 1500) {
+          const menus = qsa('[role="menu"]');
+          for (const menu of menus) {
+            for (const selector of pinSelectors) {
+              const item = menu.querySelector<HTMLElement>(selector);
+              if (item) return item;
+            }
+            const byText = findButtonByTextVariants(menu, pinTextVariants);
+            if (byText) return byText;
+          }
+
+          for (const selector of pinSelectors) {
+            const fallback = document.querySelector<HTMLElement>(selector);
+            if (fallback) return fallback;
+          }
+          const fallbackText = findButtonByTextVariants(document, pinTextVariants);
+          if (fallbackText) return fallbackText;
+
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        return null;
+      })();
+
+      if (!pinItem) return;
+      pinActionClicked = true;
+      ctx.helpers.humanClick(pinItem, "oneclick-pin-menu");
+    } finally {
+      if (!pinActionClicked) {
+        await closeOpenMenuSilently(btn);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      setSilentDeleteMode(false);
+    }
   };
 
   const runOneClickDeleteUiFlow = async (btn: HTMLElement) => {
@@ -1082,6 +1275,15 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const handlePointerDown = (ev: PointerEvent) => {
+    const pin = getPinFromEvent(ev.target);
+    if (pin) {
+      const btn = getOptionsButtonFromPin(pin);
+      if (!btn) return;
+      swallowEvent(ev);
+      enqueueDelete(() => runOneClickPinUiFlow(btn));
+      return;
+    }
+
     const archive = getArchiveFromEvent(ev.target);
     if (archive) {
       const btn = getOptionsButtonFromArchive(archive);
@@ -1100,6 +1302,12 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const handleClick = (ev: MouseEvent) => {
+    const pin = getPinFromEvent(ev.target);
+    if (pin) {
+      swallowEvent(ev);
+      return;
+    }
+
     const archive = getArchiveFromEvent(ev.target);
     if (archive) {
       swallowEvent(ev);
