@@ -312,12 +312,16 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
 
   startTimer = window.setTimeout(() => {
     startTimer = null;
+    if (stopped) return;
     if (!isFeatureEnabled(ctx)) return;
+    if (goalReached) return;
     schedule("start");
   }, AUTO_EXPAND_START_TIMEOUT_MS);
   navReadyTimer = window.setTimeout(() => {
     navReadyTimer = null;
+    if (stopped) return;
     if (!isFeatureEnabled(ctx)) return;
+    if (goalReached) return;
     schedule("nav-ready");
   }, AUTO_EXPAND_NAV_TIMEOUT_MS);
 
@@ -328,6 +332,9 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     if (!nav && navRetryTimeout === null && !stopped) {
       navRetryTimeout = window.setTimeout(() => {
         navRetryTimeout = null;
+        if (stopped) return;
+        if (!isFeatureEnabled(ctx)) return;
+        if (goalReached) return;
         schedule("late-nav");
       }, 1000);
     }
