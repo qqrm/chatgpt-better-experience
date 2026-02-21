@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "lint:amo": "npx web-ext@9.3.0 lint --source-dir dist",
+    "build:amo": "npx web-ext@9.3.0 build --source-dir dist --artifacts-dir web-ext-artifacts --overwrite-dest",
+    "verify:ci": "npm run verify && npm test && npm run build && npm run lint:amo && npm run build:amo",
     "generate:icons": "node scripts/generate-icons.mjs",
     "lint": "eslint .",
     "format:check": "prettier --check .",
