@@ -65,6 +65,10 @@ if (manifest.background?.service_worker) {
   manifest.background.service_worker = stripDistPrefix(manifest.background.service_worker);
 }
 
+if (Array.isArray(manifest.background?.scripts)) {
+  manifest.background.scripts = manifest.background.scripts.map(stripDistPrefix);
+}
+
 if (manifest.action?.default_icon) {
   manifest.action.default_icon = Object.fromEntries(
     Object.entries(manifest.action.default_icon).map(([size, path]) => [

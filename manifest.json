@@ -5,7 +5,8 @@
   "description": "Auto-sends ChatGPT dictation transcripts, with optional Temporary Chat auto-enable and chat list auto-expand.",
   "permissions": ["storage", "downloads"],
   "background": {
-    "service_worker": "dist/background.js"
+    "service_worker": "dist/background.js",
+    "scripts": ["dist/background.js"]
   },
   "host_permissions": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
   "content_scripts": [
