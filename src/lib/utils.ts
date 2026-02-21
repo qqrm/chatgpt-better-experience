@@ -127,7 +127,12 @@ export function normalizeSettings(data: Record<string, unknown>): Settings {
     hideShareButton:
       typeof (data as { hideShareButton?: unknown }).hideShareButton === "boolean"
         ? ((data as { hideShareButton?: unknown }).hideShareButton as boolean)
-        : base.hideShareButton
+        : base.hideShareButton,
+
+    macroRecorderEnabled:
+      typeof (data as { macroRecorderEnabled?: unknown }).macroRecorderEnabled === "boolean"
+        ? ((data as { macroRecorderEnabled?: unknown }).macroRecorderEnabled as boolean)
+        : base.macroRecorderEnabled
   };
 }
 
