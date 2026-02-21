@@ -34,6 +34,11 @@ await Promise.all([
   }),
   build({
     ...shared,
+    entryPoints: ["src/pageTranscribeHook.ts"],
+    outfile: `${distDir}/pageTranscribeHook.js`
+  }),
+  build({
+    ...shared,
     entryPoints: ["src/background.ts"],
     outfile: `${distDir}/background.js`
   })
