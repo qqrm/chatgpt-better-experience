@@ -17,20 +17,18 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const waitForSpaReady = async (): Promise<boolean> => {
-    const ok1 = await ctx.helpers.waitPresent(
-      '[data-testid="blocking-initial-modals-done"]',
+    // ChatGPT UI changed multiple times: the historical readiness marker
+    // ([data-testid="blocking-initial-modals-done"]) is not always present,
+    // and the chat-history nav can be lazily mounted only after the sidebar opens.
+    // We only need the sidebar shell or its open button to exist; runOnce() will
+    // handle opening the sidebar and waiting for the nav.
+    const ready = await ctx.helpers.waitPresent(
+      '#stage-slideover-sidebar, #stage-sidebar-tiny-bar button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"], button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]',
       document,
       12000
     );
-    if (!ok1) return false;
 
-    const ok2 = await ctx.helpers.waitPresent("#stage-slideover-sidebar", document, 12000);
-    if (!ok2) return false;
-
-    const ok3 = await ctx.helpers.waitPresent('nav[aria-label="Chat history"]', document, 12000);
-    if (!ok3) return false;
-
-    return true;
+    return !!ready;
   };
 
   const autoExpandDispatchClick = (el: HTMLElement) => {

@@ -24,6 +24,10 @@ type ExpandStats = {
   folderClicks: number;
 };
 
+function isFeatureEnabled(ctx: FeatureContext): boolean {
+  return ctx.settings.autoExpandProjects || ctx.settings.autoExpandProjectItems;
+}
+
 function dispatchHumanClick(el: HTMLElement): void {
   el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
   el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
@@ -233,6 +237,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   let unsubRoots: (() => void) | null = null;
   let startTimer: number | null = null;
   let navReadyTimer: number | null = null;
+  let goalReached = false;
 
   const bindUserInteractionGuards = (nav: HTMLElement | null) => {
     cleanupUserListeners?.();
@@ -251,8 +256,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     };
   };
 
-  const stop = (): void => {
-    stopped = true;
+  const cancelTimers = (): void => {
     if (debounceTimer !== null) window.clearTimeout(debounceTimer);
     debounceTimer = null;
     if (navRetryTimeout !== null) window.clearTimeout(navRetryTimeout);
@@ -261,6 +265,11 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     startTimer = null;
     if (navReadyTimer !== null) window.clearTimeout(navReadyTimer);
     navReadyTimer = null;
+  };
+
+  const stop = (): void => {
+    stopped = true;
+    cancelTimers();
     unsubNavDelta?.();
     unsubNavDelta = null;
     unsubRoots?.();
@@ -271,11 +280,15 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
 
   const schedule = (reason: string): void => {
     if (stopped) return;
+    if (!isFeatureEnabled(ctx)) return;
+    if (goalReached) return;
     if (debounceTimer !== null) window.clearTimeout(debounceTimer);
 
     debounceTimer = window.setTimeout(() => {
       debounceTimer = null;
       if (stopped) return;
+      if (!isFeatureEnabled(ctx)) return;
+      if (goalReached) return;
 
       if (Date.now() - lastUserInteractionAt < AUTO_EXPAND_USER_COOLDOWN_MS) return;
       if (Date.now() - lastAutoClickAt < 1500) return;
@@ -290,24 +303,28 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       const { stats, done } = runOnce(ctx, reason);
       if (stats.folderClicks > 0) lastAutoClickAt = Date.now();
       if (done) {
-        ctx.logger.debug("autoExpandProjects", "goal reached, stop");
-        stop();
+        ctx.logger.debug("autoExpandProjects", "goal reached, idle until route/settings change");
+        goalReached = true;
+        attempts = 0;
       }
     }, AUTO_EXPAND_DEBOUNCE_MS);
   };
 
   startTimer = window.setTimeout(() => {
     startTimer = null;
+    if (!isFeatureEnabled(ctx)) return;
     schedule("start");
   }, AUTO_EXPAND_START_TIMEOUT_MS);
   navReadyTimer = window.setTimeout(() => {
     navReadyTimer = null;
+    if (!isFeatureEnabled(ctx)) return;
     schedule("nav-ready");
   }, AUTO_EXPAND_NAV_TIMEOUT_MS);
 
   const refreshNavBindings = () => {
     const nav = getChatHistoryNav(ctx);
     bindUserInteractionGuards(nav);
+    if (!isFeatureEnabled(ctx)) return;
     if (!nav && navRetryTimeout === null && !stopped) {
       navRetryTimeout = window.setTimeout(() => {
         navRetryTimeout = null;
@@ -321,6 +338,9 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   unsubRoots =
     ctx.domBus?.onRoots((roots) => {
       bindUserInteractionGuards((roots.nav as HTMLElement | null) ?? null);
+      if (!isFeatureEnabled(ctx)) return;
+      goalReached = false;
+      attempts = 0;
       schedule("route");
     }) ?? null;
 
@@ -332,6 +352,29 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   return {
     name: "autoExpandProjects",
     dispose: () => stop(),
+    onSettingsChange: (next, prev) => {
+      const prevEnabled = prev.autoExpandProjects || prev.autoExpandProjectItems;
+      const nextEnabled = next.autoExpandProjects || next.autoExpandProjectItems;
+
+      if (!nextEnabled) {
+        goalReached = true;
+        attempts = 0;
+        cancelTimers();
+        return;
+      }
+
+      const goalChanged =
+        prev.autoExpandProjects !== next.autoExpandProjects ||
+        prev.autoExpandProjectItems !== next.autoExpandProjectItems;
+
+      if (!prevEnabled || goalChanged) {
+        goalReached = false;
+        attempts = 0;
+        refreshNavBindings();
+        schedule("settings");
+      }
+    },
+    getStatus: () => ({ active: isFeatureEnabled(ctx) }),
     __test: {
       getChatHistoryNav,
       findProjectsSection,
