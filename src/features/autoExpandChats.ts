@@ -3,6 +3,10 @@ import { isElementVisible, norm } from "../lib/utils";
 
 const AUTO_EXPAND_START_TIMEOUT_MS = 3500;
 const AUTO_EXPAND_NAV_TIMEOUT_MS = 1500;
+const AUTO_EXPAND_SIDEBAR_SELECTOR = "#stage-slideover-sidebar";
+const AUTO_EXPAND_OPEN_BUTTON_SELECTOR =
+  '#stage-sidebar-tiny-bar button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"], button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]';
+const AUTO_EXPAND_READINESS_SELECTOR = `${AUTO_EXPAND_SIDEBAR_SELECTOR}, ${AUTO_EXPAND_OPEN_BUTTON_SELECTOR}`;
 
 export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
   const qs = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
@@ -22,11 +26,7 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
     // and the chat-history nav can be lazily mounted only after the sidebar opens.
     // We only need the sidebar shell or its open button to exist; runOnce() will
     // handle opening the sidebar and waiting for the nav.
-    const ready = await ctx.helpers.waitPresent(
-      '#stage-slideover-sidebar, #stage-sidebar-tiny-bar button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"], button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]',
-      document,
-      12000
-    );
+    const ready = await ctx.helpers.waitPresent(AUTO_EXPAND_READINESS_SELECTOR, document, 12000);
 
     return !!ready;
   };
@@ -43,7 +43,7 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
     state.runId += 1;
   };
 
-  const autoExpandSidebarEl = () => qs<HTMLElement>("#stage-slideover-sidebar");
+  const autoExpandSidebarEl = () => qs<HTMLElement>(AUTO_EXPAND_SIDEBAR_SELECTOR);
 
   const autoExpandSidebarIsOpen = () => {
     const sb = autoExpandSidebarEl();
@@ -128,11 +128,11 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const autoExpandWaitForSidebar = async () => {
-    const sidebarSelector = "#stage-slideover-sidebar";
-    const openButtonSelector =
-      '#stage-sidebar-tiny-bar button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"], button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]';
-    const selector = `${sidebarSelector}, ${openButtonSelector}`;
-    return ctx.helpers.waitPresent(selector, document, AUTO_EXPAND_START_TIMEOUT_MS);
+    return ctx.helpers.waitPresent(
+      AUTO_EXPAND_READINESS_SELECTOR,
+      document,
+      AUTO_EXPAND_START_TIMEOUT_MS
+    );
   };
 
   const autoExpandRunOnce = async (runId: number): Promise<boolean> => {
