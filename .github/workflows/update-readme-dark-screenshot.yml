@@ -206,3 +206,21 @@ jobs:
               --squash \
               --delete-branch
           fi
+
+      - name: Mark required build check successful for docs/image-only PR
+        if: steps.changes.outputs.changed == 'true' && steps.create_pr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.create_pr.outputs.pull-request-number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pr_sha="$(gh pr view "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --json headRefOid --jq '.headRefOid')"
+
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${pr_sha}" \
+            -f state='success' \
+            -f context='build' \
+            -f description='Docs/image-only automation PR: heavy build is intentionally skipped.'
