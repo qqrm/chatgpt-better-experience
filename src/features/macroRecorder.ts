@@ -66,6 +66,10 @@ function isEditableTarget(target: EventTarget | null) {
   return el.isContentEditable;
 }
 
+function isMacroRecorderToggleHotkey(event: KeyboardEvent) {
+  return event.key === "F8" && event.shiftKey && (event.ctrlKey || event.metaKey);
+}
+
 function shortText(value: string | null | undefined, max = 80) {
   const normalized = String(value || "")
     .replace(/\s+/g, " ")
@@ -244,7 +248,7 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
 
   const onKeydownForSemanticLog = (event: KeyboardEvent) => {
     if (!activeRecording) return;
-    if (event.key === "F5" || event.key === "F6") return;
+    if (isMacroRecorderToggleHotkey(event)) return;
 
     actions.push({
       t: now(),
@@ -346,31 +350,37 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
     stopRrweb = null;
   };
 
+  const onToggleHotkey = (event: KeyboardEvent) => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    event.stopPropagation();
+    if (event.repeat) return;
+
+    if (activeRecording) {
+      const stopped = stopRecording();
+      if (stopped) exportLastRecording();
+      return;
+    }
+
+    startRecording();
+  };
+
   const combos: KeyCombo[] = [
     {
-      key: "F5",
+      key: "F8",
+      shift: true,
+      ctrl: true,
       priority: 1000,
       when: (event) => !!ctx.settings.macroRecorderEnabled && !isEditableTarget(event.target),
-      handler: (event) => {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        event.stopPropagation();
-        startRecording();
-      }
+      handler: onToggleHotkey
     },
     {
-      key: "F6",
+      key: "F8",
+      shift: true,
+      meta: true,
       priority: 1000,
       when: (event) => !!ctx.settings.macroRecorderEnabled && !isEditableTarget(event.target),
-      handler: (event) => {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        event.stopPropagation();
-        const stopped = stopRecording();
-        if (stopped) {
-          exportLastRecording();
-        }
-      }
+      handler: onToggleHotkey
     }
   ];
 

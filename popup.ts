@@ -133,8 +133,8 @@ function renderMacroRecorderStatus(status: unknown, lastExportAt: unknown) {
       : "";
 
   macroRecorderMetaEl.textContent = ts
-    ? `F5 start • F6 stop+save (last: ${ts})`
-    : "F5 start • F6 stop+save";
+    ? `Ctrl/Cmd+Shift+F8 toggle (last: ${ts})`
+    : "Ctrl/Cmd+Shift+F8 toggle";
 }
 
 async function load() {
