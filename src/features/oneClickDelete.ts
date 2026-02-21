@@ -8,7 +8,7 @@ const ONE_CLICK_DELETE_X_MARK = "data-qqrm-oneclick-del-x";
 const ONE_CLICK_DELETE_STYLE_ID = "cgptbe-silent-delete-style";
 const ONE_CLICK_DELETE_ROOT_FLAG = "data-cgptbe-silent-delete";
 const ONE_CLICK_DELETE_BUTTON_SELECTOR =
-  'button[data-testid^="history-item-"][data-testid*="-options"]';
+  'button.__menu-item-trailing-btn[data-trailing-button][data-testid^="history-item-"]';
 
 const ONE_CLICK_DELETE_BTN_H = 36;
 const ONE_CLICK_DELETE_BTN_W = 150;
@@ -1003,43 +1003,62 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const runOneClickPinUiFlow = async (btn: HTMLElement) => {
-    ctx.helpers.humanClick(btn, "oneclick-pin-open-menu");
+    try {
+      setSilentDeleteMode(true);
+      ctx.helpers.humanClick(btn, "oneclick-pin-open-menu");
 
-    const pinItem = await (async () => {
-      const pinTextVariants = ["Pin", "Pin chat", "Unpin", "Unpin chat", "Закрепить", "Открепить"];
-      const pinSelectors = [
-        'div[role="menuitem"][data-testid*="pin" i]',
-        'button[role="menuitem"][data-testid*="pin" i]',
-        'div[role="menuitem"][id*="pin" i]',
-        'button[role="menuitem"][id*="pin" i]'
-      ];
+      const pinItem = await (async () => {
+        const pinTextVariants = [
+          "Pin",
+          "Pin chat",
+          "Pin conversation",
+          "Unpin",
+          "Unpin chat",
+          "Unpin conversation",
+          "Закрепить",
+          "Открепить"
+        ];
+        const pinSelectors = [
+          'div[role="menuitem"][data-testid*="unpin" i]',
+          'div[role="menuitem"][data-testid*="pin" i]',
+          'button[role="menuitem"][data-testid*="unpin" i]',
+          'button[role="menuitem"][data-testid*="pin" i]',
+          'div[role="menuitem"][id*="unpin" i]',
+          'div[role="menuitem"][id*="pin" i]',
+          'button[role="menuitem"][id*="unpin" i]',
+          'button[role="menuitem"][id*="pin" i]'
+        ];
 
-      const t0 = performance.now();
-      while (performance.now() - t0 < 1500) {
-        const menus = qsa('[role="menu"]');
-        for (const menu of menus) {
-          for (const selector of pinSelectors) {
-            const item = menu.querySelector<HTMLElement>(selector);
-            if (item) return item;
+        const t0 = performance.now();
+        while (performance.now() - t0 < 1500) {
+          const menus = qsa('[role="menu"]');
+          for (const menu of menus) {
+            for (const selector of pinSelectors) {
+              const item = menu.querySelector<HTMLElement>(selector);
+              if (item) return item;
+            }
+            const byText = findButtonByTextVariants(menu, pinTextVariants);
+            if (byText) return byText;
           }
-          const byText = findButtonByTextVariants(menu, pinTextVariants);
-          if (byText) return byText;
+
+          for (const selector of pinSelectors) {
+            const fallback = document.querySelector<HTMLElement>(selector);
+            if (fallback) return fallback;
+          }
+          const fallbackText = findButtonByTextVariants(document, pinTextVariants);
+          if (fallbackText) return fallbackText;
+
+          await new Promise((resolve) => setTimeout(resolve, 50));
         }
+        return null;
+      })();
 
-        for (const selector of pinSelectors) {
-          const fallback = document.querySelector<HTMLElement>(selector);
-          if (fallback) return fallback;
-        }
-        const fallbackText = findButtonByTextVariants(document, pinTextVariants);
-        if (fallbackText) return fallbackText;
-
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-      return null;
-    })();
-
-    if (!pinItem) return;
-    ctx.helpers.humanClick(pinItem, "oneclick-pin-menu");
+      if (!pinItem) return;
+      ctx.helpers.humanClick(pinItem, "oneclick-pin-menu");
+    } finally {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      setSilentDeleteMode(false);
+    }
   };
 
   const runOneClickDeleteUiFlow = async (btn: HTMLElement) => {
