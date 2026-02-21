@@ -1002,7 +1002,45 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     ensureNativeDotsMark(btn);
   };
 
+  const closeOpenMenuSilently = async (optionsBtn?: HTMLElement | null) => {
+    try {
+      const dispatchEscape = (type: "keydown" | "keyup") => {
+        document.dispatchEvent(
+          new KeyboardEvent(type, {
+            key: "Escape",
+            code: "Escape",
+            bubbles: true,
+            cancelable: true
+          })
+        );
+      };
+
+      dispatchEscape("keydown");
+      dispatchEscape("keyup");
+      await new Promise((resolve) => setTimeout(resolve, 40));
+
+      if (document.querySelector('[role="menu"]') && optionsBtn) {
+        ctx.helpers.humanClick(optionsBtn, "oneclick-pin-close-menu");
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+
+      if (document.querySelector('[role="menu"]')) {
+        const outsideTarget =
+          document.querySelector<HTMLElement>('nav[aria-label="Chat history"]') ??
+          document.body ??
+          document.documentElement;
+        if (outsideTarget) {
+          ctx.helpers.humanClick(outsideTarget, "oneclick-pin-close-menu-outside");
+          await new Promise((resolve) => setTimeout(resolve, 40));
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   const runOneClickPinUiFlow = async (btn: HTMLElement) => {
+    let pinActionClicked = false;
     try {
       setSilentDeleteMode(true);
       ctx.helpers.humanClick(btn, "oneclick-pin-open-menu");
@@ -1016,7 +1054,9 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
           "Unpin chat",
           "Unpin conversation",
           "Закрепить",
-          "Открепить"
+          "Открепить",
+          "Закрепить чат",
+          "Открепить чат"
         ];
         const pinSelectors = [
           'div[role="menuitem"][data-testid*="unpin" i]',
@@ -1054,9 +1094,13 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       })();
 
       if (!pinItem) return;
+      pinActionClicked = true;
       ctx.helpers.humanClick(pinItem, "oneclick-pin-menu");
     } finally {
-      await new Promise((resolve) => setTimeout(resolve, 120));
+      if (!pinActionClicked) {
+        await closeOpenMenuSilently(btn);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 60));
       setSilentDeleteMode(false);
     }
   };
