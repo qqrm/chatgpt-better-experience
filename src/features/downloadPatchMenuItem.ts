@@ -11,6 +11,17 @@ const CAPTURE_TIMEOUT_MS = 2000;
 const MENU_LOOKUP_DELAYS_MS = [0, 50, 100, 150, 250, 400];
 const CLIPBOARD_HOOK_SOURCE = "qqrm-clipboard-hook";
 
+type DownloadPatchResponse = { ok: true; downloadId: number } | { ok: false; error: string };
+
+type ChromeRuntime = {
+  sendMessage?: (message: unknown, callback: (response?: DownloadPatchResponse) => void) => void;
+  lastError?: { message?: string };
+};
+
+type BrowserRuntime = {
+  sendMessage?: (message: unknown) => Promise<DownloadPatchResponse>;
+};
+
 export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureHandle {
   let disposed = false;
   let hookInjected = false;
@@ -212,7 +223,15 @@ async function onDownloadPatchClick(
     return;
   }
 
-  downloadTextAsFile(patchText, buildPatchFilename());
+  const result = await requestPatchDownload({
+    filename: buildPatchFilename(),
+    text: patchText
+  });
+
+  if (!result.ok) {
+    console.warn(`[download-patch] ${result.error}`);
+    window.alert(`Download failed: ${result.error}`);
+  }
 }
 
 function isDisabled(el: HTMLElement): boolean {
@@ -304,19 +323,54 @@ function slugify(input: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-function downloadTextAsFile(text: string, filename: string) {
-  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
+async function requestPatchDownload({
+  filename,
+  text
+}: {
+  filename: string;
+  text: string;
+}): Promise<DownloadPatchResponse> {
+  const message = { type: "downloadPatch" as const, filename, text };
 
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.style.display = "none";
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
+  const browserRuntime =
+    (
+      globalThis as typeof globalThis & {
+        browser?: { runtime?: BrowserRuntime };
+      }
+    ).browser?.runtime ?? null;
 
-  window.setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 0);
+  if (browserRuntime?.sendMessage) {
+    try {
+      const response = await browserRuntime.sendMessage(message);
+      return response ?? { ok: false, error: "Background did not provide a response." };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "Failed to send download message."
+      };
+    }
+  }
+
+  const chromeRuntime =
+    (
+      globalThis as typeof globalThis & {
+        chrome?: { runtime?: ChromeRuntime };
+      }
+    ).chrome?.runtime ?? null;
+
+  if (!chromeRuntime?.sendMessage) {
+    return { ok: false, error: "Runtime messaging API unavailable." };
+  }
+
+  return new Promise<DownloadPatchResponse>((resolve) => {
+    chromeRuntime.sendMessage?.(message, (response?: DownloadPatchResponse) => {
+      const runtimeError = chromeRuntime.lastError;
+      if (runtimeError?.message) {
+        resolve({ ok: false, error: runtimeError.message });
+        return;
+      }
+
+      resolve(response ?? { ok: false, error: "Background did not provide a response." });
+    });
+  });
 }

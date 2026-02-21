@@ -31,6 +31,11 @@ await Promise.all([
     ...shared,
     entryPoints: ["src/pageClipboardHook.ts"],
     outfile: `${distDir}/pageClipboardHook.js`
+  }),
+  build({
+    ...shared,
+    entryPoints: ["src/background.ts"],
+    outfile: `${distDir}/background.js`
   })
 ]);
 
@@ -49,6 +54,10 @@ if (Array.isArray(manifest.content_scripts)) {
 
 if (manifest.action?.default_popup) {
   manifest.action.default_popup = stripDistPrefix(manifest.action.default_popup);
+}
+
+if (manifest.background?.service_worker) {
+  manifest.background.service_worker = stripDistPrefix(manifest.background.service_worker);
 }
 
 if (manifest.action?.default_icon) {
