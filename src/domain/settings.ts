@@ -14,6 +14,7 @@ export interface Settings {
   trimChatDom: boolean;
   trimChatDomKeep: number;
   hideShareButton: boolean;
+  macroRecorderEnabled: boolean;
 }
 
 export type SettingsRecord = Settings & Record<string, unknown>;
@@ -33,5 +34,6 @@ export const SETTINGS_DEFAULTS: SettingsRecord = {
   wideChatWidth: 0,
   trimChatDom: false,
   trimChatDomKeep: 10,
-  hideShareButton: false
+  hideShareButton: false,
+  macroRecorderEnabled: false
 };

@@ -31,6 +31,9 @@ const hideShareButtonEl = mustGetElement<HTMLInputElement>("hideShareButton");
 const wideChatWidthEl = mustGetElement<HTMLInputElement>("wideChatWidth");
 const wideChatWidthValueEl = mustGetElement<HTMLElement>("wideChatWidthValue");
 const themeToggleEl = mustGetElement<HTMLButtonElement>("qqrm-theme-toggle");
+const macroRecorderEnabledEl = mustGetElement<HTMLInputElement>("macroRecorderEnabled");
+const macroRecorderStatusEl = mustGetElement<HTMLElement>("macroRecorderStatus");
+const macroRecorderMetaEl = mustGetElement<HTMLElement>("macroRecorderMeta");
 
 type ExtensionLike = {
   runtime?: { lastError?: unknown };
@@ -109,10 +112,36 @@ const setTrimChatKeepVisible = (visible: boolean) => {
   trimChatDomHintEl.style.display = d;
 };
 
+type MacroRecorderRuntimeStatus = "off" | "armed" | "recording" | "ready";
+
+function renderMacroRecorderStatus(status: unknown, lastExportAt: unknown) {
+  const value: MacroRecorderRuntimeStatus =
+    status === "armed" || status === "recording" || status === "ready" ? status : "off";
+
+  macroRecorderStatusEl.textContent =
+    value === "recording"
+      ? "Recording"
+      : value === "armed"
+        ? "Armed"
+        : value === "ready"
+          ? "Ready"
+          : "Off";
+
+  const ts =
+    typeof lastExportAt === "number" && Number.isFinite(lastExportAt) && lastExportAt > 0
+      ? new Date(lastExportAt).toLocaleTimeString()
+      : "";
+
+  macroRecorderMetaEl.textContent = ts
+    ? `F5 start • F6 stop+save (last: ${ts})`
+    : "F5 start • F6 stop+save";
+}
+
 async function load() {
-  const [{ settings, hint }, themeData] = await Promise.all([
+  const [{ settings, hint }, themeData, macroData] = await Promise.all([
     loadPopupSettings(popupDeps),
-    storagePort.get({ popupThemeMode: "auto" as ThemeMode })
+    storagePort.get({ popupThemeMode: "auto" as ThemeMode }),
+    storagePort.get({ macroRecorderStatus: "off", macroRecorderLastExportAt: 0 })
   ]);
 
   autoSendEl.checked = settings.autoSend;
@@ -132,6 +161,9 @@ async function load() {
   hideShareButtonEl.checked = settings.hideShareButton;
   wideChatWidthEl.value = String(settings.wideChatWidth);
   wideChatWidthValueEl.textContent = `${settings.wideChatWidth}%`;
+
+  macroRecorderEnabledEl.checked = !!settings.macroRecorderEnabled;
+  renderMacroRecorderStatus(macroData.macroRecorderStatus, macroData.macroRecorderLastExportAt);
 
   hintEl.textContent = hint;
 
@@ -156,7 +188,8 @@ async function save() {
     trimChatDom: !!trimChatDomEl.checked,
     trimChatDomKeep,
     hideShareButton: !!hideShareButtonEl.checked,
-    wideChatWidth
+    wideChatWidth,
+    macroRecorderEnabled: !!macroRecorderEnabledEl.checked
   };
 
   const { hint } = await savePopupSettings(popupDeps, input);
@@ -183,5 +216,27 @@ trimChatDomKeepEl.addEventListener("input", () => void save().catch(() => {}));
 hideShareButtonEl.addEventListener("change", () => void save().catch(() => {}));
 wideChatWidthEl.addEventListener("input", () => void save().catch(() => {}));
 themeToggleEl.addEventListener("click", () => void cycleThemeMode().catch(() => {}));
+macroRecorderEnabledEl.addEventListener("change", () => void save().catch(() => {}));
+
+storagePort.onChanged?.((changes) => {
+  if ("macroRecorderStatus" in changes || "macroRecorderLastExportAt" in changes) {
+    renderMacroRecorderStatus(
+      changes.macroRecorderStatus?.newValue,
+      "macroRecorderLastExportAt" in changes
+        ? changes.macroRecorderLastExportAt?.newValue
+        : undefined
+    );
+  }
+
+  if ("macroRecorderEnabled" in changes) {
+    const next = changes.macroRecorderEnabled?.newValue;
+    if (typeof next === "boolean") {
+      macroRecorderEnabledEl.checked = next;
+      if (!next) {
+        renderMacroRecorderStatus("off", undefined);
+      }
+    }
+  }
+});
 
 void load().catch(() => {});

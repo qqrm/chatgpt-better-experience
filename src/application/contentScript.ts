@@ -14,6 +14,7 @@ import { initCtrlEnterSendFeature } from "../features/ctrlEnterSend";
 import { initTrimChatDomFeature } from "../features/trimChatDom";
 import { initHideShareButtonFeature } from "../features/hideShareButton";
 import { initDownloadPatchMenuItemFeature } from "../features/downloadPatchMenuItem";
+import { initMacroRecorderFeature } from "../features/macroRecorder";
 
 declare global {
   interface Window {
@@ -64,7 +65,8 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       initHideShareButtonFeature(ctx),
       initDownloadPatchMenuItemFeature(ctx),
       initWideChatFeature(ctx),
-      initCtrlEnterSendFeature(ctx)
+      initCtrlEnterSendFeature(ctx),
+      initMacroRecorderFeature(ctx)
     ];
 
     if (ctx.logger.isEnabled) {
@@ -101,7 +103,8 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
           "tempChatEnabled" in changes ||
           "trimChatDom" in changes ||
           "trimChatDomKeep" in changes ||
-          "hideShareButton" in changes
+          "hideShareButton" in changes ||
+          "macroRecorderEnabled" in changes
         )
       ) {
         return;
