@@ -15,9 +15,7 @@ Dev:
 ## UI preview
 
 <!-- popup-screenshot:start -->
-
 ![Extension popup in dark theme](docs/images/popup-dark.jpeg)
-
 <!-- popup-screenshot:end -->
 
 ## Dependabot automation
