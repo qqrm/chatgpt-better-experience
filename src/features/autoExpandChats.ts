@@ -74,10 +74,13 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
     return sb.querySelector('nav[aria-label="Chat history"]');
   };
 
-  const autoExpandFindYourChatsSection = (nav: Element | null) => {
-    if (!nav) return null;
+  const autoExpandSidebarSections = (nav: Element | null) => {
+    if (!nav) return [] as HTMLElement[];
+    return Array.from(nav.querySelectorAll<HTMLElement>("div.group\\/sidebar-expando-section"));
+  };
 
-    const sections = Array.from(nav.querySelectorAll("div.group\\/sidebar-expando-section"));
+  const autoExpandFindYourChatsSection = (nav: Element | null) => {
+    const sections = autoExpandSidebarSections(nav);
     for (const sec of sections) {
       const t = norm(sec.textContent);
       if (
@@ -90,7 +93,23 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
       }
     }
 
-    if (sections.length >= 4) return sections[3];
+    if (sections.length >= 4) return sections[3] ?? null;
+    return null;
+  };
+
+  const autoExpandFindGroupChatsSection = (nav: Element | null) => {
+    const sections = autoExpandSidebarSections(nav);
+    for (const sec of sections) {
+      const t = norm(sec.textContent);
+      if (
+        t.includes("group chats") ||
+        t.includes("group chat") ||
+        t.includes("групповые чаты") ||
+        t.includes("групп")
+      ) {
+        return sec;
+      }
+    }
     return null;
   };
 
@@ -105,15 +124,8 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
     return false;
   };
 
-  const autoExpandExpandYourChats = () => {
-    if (!autoExpandSidebarIsOpen()) return false;
-
-    const nav = autoExpandChatHistoryNav();
-    if (!nav || !isElementVisible(nav)) return false;
-
-    const sec = autoExpandFindYourChatsSection(nav);
+  const autoExpandExpandSection = (sec: Element | null) => {
     if (!sec) return false;
-
     if (!autoExpandSectionCollapsed(sec)) return false;
 
     const btn =
@@ -125,6 +137,36 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
 
     autoExpandDispatchClick(btn as HTMLElement);
     return true;
+  };
+
+  const autoExpandInspectChatSections = () => {
+    if (!autoExpandSidebarIsOpen()) return { found: 0, collapsed: 0, sections: [] as Element[] };
+
+    const nav = autoExpandChatHistoryNav();
+    if (!nav || !isElementVisible(nav))
+      return { found: 0, collapsed: 0, sections: [] as Element[] };
+
+    const sections = [
+      autoExpandFindYourChatsSection(nav),
+      autoExpandFindGroupChatsSection(nav)
+    ].filter(Boolean) as Element[];
+
+    let collapsed = 0;
+    for (const sec of sections) {
+      if (autoExpandSectionCollapsed(sec)) {
+        collapsed += 1;
+      }
+    }
+
+    return { found: sections.length, collapsed, sections };
+  };
+
+  const autoExpandExpandChatSections = (sections: Element[]) => {
+    let clicked = 0;
+    for (const sec of sections) {
+      if (autoExpandExpandSection(sec)) clicked += 1;
+    }
+    return clicked;
   };
 
   const autoExpandWaitForSidebar = async () => {
@@ -159,8 +201,8 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
         return false;
       }
 
-      const sec = autoExpandFindYourChatsSection(nav);
-      if (sec && !autoExpandSectionCollapsed(sec)) {
+      const chatSections = autoExpandInspectChatSections();
+      if (chatSections.found > 0 && chatSections.collapsed === 0) {
         ctx.logger.debug("AUTOEXPAND", "already expanded on start");
         return true;
       }
@@ -182,14 +224,18 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
       return false;
     }
 
-    const sec = autoExpandFindYourChatsSection(nav);
-    if (sec && !autoExpandSectionCollapsed(sec)) {
+    const chatSections = autoExpandInspectChatSections();
+    if (chatSections.found > 0 && chatSections.collapsed === 0) {
       ctx.logger.debug("AUTOEXPAND", "already expanded on start");
       return true;
     }
 
-    if (autoExpandExpandYourChats()) {
-      ctx.logger.debug("AUTOEXPAND", "expanded on start");
+    const clicked = autoExpandExpandChatSections(chatSections.sections);
+    if (clicked > 0) {
+      ctx.logger.debug(
+        "AUTOEXPAND",
+        `expanded on start (sections clicked=${clicked}, found=${chatSections.found})`
+      );
       return true;
     }
 
