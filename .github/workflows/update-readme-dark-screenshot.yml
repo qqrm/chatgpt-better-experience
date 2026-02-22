@@ -130,7 +130,7 @@ jobs:
         if: steps.changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.AUTOMATION_BOT_TOKEN }}
           commit-message: "docs: refresh dark-theme popup screenshot"
           branch: "ci/update-readme-dark-screenshot"
           delete-branch: true
@@ -148,7 +148,7 @@ jobs:
       - name: Validate repository auto-merge setting
         if: steps.changes.outputs.changed == 'true' && steps.create_pr.outputs.pull-request-number != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.AUTOMATION_BOT_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -162,7 +162,7 @@ jobs:
       - name: Close stale screenshot PRs
         if: steps.changes.outputs.changed == 'true' && steps.create_pr.outputs.pull-request-number != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.AUTOMATION_BOT_TOKEN }}
           CURRENT_PR: ${{ steps.create_pr.outputs.pull-request-number }}
         shell: bash
         run: |
@@ -186,7 +186,7 @@ jobs:
       - name: Enforce auto-merge (with merge-now fallback)
         if: steps.changes.outputs.changed == 'true' && steps.create_pr.outputs.pull-request-number != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.AUTOMATION_BOT_TOKEN }}
           PR_NUMBER: ${{ steps.create_pr.outputs.pull-request-number }}
         shell: bash
         run: |
@@ -210,7 +210,7 @@ jobs:
       - name: Mark required build check successful for docs/image-only PR
         if: steps.changes.outputs.changed == 'true' && steps.create_pr.outputs.pull-request-number != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.AUTOMATION_BOT_TOKEN }}
           PR_NUMBER: ${{ steps.create_pr.outputs.pull-request-number }}
         shell: bash
         run: |
