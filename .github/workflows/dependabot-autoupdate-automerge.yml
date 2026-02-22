@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout (optional)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
 
       - name: Ensure labels exist
         env:
@@ -88,7 +88,7 @@ jobs:
       eligible_pr_numbers: ${{ steps.eligible-prs.outputs.numbers }}
     steps:
       - name: Rebase Dependabot dependency PRs that are not blocked
-        uses: peter-evans/rebase@v4
+        uses: peter-evans/rebase@v4.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           base: main
@@ -121,7 +121,7 @@ jobs:
         pr_number: ${{ fromJson(needs.rebase-and-automerge.outputs.eligible_pr_numbers) }}
     steps:
       - name: Enable GitHub auto-merge
-        uses: peter-evans/enable-pull-request-automerge@v3
+        uses: peter-evans/enable-pull-request-automerge@v3.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           pull-request-number: ${{ matrix.pr_number }}
