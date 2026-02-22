@@ -4,30 +4,26 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    types:
-      - closed
-    branches:
-      - main
+    paths-ignore:
+      - README.md
+      - docs/**
   workflow_dispatch: {}
 
 jobs:
   sign-and-submit:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main') }}
     concurrency:
       group: ${{ github.workflow }}-${{ github.sha }}
       cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version: "20"
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
