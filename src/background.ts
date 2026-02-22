@@ -19,11 +19,19 @@ type ChromeRuntime = {
   lastError?: { message?: string };
 };
 
+type DownloadDelta = {
+  id: number;
+  state?: { current?: string };
+};
+
 type ChromeDownloads = {
   download?: (
     options: { url: string; filename: string; saveAs: boolean },
     callback: (downloadId?: number) => void
   ) => void;
+  onChanged?: {
+    addListener?: (listener: (delta: DownloadDelta) => void) => void;
+  };
 };
 
 type ChromeLikeApi = {
@@ -31,12 +39,63 @@ type ChromeLikeApi = {
   downloads?: ChromeDownloads;
 };
 
+const DOWNLOAD_BLOB_URL_TTL_MS = 120000;
+
 const chromeApi =
   (
     globalThis as typeof globalThis & {
       chrome?: ChromeLikeApi;
     }
   ).chrome ?? null;
+
+const pendingBlobUrls = new Map<
+  number,
+  { url: string; timeoutId: ReturnType<typeof setTimeout> }
+>();
+let downloadChangeListenerInstalled = false;
+
+function safeRevokeObjectUrl(url: string): void {
+  try {
+    URL.revokeObjectURL(url);
+  } catch {
+    // Ignore revoke errors.
+  }
+}
+
+function cleanupTrackedBlobUrl(downloadId: number): void {
+  const tracked = pendingBlobUrls.get(downloadId);
+  if (!tracked) return;
+
+  globalThis.clearTimeout(tracked.timeoutId);
+  safeRevokeObjectUrl(tracked.url);
+  pendingBlobUrls.delete(downloadId);
+}
+
+function trackBlobUrl(downloadId: number, url: string): void {
+  cleanupTrackedBlobUrl(downloadId);
+  const timeoutId = globalThis.setTimeout(() => {
+    cleanupTrackedBlobUrl(downloadId);
+  }, DOWNLOAD_BLOB_URL_TTL_MS);
+
+  pendingBlobUrls.set(downloadId, { url, timeoutId });
+}
+
+function maybeInstallDownloadChangeListener(): void {
+  if (downloadChangeListenerInstalled) return;
+  const addListener = chromeApi?.downloads?.onChanged?.addListener;
+  if (!addListener) return;
+
+  addListener((delta) => {
+    if (!delta?.state?.current) return;
+    if (delta.state.current === "complete" || delta.state.current === "interrupted") {
+      cleanupTrackedBlobUrl(delta.id);
+    }
+  });
+
+  downloadChangeListenerInstalled = true;
+}
+
+maybeInstallDownloadChangeListener();
 
 if (chromeApi?.runtime?.onMessage?.addListener) {
   chromeApi.runtime.onMessage.addListener((message: unknown, _sender: unknown, sendResponse) => {
@@ -94,13 +153,13 @@ async function handleDownloadPatchMessage(
       );
     });
 
+    trackBlobUrl(downloadId, url);
     return { ok: true, downloadId };
   } catch (error) {
+    safeRevokeObjectUrl(url);
     return {
       ok: false,
       error: error instanceof Error ? error.message : "Failed to start patch download."
     };
-  } finally {
-    URL.revokeObjectURL(url);
   }
 }
