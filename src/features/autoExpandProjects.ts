@@ -21,6 +21,7 @@ const AUTO_EXPAND_MAX_ATTEMPTS = 25;
 type ExpandStats = {
   projectsExpanded: boolean;
   projectRows: number;
+  collapsedProjectRows: number;
   folderClicks: number;
 };
 
@@ -125,82 +126,86 @@ function findFolderToggleButton(rowScope: HTMLElement): HTMLButtonElement | null
   return null;
 }
 
-function pickTargetProject(section: HTMLElement): HTMLAnchorElement | null {
+function expandCollapsedProjectFolders(
+  ctx: FeatureContext,
+  section: HTMLElement
+): { totalRows: number; collapsedRows: number; folderClicks: number } {
   const projects = Array.from(section.querySelectorAll<HTMLAnchorElement>('a[href*="/project"]'));
-  if (projects.length === 0) return null;
-
-  // Prefer VPN project when present.
-  for (const a of projects) {
-    const href = a.getAttribute("href") ?? "";
-    if (href.includes("/vpn/project") || href.includes("-vpn/")) return a;
-  }
-  for (const a of projects) {
-    const label = norm(a.textContent);
-    if (label === "vpn" || label.includes(" vpn ")) return a;
+  if (projects.length === 0) {
+    return { totalRows: 0, collapsedRows: 0, folderClicks: 0 };
   }
 
-  return projects[0];
-}
+  let collapsedRows = 0;
+  let folderClicks = 0;
 
-function expandTargetProject(ctx: FeatureContext, section: HTMLElement): number {
-  const target = pickTargetProject(section);
-  if (!target) return 0;
+  for (const projectLink of projects) {
+    const href = projectLink.getAttribute("href") ?? "";
+    if (isProjectExpanded(projectLink)) continue;
 
-  const href = target.getAttribute("href") ?? "";
+    collapsedRows += 1;
 
-  // Critical: do nothing if already expanded.
-  if (isProjectExpanded(target)) {
-    ctx.logger.debug("autoExpandProjects", `target already expanded: ${href}`);
-    return 0;
+    // Click at most one folder toggle per run to avoid sidebar jitter/rerenders.
+    if (folderClicks > 0) continue;
+
+    const row =
+      projectLink.closest<HTMLElement>("li") ??
+      projectLink.closest<HTMLElement>("div") ??
+      projectLink.parentElement ??
+      projectLink;
+
+    const scopeCandidates: HTMLElement[] = [row];
+    if (row.parentElement) scopeCandidates.push(row.parentElement);
+
+    let btn: HTMLButtonElement | null = null;
+    for (const sc of scopeCandidates) {
+      btn = findFolderToggleButton(sc);
+      if (btn) break;
+    }
+
+    if (!btn) {
+      ctx.logger.debug("autoExpandProjects", `no folder button found for project: ${href}`);
+      continue;
+    }
+    if (!isElementVisible(btn)) {
+      ctx.logger.debug("autoExpandProjects", `folder button not visible for project: ${href}`);
+      continue;
+    }
+
+    ctx.logger.debug("autoExpandProjects", `click folder icon for project: ${href}`);
+    dispatchHumanClick(btn);
+    folderClicks = 1;
   }
 
-  const row =
-    target.closest<HTMLElement>("li") ??
-    target.closest<HTMLElement>("div") ??
-    target.parentElement ??
-    target;
-
-  const scopeCandidates: HTMLElement[] = [row];
-  if (row.parentElement) scopeCandidates.push(row.parentElement);
-
-  let btn: HTMLButtonElement | null = null;
-  for (const sc of scopeCandidates) {
-    btn = findFolderToggleButton(sc);
-    if (btn) break;
-  }
-
-  if (!btn) {
-    ctx.logger.debug("autoExpandProjects", `no folder button found for target: ${href}`);
-    return 0;
-  }
-  if (!isElementVisible(btn)) {
-    ctx.logger.debug("autoExpandProjects", `folder button not visible for target: ${href}`);
-    return 0;
-  }
-
-  ctx.logger.debug("autoExpandProjects", `click folder icon for target: ${href}`);
-  dispatchHumanClick(btn);
-  return 1;
+  return { totalRows: projects.length, collapsedRows, folderClicks };
 }
 
 function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; done: boolean } {
   const nav = getChatHistoryNav(ctx);
   if (!nav) {
     ctx.logger.debug("autoExpandProjects", `no sidebar nav yet (${reason})`);
-    return { stats: { projectsExpanded: false, projectRows: 0, folderClicks: 0 }, done: false };
+    return {
+      stats: { projectsExpanded: false, projectRows: 0, collapsedProjectRows: 0, folderClicks: 0 },
+      done: false
+    };
   }
 
   const section = findProjectsSection(nav);
   if (!section) {
     ctx.logger.debug("autoExpandProjects", `no Projects section yet (${reason})`);
-    return { stats: { projectsExpanded: false, projectRows: 0, folderClicks: 0 }, done: false };
+    return {
+      stats: { projectsExpanded: false, projectRows: 0, collapsedProjectRows: 0, folderClicks: 0 },
+      done: false
+    };
   }
 
   const wantProjects = ctx.settings.autoExpandProjects;
   const wantItems = ctx.settings.autoExpandProjectItems;
 
   if (!wantProjects && !wantItems) {
-    return { stats: { projectsExpanded: false, projectRows: 0, folderClicks: 0 }, done: true };
+    return {
+      stats: { projectsExpanded: false, projectRows: 0, collapsedProjectRows: 0, folderClicks: 0 },
+      done: true
+    };
   }
 
   let expanded = !isSectionCollapsed(section);
@@ -208,21 +213,32 @@ function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; don
     expanded = expandSectionIfNeeded(ctx, section);
   }
 
-  const rows = section.querySelectorAll('a[href*="/project"]').length;
-
+  let rows = section.querySelectorAll('a[href*="/project"]').length;
+  let collapsedRows = 0;
   let folderClicks = 0;
   if (expanded && wantItems) {
-    folderClicks = expandTargetProject(ctx, section);
+    const projectExpansion = expandCollapsedProjectFolders(ctx, section);
+    rows = projectExpansion.totalRows;
+    collapsedRows = projectExpansion.collapsedRows;
+    folderClicks = projectExpansion.folderClicks;
   }
 
-  const done = wantItems ? expanded && folderClicks === 0 && rows > 0 : expanded;
+  const done = wantItems ? expanded && rows > 0 && collapsedRows === 0 : expanded;
 
   ctx.logger.debug(
     "autoExpandProjects",
-    `${reason} expanded=${expanded} rows=${rows} folderClicks=${folderClicks} done=${done}`
+    `${reason} expanded=${expanded} rows=${rows} collapsedRows=${collapsedRows} folderClicks=${folderClicks} done=${done}`
   );
 
-  return { stats: { projectsExpanded: expanded, projectRows: rows, folderClicks }, done };
+  return {
+    stats: {
+      projectsExpanded: expanded,
+      projectRows: rows,
+      collapsedProjectRows: collapsedRows,
+      folderClicks
+    },
+    done
+  };
 }
 
 export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandle {
