@@ -1,4 +1,4 @@
-name: update-icons
+name: Update Icons
 
 on:
   pull_request:

@@ -1,4 +1,4 @@
-name: Dependabot autoupdate & automerge
+name: Dependabot Auto-Update & Auto-Merge
 
 on:
   schedule:

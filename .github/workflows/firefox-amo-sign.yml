@@ -1,4 +1,4 @@
-name: firefox-amo-sign
+name: Firefox AMO Sign
 
 on:
   push:
