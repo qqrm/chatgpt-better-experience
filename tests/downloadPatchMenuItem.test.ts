@@ -421,4 +421,286 @@ describe("downloadPatchMenuItem", () => {
       delete (globalThis as typeof globalThis & { chrome?: unknown }).chrome;
     }
   });
+
+  it("waits for hook ready before begin/click", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = `
+      <button aria-label="Open git action menu">menu</button>
+      <div role="menu">
+        <div role="menuitem" id="copy-item"><span>Copy Patch</span></div>
+      </div>
+    `;
+
+    const sourceClickSpy = vi.fn();
+    document.getElementById("copy-item")?.addEventListener("click", sourceClickSpy);
+
+    const postMessageSpy = vi.spyOn(window, "postMessage");
+    const sendMessageMock = vi.fn(
+      (_message: unknown, callback: (response: { ok: true; downloadId: number }) => void) => {
+        callback({ ok: true, downloadId: 7 });
+      }
+    );
+
+    (
+      globalThis as typeof globalThis & {
+        chrome?: {
+          runtime?: {
+            getURL?: (path: string) => string;
+            sendMessage?: typeof sendMessageMock;
+            lastError?: Error;
+          };
+        };
+      }
+    ).chrome = {
+      runtime: {
+        getURL: (path: string) => path,
+        sendMessage: sendMessageMock
+      }
+    };
+
+    const handle = initDownloadPatchMenuItemFeature(makeTestContext());
+
+    try {
+      (
+        document.querySelector('button[aria-label="Open git action menu"]') as HTMLButtonElement
+      ).click();
+      await vi.runAllTimersAsync();
+
+      findDownloadMenuItem()?.click();
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(
+        postMessageSpy.mock.calls.some(
+          (call) =>
+            (call[0] as { source?: string; type?: string })?.source === "qqrm-clipboard-hook" &&
+            (call[0] as { source?: string; type?: string })?.type === "begin"
+        )
+      ).toBe(false);
+      expect(sourceClickSpy).not.toHaveBeenCalled();
+
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: window,
+          data: { source: "qqrm-clipboard-hook", type: "ready" }
+        })
+      );
+      await vi.advanceTimersByTimeAsync(1);
+
+      const beginCall = postMessageSpy.mock.calls.find(
+        (call) =>
+          (call[0] as { source?: string; type?: string })?.source === "qqrm-clipboard-hook" &&
+          (call[0] as { source?: string; type?: string })?.type === "begin"
+      );
+      expect(beginCall).toBeTruthy();
+      expect(sourceClickSpy).toHaveBeenCalled();
+
+      const beginData = beginCall?.[0] as { id?: string };
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: window,
+          data: {
+            source: "qqrm-clipboard-hook",
+            type: "captured",
+            id: beginData.id,
+            text: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n"
+          }
+        })
+      );
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(sendMessageMock).toHaveBeenCalledOnce();
+    } finally {
+      handle.dispose();
+      delete (globalThis as typeof globalThis & { chrome?: unknown }).chrome;
+    }
+  });
+
+  it("falls back when hook readiness times out", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = `
+      <button aria-label="Open git action menu">menu</button>
+      <div role="menu">
+        <div role="menuitem"><span>Copy Patch</span></div>
+      </div>
+      <pre>diff --git a/dom b/dom
+--- a/dom
++++ b/dom
+@@ -1 +1 @@
+-x
++y
+</pre>
+    `;
+
+    const sendMessageMock = vi.fn(
+      (_message: unknown, callback: (response: { ok: true; downloadId: number }) => void) => {
+        callback({ ok: true, downloadId: 10 });
+      }
+    );
+    (
+      globalThis as typeof globalThis & {
+        chrome?: {
+          runtime?: {
+            getURL?: (path: string) => string;
+            sendMessage?: typeof sendMessageMock;
+            lastError?: Error;
+          };
+        };
+      }
+    ).chrome = {
+      runtime: {
+        getURL: (path: string) => path,
+        sendMessage: sendMessageMock
+      }
+    };
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const handle = initDownloadPatchMenuItemFeature(makeTestContext());
+
+    try {
+      (
+        document.querySelector('button[aria-label="Open git action menu"]') as HTMLButtonElement
+      ).click();
+      await vi.runAllTimersAsync();
+
+      findDownloadMenuItem()?.click();
+      await vi.advanceTimersByTimeAsync(1600);
+
+      expect(sendMessageMock).toHaveBeenCalledOnce();
+      const payload = sendMessageMock.mock.calls[0][0] as { text: string };
+      expect(payload.text).toContain("diff --git a/dom b/dom");
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("hook ready timeout"));
+    } finally {
+      handle.dispose();
+      delete (globalThis as typeof globalThis & { chrome?: unknown }).chrome;
+    }
+  });
+
+  it("normalizes patch text without trimming significant whitespace", async () => {
+    document.body.innerHTML = `
+      <button aria-label="Open git action menu">menu</button>
+      <div role="menu">
+        <div role="menuitem"><span>Copy Patch</span></div>
+      </div>
+    `;
+
+    const patchText =
+      "diff --git a/a b/a\r\n--- a/a\r\n+++ b/a\r\n@@ -1 +1 @@\r\n+ leading\r\n-line-with-space   \r\n\t+tabbed\r\n";
+
+    const originalPostMessage = window.postMessage.bind(window);
+    vi.spyOn(window, "postMessage").mockImplementation(
+      (message: unknown, options?: string | WindowPostMessageOptions) => {
+        const data = message as { source?: string; type?: string; id?: string };
+        if (data.source === "qqrm-clipboard-hook" && data.type === "begin" && data.id) {
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              source: window,
+              data: {
+                source: "qqrm-clipboard-hook",
+                type: "captured",
+                id: data.id,
+                text: patchText,
+                transport: "writeText"
+              }
+            })
+          );
+        }
+        if (typeof options === "string") return originalPostMessage(message, options);
+        return originalPostMessage(message, options);
+      }
+    );
+
+    const sendMessageMock = vi.fn(
+      (_message: unknown, callback: (response: { ok: true; downloadId: number }) => void) => {
+        callback({ ok: true, downloadId: 1 });
+      }
+    );
+    (
+      globalThis as typeof globalThis & {
+        chrome?: { runtime?: { sendMessage?: typeof sendMessageMock; lastError?: Error } };
+      }
+    ).chrome = { runtime: { sendMessage: sendMessageMock } };
+
+    const handle = initDownloadPatchMenuItemFeature(makeTestContext());
+    try {
+      (
+        document.querySelector('button[aria-label="Open git action menu"]') as HTMLButtonElement
+      ).click();
+      await flush();
+
+      findDownloadMenuItem()?.click();
+      await flush();
+
+      const payload = sendMessageMock.mock.calls[0][0] as { text: string };
+      expect(payload.text).toContain("+ leading\n");
+      expect(payload.text).toContain("-line-with-space   \n");
+      expect(payload.text).toContain("\t+tabbed\n");
+      expect(payload.text.includes("\r")).toBe(false);
+      expect(payload.text.endsWith("\n")).toBe(true);
+    } finally {
+      handle.dispose();
+      delete (globalThis as typeof globalThis & { chrome?: unknown }).chrome;
+    }
+  });
+
+  it("cleans browser runtime timeout timer when sendMessage resolves quickly", async () => {
+    document.body.innerHTML = `
+      <button aria-label="Open git action menu">menu</button>
+      <div role="menu">
+        <div role="menuitem"><span>Copy Patch</span></div>
+      </div>
+    `;
+
+    const originalPostMessage = window.postMessage.bind(window);
+    vi.spyOn(window, "postMessage").mockImplementation(
+      (message: unknown, options?: string | WindowPostMessageOptions) => {
+        const data = message as { source?: string; type?: string; id?: string };
+        if (data.source === "qqrm-clipboard-hook" && data.type === "begin" && data.id) {
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              source: window,
+              data: {
+                source: "qqrm-clipboard-hook",
+                type: "captured",
+                id: data.id,
+                text: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n"
+              }
+            })
+          );
+        }
+        if (typeof options === "string") return originalPostMessage(message, options);
+        return originalPostMessage(message, options);
+      }
+    );
+
+    const clearTimeoutSpy = vi.spyOn(window, "clearTimeout");
+    (
+      globalThis as typeof globalThis & {
+        browser?: {
+          runtime?: {
+            sendMessage?: (message: unknown) => Promise<{ ok: boolean; downloadId: number }>;
+          };
+        };
+      }
+    ).browser = {
+      runtime: {
+        sendMessage: vi.fn(async () => ({ ok: true, downloadId: 2 }))
+      }
+    };
+
+    const handle = initDownloadPatchMenuItemFeature(makeTestContext());
+    try {
+      (
+        document.querySelector('button[aria-label="Open git action menu"]') as HTMLButtonElement
+      ).click();
+      await flush();
+
+      findDownloadMenuItem()?.click();
+      await flush();
+
+      expect(clearTimeoutSpy).toHaveBeenCalled();
+    } finally {
+      handle.dispose();
+      delete (globalThis as typeof globalThis & { browser?: unknown }).browser;
+    }
+  });
 });

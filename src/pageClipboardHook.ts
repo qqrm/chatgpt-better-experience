@@ -2,6 +2,7 @@
   const SOURCE = "qqrm-clipboard-hook";
   const INSTALLED_FLAG = "__qqrmClipboardHookInstalled__";
   const CAPTURE_EXPIRY_MS = 7000;
+  const HOOK_VERSION = "1";
 
   type CaptureMode = "capture-only" | "passthrough";
   type ActiveCapture = { id: string; mode: CaptureMode };
@@ -10,7 +11,21 @@
     [INSTALLED_FLAG]?: boolean;
   };
 
-  if (g[INSTALLED_FLAG]) return;
+  const postReady = () => {
+    window.postMessage(
+      {
+        source: SOURCE,
+        type: "ready",
+        version: HOOK_VERSION
+      },
+      "*"
+    );
+  };
+
+  if (g[INSTALLED_FLAG]) {
+    postReady();
+    return;
+  }
   g[INSTALLED_FLAG] = true;
 
   const clipboardApi = navigator.clipboard as
@@ -113,4 +128,6 @@
     },
     true
   );
+
+  postReady();
 })();

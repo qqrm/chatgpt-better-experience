@@ -9,6 +9,7 @@ const ITEM_MARK_ATTR = "data-qqrm-download-patch-item";
 const DOWNLOAD_LABEL = "Download Patch";
 const CAPTURE_TIMEOUT_MS = 5000;
 const MESSAGE_TIMEOUT_MS = 10000;
+const CLIPBOARD_HOOK_READY_TIMEOUT_MS = 1500;
 const MENU_OBSERVER_WINDOW_MS = 1500;
 const TRACE_PREFIX = "[download-patch]";
 const MENU_LOOKUP_DELAYS_MS = [0, 50, 100, 150, 250, 400];
@@ -31,6 +32,7 @@ type BrowserRuntime = {
 export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureHandle {
   let disposed = false;
   let hookInjected = false;
+  let clipboardHookReady = false;
   let activeOperationId: string | null = null;
   const timerIds = new Set<number>();
   const observerCleanupFns = new Set<() => void>();
@@ -78,7 +80,10 @@ export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureH
         }
       ).browser?.runtime;
 
-    if (!runtime?.getURL) return;
+    if (!runtime?.getURL) {
+      clipboardHookReady = true;
+      return;
+    }
     if (document.querySelector('script[data-qqrm-clipboard-hook="1"]')) return;
 
     const script = document.createElement("script");
@@ -89,8 +94,50 @@ export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureH
     document.documentElement.appendChild(script);
   };
 
-  const captureClipboardFromAction = (trigger: () => void): Promise<ClipboardCaptureResult> => {
+  const waitForClipboardHookReady = (timeoutMs: number): Promise<boolean> => {
+    if (clipboardHookReady) return Promise.resolve(true);
+
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const onMessage = (event: MessageEvent) => {
+        if (event.source !== window) return;
+        const raw = event.data as unknown;
+        if (!raw || typeof raw !== "object") return;
+        const data = raw as { source?: string; type?: string };
+        if (data.source !== CLIPBOARD_HOOK_SOURCE || data.type !== "ready") return;
+
+        clipboardHookReady = true;
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        window.removeEventListener("message", onMessage);
+        resolve(true);
+      };
+
+      const timeoutId = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener("message", onMessage);
+        resolve(false);
+      }, timeoutMs);
+
+      window.addEventListener("message", onMessage);
+    });
+  };
+
+  const captureClipboardFromAction = async (
+    trigger: () => void,
+    traceId: string
+  ): Promise<ClipboardCaptureResult> => {
     injectPageClipboardHookOnce();
+
+    const hookReady = await waitForClipboardHookReady(CLIPBOARD_HOOK_READY_TIMEOUT_MS);
+    if (!hookReady) {
+      console.warn(`${TRACE_PREFIX}[${traceId}] hook ready timeout`);
+      return { text: null };
+    }
+
+    console.debug(`${TRACE_PREFIX}[${traceId}] hook ready`);
 
     const id = `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
     return new Promise<ClipboardCaptureResult>((resolve) => {
@@ -128,7 +175,12 @@ export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureH
       text?: string;
       transport?: string;
     };
-    if (data.source !== CLIPBOARD_HOOK_SOURCE || data.type !== "captured" || !data.id) return;
+    if (data.source !== CLIPBOARD_HOOK_SOURCE) return;
+    if (data.type === "ready") {
+      clipboardHookReady = true;
+      return;
+    }
+    if (data.type !== "captured" || !data.id) return;
 
     const pending = pendingCaptures.get(data.id);
     if (!pending) return;
@@ -226,7 +278,7 @@ function findGitActionMenu(): HTMLElement | null {
 
 function injectDownloadPatchItem(
   menu: HTMLElement,
-  captureAction: (trigger: () => void) => Promise<ClipboardCaptureResult>,
+  captureAction: (trigger: () => void, traceId: string) => Promise<ClipboardCaptureResult>,
   getActiveOperationId: () => string | null,
   setActiveOperationId: (id: string | null) => void
 ) {
@@ -258,7 +310,7 @@ function injectDownloadPatchItem(
 
 async function onDownloadPatchClick(
   menu: HTMLElement,
-  captureAction: (trigger: () => void) => Promise<ClipboardCaptureResult>,
+  captureAction: (trigger: () => void, traceId: string) => Promise<ClipboardCaptureResult>,
   getActiveOperationId: () => string | null,
   setActiveOperationId: (id: string | null) => void
 ) {
@@ -288,7 +340,7 @@ async function onDownloadPatchClick(
     console.debug(`${TRACE_PREFIX}[${traceId}] capture start`);
     const captured = await captureAction(() => {
       sourceItem.click();
-    });
+    }, traceId);
 
     const normalizedCaptured = normalizePatchText(captured.text ?? "");
     if (captured.text) {
@@ -397,9 +449,27 @@ function looksLikePatch(text: string): boolean {
 }
 
 function normalizePatchText(text: string): string {
-  const normalized = text.replace(/\r\n?/g, "\n").trim();
-  if (!normalized) return "";
+  const normalized = text.replace(/\r\n?/g, "\n");
+  if (normalized.length === 0) return "";
   return normalized.endsWith("\n") ? normalized : `${normalized}\n`;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutValue: T): Promise<T> {
+  let timeoutId: number | null = null;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = window.setTimeout(() => {
+      timeoutId = null;
+      resolve(timeoutValue);
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
+  }
 }
 
 function isVisible(el: Element): boolean {
@@ -489,12 +559,10 @@ async function requestPatchDownload({
 
   if (browserRuntime?.sendMessage) {
     try {
-      const timeoutPromise = new Promise<DownloadPatchResponse>((resolve) => {
-        window.setTimeout(() => {
-          resolve({ ok: false, error: "Background timeout" });
-        }, MESSAGE_TIMEOUT_MS);
+      const response = await withTimeout(browserRuntime.sendMessage(message), MESSAGE_TIMEOUT_MS, {
+        ok: false,
+        error: "Background timeout"
       });
-      const response = await Promise.race([browserRuntime.sendMessage(message), timeoutPromise]);
       return response ?? { ok: false, error: "Background did not provide a response." };
     } catch (error) {
       return {
