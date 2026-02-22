@@ -3,292 +3,289 @@ import { isElementVisible, norm } from "../lib/utils";
 
 const AUTO_EXPAND_START_TIMEOUT_MS = 3500;
 const AUTO_EXPAND_NAV_TIMEOUT_MS = 1500;
+const AUTO_EXPAND_DEBOUNCE_MS = 250;
+const AUTO_EXPAND_USER_COOLDOWN_MS = 5000;
+const AUTO_EXPAND_MAX_ATTEMPTS = 25;
+
 const AUTO_EXPAND_SIDEBAR_SELECTOR = "#stage-slideover-sidebar";
 const AUTO_EXPAND_OPEN_BUTTON_SELECTOR =
   '#stage-sidebar-tiny-bar button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"], button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]';
-const AUTO_EXPAND_READINESS_SELECTOR = `${AUTO_EXPAND_SIDEBAR_SELECTOR}, ${AUTO_EXPAND_OPEN_BUTTON_SELECTOR}`;
+
+function dispatchHumanClick(el: HTMLElement): void {
+  el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+  el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
+function getSidebar(ctx: FeatureContext): HTMLElement | null {
+  return ctx.helpers.safeQuery<HTMLElement>(AUTO_EXPAND_SIDEBAR_SELECTOR);
+}
+
+function getSidebarOpenButton(ctx: FeatureContext): HTMLButtonElement | null {
+  return ctx.helpers.safeQuery<HTMLButtonElement>(AUTO_EXPAND_OPEN_BUTTON_SELECTOR);
+}
+
+function isSidebarOpen(ctx: FeatureContext): boolean {
+  const sidebar = getSidebar(ctx);
+  if (!sidebar) return false;
+  if (!isElementVisible(sidebar)) return false;
+  return sidebar.getBoundingClientRect().width >= 120;
+}
+
+function getChatHistoryNav(ctx: FeatureContext): HTMLElement | null {
+  return (
+    (ctx.domBus?.getNavRoot() as HTMLElement | null) ??
+    ctx.helpers.safeQuery<HTMLElement>('nav[aria-label="Chat history"]')
+  );
+}
+
+function findYourChatsToggle(nav: HTMLElement): HTMLButtonElement | null {
+  const sections = Array.from(
+    nav.querySelectorAll<HTMLElement>('[class*="sidebar-expando-section"]')
+  );
+
+  for (const section of sections) {
+    const text = norm(section.textContent);
+    if (!text.includes("your chats") && !text.includes("чаты") && !text.includes("история")) {
+      continue;
+    }
+
+    const headerBtn = section.querySelector<HTMLButtonElement>("button[aria-expanded]");
+    if (headerBtn) return headerBtn;
+
+    const fallbackBtn = section.querySelector<HTMLButtonElement>("button");
+    if (fallbackBtn) return fallbackBtn;
+  }
+
+  return null;
+}
+
+function isToggleExpanded(toggle: HTMLElement): boolean {
+  const aria = toggle.getAttribute("aria-expanded");
+  if (aria === "true") return true;
+
+  const cls = String(toggle.className || "");
+  if (cls.includes("sidebar-expanded-section")) return true;
+  return false;
+}
+
+function isToggleCollapsed(toggle: HTMLElement): boolean {
+  const aria = toggle.getAttribute("aria-expanded");
+  if (aria === "false") return true;
+
+  const cls = String(toggle.className || "");
+  if (cls.includes("sidebar-collapsed-section")) return true;
+  return false;
+}
+
+function canInteract(el: HTMLElement | null): el is HTMLElement {
+  if (!el) return false;
+  if (!el.isConnected) return false;
+  if (!isElementVisible(el)) return false;
+  return true;
+}
 
 export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
-  const qs = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
-    root.querySelector<T>(sel);
+  let stopped = false;
+  let goalReached = false;
+  let attempts = 0;
+  let debounceTimer: number | null = null;
+  let startTimer: number | null = null;
+  let navReadyTimer: number | null = null;
+  let lastUserInteractionAt = 0;
+  let cleanupUserListeners: (() => void) | null = null;
+  let unsubNavDelta: (() => void) | null = null;
+  let unsubRoots: (() => void) | null = null;
 
-  const state: {
-    started: boolean;
-    runId: number;
-  } = {
-    started: false,
-    runId: 0
+  const cancelTimers = (): void => {
+    if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+    debounceTimer = null;
+    if (startTimer !== null) window.clearTimeout(startTimer);
+    startTimer = null;
+    if (navReadyTimer !== null) window.clearTimeout(navReadyTimer);
+    navReadyTimer = null;
   };
 
-  const waitForSpaReady = async (): Promise<boolean> => {
-    // ChatGPT UI changed multiple times: the historical readiness marker
-    // ([data-testid="blocking-initial-modals-done"]) is not always present,
-    // and the chat-history nav can be lazily mounted only after the sidebar opens.
-    // We only need the sidebar shell or its open button to exist; runOnce() will
-    // handle opening the sidebar and waiting for the nav.
-    const ready = await ctx.helpers.waitPresent(AUTO_EXPAND_READINESS_SELECTOR, document, 12000);
+  const bindUserInteractionGuards = (): void => {
+    cleanupUserListeners?.();
+    cleanupUserListeners = null;
 
-    return !!ready;
-  };
+    const targets = [getSidebar(ctx), getChatHistoryNav(ctx)].filter(Boolean) as HTMLElement[];
+    if (targets.length === 0) return;
 
-  const autoExpandDispatchClick = (el: HTMLElement) => {
-    const seq = ["pointerdown", "mousedown", "mouseup", "click"];
-    for (const t of seq) {
-      el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window }));
+    const onUser = () => {
+      lastUserInteractionAt = Date.now();
+    };
+
+    for (const target of targets) {
+      target.addEventListener("pointerdown", onUser, true);
+      target.addEventListener("mousedown", onUser, true);
+      target.addEventListener("click", onUser, true);
     }
-  };
 
-  const autoExpandReset = () => {
-    state.started = false;
-    state.runId += 1;
-  };
-
-  const autoExpandSidebarEl = () => qs<HTMLElement>(AUTO_EXPAND_SIDEBAR_SELECTOR);
-
-  const autoExpandSidebarIsOpen = () => {
-    const sb = autoExpandSidebarEl();
-    if (!sb) return false;
-    if (!isElementVisible(sb)) return false;
-    return sb.getBoundingClientRect().width >= 120;
-  };
-
-  const autoExpandOpenSidebarButton = () =>
-    qs<HTMLButtonElement>(
-      '#stage-sidebar-tiny-bar button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]'
-    ) ||
-    qs<HTMLButtonElement>(
-      'button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]'
-    );
-
-  const autoExpandEnsureSidebarOpen = () => {
-    if (autoExpandSidebarIsOpen()) return false;
-    const btn = autoExpandOpenSidebarButton();
-    if (!btn || !isElementVisible(btn)) return false;
-    autoExpandDispatchClick(btn);
-    return true;
-  };
-
-  const autoExpandChatHistoryNav = () => {
-    const sb = autoExpandSidebarEl();
-    if (!sb) return null;
-    return sb.querySelector('nav[aria-label="Chat history"]');
-  };
-
-  const autoExpandSidebarSections = (nav: Element | null) => {
-    if (!nav) return [] as HTMLElement[];
-    return Array.from(nav.querySelectorAll<HTMLElement>("div.group\\/sidebar-expando-section"));
-  };
-
-  const autoExpandFindYourChatsSection = (nav: Element | null) => {
-    const sections = autoExpandSidebarSections(nav);
-    for (const sec of sections) {
-      const t = norm(sec.textContent);
-      if (
-        t.includes("your chats") ||
-        t.includes("your charts") ||
-        t.includes("чаты") ||
-        t.includes("история")
-      ) {
-        return sec;
+    cleanupUserListeners = () => {
+      for (const target of targets) {
+        target.removeEventListener("pointerdown", onUser, true);
+        target.removeEventListener("mousedown", onUser, true);
+        target.removeEventListener("click", onUser, true);
       }
-    }
-
-    if (sections.length >= 4) return sections[3] ?? null;
-    return null;
+    };
   };
 
-  const autoExpandFindGroupChatsSection = (nav: Element | null) => {
-    const sections = autoExpandSidebarSections(nav);
-    for (const sec of sections) {
-      const t = norm(sec.textContent);
-      if (
-        t.includes("group chats") ||
-        t.includes("group chat") ||
-        t.includes("групповые чаты") ||
-        t.includes("групп")
-      ) {
-        return sec;
-      }
-    }
-    return null;
-  };
-
-  const autoExpandSectionCollapsed = (sec: Element) => {
-    const cls = String((sec as HTMLElement).className || "");
-    if (cls.includes("sidebar-collapsed-section-margin-bottom")) return true;
-    if (cls.includes("sidebar-expanded-section-margin-bottom")) return false;
-
-    if (cls.includes("--sidebar-collapsed-section-margin-bottom")) return true;
-    if (cls.includes("--sidebar-expanded-section-margin-bottom")) return false;
-
-    return false;
-  };
-
-  const autoExpandExpandSection = (sec: Element | null) => {
-    if (!sec) return false;
-    if (!autoExpandSectionCollapsed(sec)) return false;
-
-    const btn =
-      (sec as HTMLElement).querySelector("button.text-token-text-tertiary.flex.w-full") ||
-      (sec as HTMLElement).querySelector("button") ||
-      (sec as HTMLElement).querySelector('[role="button"]');
-
-    if (!btn || !isElementVisible(btn as HTMLElement)) return false;
-
-    autoExpandDispatchClick(btn as HTMLElement);
-    return true;
-  };
-
-  const autoExpandInspectChatSections = () => {
-    if (!autoExpandSidebarIsOpen()) return { found: 0, collapsed: 0, sections: [] as Element[] };
-
-    const nav = autoExpandChatHistoryNav();
-    if (!nav || !isElementVisible(nav))
-      return { found: 0, collapsed: 0, sections: [] as Element[] };
-
-    const sections = [
-      autoExpandFindYourChatsSection(nav),
-      autoExpandFindGroupChatsSection(nav)
-    ].filter(Boolean) as Element[];
-
-    let collapsed = 0;
-    for (const sec of sections) {
-      if (autoExpandSectionCollapsed(sec)) {
-        collapsed += 1;
-      }
-    }
-
-    return { found: sections.length, collapsed, sections };
-  };
-
-  const autoExpandExpandChatSections = (sections: Element[]) => {
-    let clicked = 0;
-    for (const sec of sections) {
-      if (autoExpandExpandSection(sec)) clicked += 1;
-    }
-    return clicked;
-  };
-
-  const autoExpandWaitForSidebar = async () => {
-    return ctx.helpers.waitPresent(
-      AUTO_EXPAND_READINESS_SELECTOR,
-      document,
-      AUTO_EXPAND_START_TIMEOUT_MS
-    );
-  };
-
-  const autoExpandRunOnce = async (runId: number): Promise<boolean> => {
-    if (!ctx.settings.autoExpandChats) return false;
-
-    const present = await autoExpandWaitForSidebar();
-    if (!present || runId !== state.runId || !ctx.settings.autoExpandChats) {
-      if (runId === state.runId && ctx.settings.autoExpandChats) {
-        ctx.logger.debug("AUTOEXPAND", "sidebar not found on start (timeout)");
-      }
+  const runOnce = (reason: string): boolean => {
+    const sidebar = getSidebar(ctx);
+    if (!sidebar) {
+      ctx.logger.debug("autoExpandChats", `skip (${reason}): missing sidebar root`);
       return false;
     }
 
-    if (autoExpandSidebarIsOpen()) {
-      const nav = await ctx.helpers.waitPresent(
-        'nav[aria-label="Chat history"]',
-        document,
-        AUTO_EXPAND_NAV_TIMEOUT_MS
-      );
-      if (!nav || runId !== state.runId || !ctx.settings.autoExpandChats) {
-        if (runId === state.runId && ctx.settings.autoExpandChats) {
-          ctx.logger.debug("AUTOEXPAND", "sidebar not found on start (timeout)");
-        }
+    const sidebarOpen = isSidebarOpen(ctx);
+    if (!sidebarOpen) {
+      const openBtn = getSidebarOpenButton(ctx);
+      if (!canInteract(openBtn)) {
+        ctx.logger.debug(
+          "autoExpandChats",
+          `skip (${reason}): sidebar closed and no usable open button`
+        );
         return false;
       }
 
-      const chatSections = autoExpandInspectChatSections();
-      if (chatSections.found > 0 && chatSections.collapsed === 0) {
-        ctx.logger.debug("AUTOEXPAND", "already expanded on start");
-        return true;
-      }
-    }
-
-    if (!autoExpandSidebarIsOpen()) {
-      autoExpandEnsureSidebarOpen();
-    }
-
-    const nav = await ctx.helpers.waitPresent(
-      'nav[aria-label="Chat history"]',
-      document,
-      AUTO_EXPAND_NAV_TIMEOUT_MS
-    );
-    if (!nav || runId !== state.runId || !ctx.settings.autoExpandChats) {
-      if (runId === state.runId && ctx.settings.autoExpandChats) {
-        ctx.logger.debug("AUTOEXPAND", "sidebar not found on start (timeout)");
-      }
+      ctx.logger.debug("autoExpandChats", `click sidebar open (${reason})`);
+      dispatchHumanClick(openBtn);
       return false;
     }
 
-    const chatSections = autoExpandInspectChatSections();
-    if (chatSections.found > 0 && chatSections.collapsed === 0) {
-      ctx.logger.debug("AUTOEXPAND", "already expanded on start");
+    const nav = getChatHistoryNav(ctx);
+    if (!nav || !canInteract(nav)) {
+      ctx.logger.debug("autoExpandChats", `skip (${reason}): chat history nav missing/unready`);
+      return false;
+    }
+
+    const toggle = findYourChatsToggle(nav);
+    if (!toggle) {
+      ctx.logger.debug("autoExpandChats", `skip (${reason}): Your chats toggle missing`);
+      return false;
+    }
+    if (!canInteract(toggle)) {
+      ctx.logger.debug("autoExpandChats", `skip (${reason}): Your chats toggle not interactable`);
+      return false;
+    }
+
+    if (isToggleExpanded(toggle)) {
+      ctx.logger.debug("autoExpandChats", `already expanded (${reason})`);
       return true;
     }
 
-    const clicked = autoExpandExpandChatSections(chatSections.sections);
-    if (clicked > 0) {
-      ctx.logger.debug(
-        "AUTOEXPAND",
-        `expanded on start (sections clicked=${clicked}, found=${chatSections.found})`
-      );
-      return true;
+    if (!isToggleCollapsed(toggle)) {
+      ctx.logger.debug("autoExpandChats", `skip (${reason}): toggle state unknown`);
+      return false;
     }
 
-    return false;
+    ctx.logger.debug("autoExpandChats", `click Your chats toggle (${reason})`);
+    dispatchHumanClick(toggle);
+
+    const success = isToggleExpanded(toggle);
+    ctx.logger.debug(
+      "autoExpandChats",
+      `post-click expanded=${success ? "true" : "false"} (${reason})`
+    );
+
+    return success;
   };
 
-  const startAutoExpand = () => {
-    if (state.started) return;
-    state.started = true;
-    const currentRun = state.runId;
+  const schedule = (reason: string): void => {
+    if (stopped) return;
+    if (!ctx.settings.autoExpandChats) return;
+    if (goalReached) return;
 
-    void (async () => {
-      if (!ctx.settings.autoExpandChats) return;
-      if (currentRun !== state.runId) return;
+    if (debounceTimer !== null) window.clearTimeout(debounceTimer);
 
-      const spaReady = await waitForSpaReady();
-      if (!spaReady) {
-        if (currentRun === state.runId && ctx.settings.autoExpandChats) {
-          ctx.logger.debug("AUTOEXPAND", "spa not ready (timeout), skip");
-        }
+    debounceTimer = window.setTimeout(() => {
+      debounceTimer = null;
+      if (stopped || !ctx.settings.autoExpandChats || goalReached) return;
+
+      if (Date.now() - lastUserInteractionAt < AUTO_EXPAND_USER_COOLDOWN_MS) {
+        ctx.logger.debug("autoExpandChats", `cooldown active, skip (${reason})`);
         return;
       }
 
-      if (currentRun !== state.runId || !ctx.settings.autoExpandChats) return;
-
-      const done = await autoExpandRunOnce(currentRun);
-      if (!done) {
-        ctx.logger.debug("AUTOEXPAND", "runOnce returned false");
+      attempts += 1;
+      if (attempts > AUTO_EXPAND_MAX_ATTEMPTS) {
+        ctx.logger.debug("autoExpandChats", "max attempts reached, stop retries");
+        return;
       }
-    })();
+
+      const done = runOnce(reason);
+      if (done) {
+        goalReached = true;
+        attempts = 0;
+      }
+    }, AUTO_EXPAND_DEBOUNCE_MS);
   };
 
-  const ensureStarted = () => {
-    if (!ctx.settings.autoExpandChats) return;
-    startAutoExpand();
+  const reset = () => {
+    goalReached = false;
+    attempts = 0;
+    bindUserInteractionGuards();
   };
 
-  ensureStarted();
+  bindUserInteractionGuards();
+
+  startTimer = window.setTimeout(() => {
+    startTimer = null;
+    schedule("start");
+  }, AUTO_EXPAND_START_TIMEOUT_MS);
+
+  navReadyTimer = window.setTimeout(() => {
+    navReadyTimer = null;
+    schedule("nav-ready");
+  }, AUTO_EXPAND_NAV_TIMEOUT_MS);
+
+  unsubRoots =
+    ctx.domBus?.onRoots(() => {
+      reset();
+      schedule("route");
+    }) ?? null;
+
+  unsubNavDelta =
+    ctx.domBus?.onDelta("nav", () => {
+      schedule("mutation");
+    }) ?? null;
+
+  schedule("init");
 
   return {
     name: "autoExpandChats",
     dispose: () => {
-      state.runId += 1;
+      stopped = true;
+      cancelTimers();
+      cleanupUserListeners?.();
+      cleanupUserListeners = null;
+      unsubNavDelta?.();
+      unsubNavDelta = null;
+      unsubRoots?.();
+      unsubRoots = null;
     },
     onSettingsChange: (next, prev) => {
       if (!prev.autoExpandChats && next.autoExpandChats) {
-        autoExpandReset();
-        ensureStarted();
+        stopped = false;
+        reset();
+        schedule("settings");
       }
+
       if (prev.autoExpandChats && !next.autoExpandChats) {
-        state.runId += 1;
+        goalReached = true;
+        attempts = 0;
+        cancelTimers();
       }
     },
-    getStatus: () => ({ active: ctx.settings.autoExpandChats })
+    getStatus: () => ({ active: ctx.settings.autoExpandChats }),
+    __test: {
+      runOnce,
+      findYourChatsToggle,
+      isToggleExpanded
+    }
   };
 }
