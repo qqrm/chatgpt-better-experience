@@ -8,21 +8,13 @@ export interface PopupStorageDeps {
 
 export interface PopupSettingsState {
   settings: Settings;
-  hint: string;
-}
-
-export function buildAutoSendHint(autoSendEnabled: boolean): string {
-  return autoSendEnabled
-    ? "Hold Shift while accepting dictation to skip auto-send."
-    : "Auto-send is disabled.";
 }
 
 export async function loadPopupSettings({ storagePort }: PopupStorageDeps) {
   const data = await storagePort.get(SETTINGS_DEFAULTS);
   const settings = normalizeSettings(data);
   return {
-    settings,
-    hint: buildAutoSendHint(settings.autoSend)
+    settings
   } satisfies PopupSettingsState;
 }
 
@@ -53,8 +45,4 @@ export async function savePopupSettings(
     tempChatEnabled: input.autoTempChat,
     macroRecorderEnabled: input.macroRecorderEnabled
   });
-
-  return {
-    hint: buildAutoSendHint(input.autoSend)
-  };
 }
