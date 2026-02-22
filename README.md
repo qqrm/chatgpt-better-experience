@@ -26,3 +26,7 @@ Dev:
 - Labels failing Dependabot PRs with `ci-failed` (sticky) and `needs-human`; those PRs are excluded from future automatic rebases and auto-merge enablement.
 - Respects `do-not-automerge` as a manual override.
 - To unblock a PR after CI is fixed, remove the `ci-failed` label manually and rerun the workflow.
+
+## CI maintenance note
+
+- Versions of core GitHub Actions (`actions/checkout`, `actions/setup-node`, `actions/cache`) are updated centrally across `.github/workflows/*.yml` to keep pipelines aligned on the latest stable majors.
