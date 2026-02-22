@@ -65,7 +65,7 @@ describe("macroRecorder feature", () => {
     handle.dispose();
   });
 
-  it("does not handle toggle while typing in editable targets", () => {
+  it("handles toggle while typing in editable targets", () => {
     const storage = makeStorageCapture();
     const ctx = makeTestContext({ macroRecorderEnabled: true });
     ctx.storagePort.set = storage.set;
@@ -77,9 +77,12 @@ describe("macroRecorder feature", () => {
 
     const event = keydown("F8", { ctrlKey: true, shiftKey: true, target: input });
 
-    expect(event.defaultPrevented).toBe(false);
-    expect(recordMock).not.toHaveBeenCalled();
-    expect(storage.writes.length).toBe(0);
+    expect(event.defaultPrevented).toBe(true);
+    expect(recordMock).toHaveBeenCalledTimes(1);
+    expect(storage.writes.some((w) => w.macroRecorderStatus === "recording")).toBe(true);
+    expect(document.getElementById("qqrm-macro-recorder-toast")?.textContent).toBe(
+      "Macro recording started"
+    );
 
     handle.dispose();
   });
@@ -97,6 +100,9 @@ describe("macroRecorder feature", () => {
     expect(recordMock).toHaveBeenCalledTimes(1);
     expect(handle.getStatus?.().details).toBe("recording");
     expect(storage.writes.some((w) => w.macroRecorderStatus === "recording")).toBe(true);
+    expect(document.getElementById("qqrm-macro-recorder-toast")?.textContent).toBe(
+      "Macro recording started"
+    );
 
     handle.dispose();
   });
@@ -127,6 +133,9 @@ describe("macroRecorder feature", () => {
     expect(anchorClickSpy).toHaveBeenCalledTimes(1);
     expect(createObjectUrlSpy).toHaveBeenCalledTimes(1);
     expect(handle.getStatus?.().details).toBe("ready");
+    expect(document.getElementById("qqrm-macro-recorder-toast")?.textContent).toBe(
+      "Macro recording saved"
+    );
 
     const exportWrites = storage.writes.filter((w) => "macroRecorderLastExportAt" in w);
     expect(exportWrites.length).toBe(1);

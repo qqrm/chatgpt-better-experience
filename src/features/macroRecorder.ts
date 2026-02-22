@@ -59,13 +59,6 @@ const LAST_EXPORT_KEY = "macroRecorderLastExportAt";
 
 const now = () => Date.now();
 
-function isEditableTarget(target: EventTarget | null) {
-  const el = target instanceof HTMLElement ? target : null;
-  if (!el) return false;
-  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return true;
-  return el.isContentEditable;
-}
-
 function isMacroRecorderToggleHotkey(event: KeyboardEvent) {
   return event.key === "F8" && event.shiftKey && (event.ctrlKey || event.metaKey);
 }
@@ -137,6 +130,80 @@ function triggerJsonDownload(filename: string, payload: unknown) {
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+const TOAST_HOST_ID = "qqrm-macro-recorder-toast-host";
+const TOAST_ID = "qqrm-macro-recorder-toast";
+
+function ensureToastHost(retry = false) {
+  const existing = document.getElementById(TOAST_HOST_ID);
+  if (existing) return existing;
+
+  const mount = document.body || document.documentElement;
+  if (!mount) {
+    if (!retry) {
+      window.setTimeout(() => {
+        ensureToastHost(true);
+      }, 0);
+    }
+    return null;
+  }
+
+  const host = document.createElement("div");
+  host.id = TOAST_HOST_ID;
+  host.className = "qqrm-macro-recorder-ignore";
+  host.style.position = "fixed";
+  host.style.top = "16px";
+  host.style.left = "50%";
+  host.style.transform = "translateX(-50%)";
+  host.style.zIndex = "2147483647";
+  host.style.pointerEvents = "none";
+  mount.appendChild(host);
+  return host;
+}
+
+function showRecorderToast(message: string, tone: "active" | "neutral" = "neutral") {
+  try {
+    const host = ensureToastHost();
+    if (!host) return;
+
+    const existingToast = document.getElementById(TOAST_ID);
+    const toast =
+      existingToast instanceof HTMLDivElement ? existingToast : document.createElement("div");
+    if (!existingToast) {
+      toast.id = TOAST_ID;
+      toast.className = "qqrm-macro-recorder-ignore";
+      host.appendChild(toast);
+    }
+
+    toast.textContent = message;
+    toast.style.background =
+      tone === "active" ? "rgba(22, 101, 52, 0.9)" : "rgba(17, 24, 39, 0.88)";
+    toast.style.color = "#fff";
+    toast.style.borderRadius = "8px";
+    toast.style.padding = "8px 12px";
+    toast.style.fontSize = "12px";
+    toast.style.fontWeight = "500";
+    toast.style.maxWidth = "320px";
+    toast.style.boxShadow = "0 10px 25px rgba(0, 0, 0, 0.25)";
+    toast.style.opacity = "1";
+    toast.style.transition = "opacity 140ms ease-out";
+
+    const timerKey = "qqrmMacroRecorderToastTimer";
+    const priorTimer = Number(toast.dataset[timerKey] || 0);
+    if (priorTimer) {
+      window.clearTimeout(priorTimer);
+    }
+    const timerId = window.setTimeout(() => {
+      toast.style.opacity = "0";
+      window.setTimeout(() => {
+        if (toast.parentElement) toast.remove();
+      }, 160);
+    }, 1500);
+    toast.dataset[timerKey] = String(timerId);
+  } catch {
+    // visual feedback is best-effort only.
+  }
 }
 
 export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
@@ -358,11 +425,15 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
 
     if (activeRecording) {
       const stopped = stopRecording();
-      if (stopped) exportLastRecording();
+      if (stopped) {
+        exportLastRecording();
+        showRecorderToast("Macro recording saved");
+      }
       return;
     }
 
     startRecording();
+    showRecorderToast("Macro recording started", "active");
   };
 
   const combos: KeyCombo[] = [
@@ -371,7 +442,7 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
       shift: true,
       ctrl: true,
       priority: 1000,
-      when: (event) => !!ctx.settings.macroRecorderEnabled && !isEditableTarget(event.target),
+      when: () => !!ctx.settings.macroRecorderEnabled,
       handler: onToggleHotkey
     },
     {
@@ -379,7 +450,7 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
       shift: true,
       meta: true,
       priority: 1000,
-      when: (event) => !!ctx.settings.macroRecorderEnabled && !isEditableTarget(event.target),
+      when: () => !!ctx.settings.macroRecorderEnabled,
       handler: onToggleHotkey
     }
   ];
