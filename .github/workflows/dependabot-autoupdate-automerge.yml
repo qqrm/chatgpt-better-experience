@@ -19,6 +19,7 @@ jobs:
   label-failing:
     name: Label failing Dependabot PRs
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout (optional)
         uses: actions/checkout@v4
@@ -82,6 +83,7 @@ jobs:
     name: Rebase Dependabot PRs and collect auto-merge candidates
     needs: label-failing
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       eligible_pr_numbers: ${{ steps.eligible-prs.outputs.numbers }}
     steps:
@@ -112,6 +114,7 @@ jobs:
     needs: rebase-and-automerge
     if: ${{ needs.rebase-and-automerge.outputs.eligible_pr_numbers != '[]' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:

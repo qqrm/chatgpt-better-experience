@@ -12,6 +12,7 @@ on:
 jobs:
   sign-and-submit:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     concurrency:
       group: ${{ github.workflow }}-${{ github.sha }}
       cancel-in-progress: true
