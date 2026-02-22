@@ -38,6 +38,10 @@ jobs:
               - 'vitest.config.*'
               - 'eslint.config.*'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/firefox-amo-sign.yml'
+              - '.github/workflows/update-icons.yml'
+              - '.github/workflows/update-readme-dark-screenshot.yml'
+              - '.github/actions/setup-node-npm/**'
             docs_only:
               - 'README.md'
               - 'docs/**'
@@ -47,34 +51,13 @@ jobs:
         if: steps.changes.outputs.code != 'true'
         run: echo "docs/image-only change; skipping heavy CI"
 
-      - name: Use Node.js
+      - name: Setup Node and install dependencies
         if: steps.changes.outputs.code == 'true'
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-          cache: npm
+        uses: ./.github/actions/setup-node-npm
 
-      - name: Install dependencies
+      - name: Verify CI
         if: steps.changes.outputs.code == 'true'
-        env:
-          HUSKY: 0
-        run: npm ci
-
-      - name: Format check
-        if: steps.changes.outputs.code == 'true'
-        run: npm run verify -- --step format:check
-
-      - name: Lint
-        if: steps.changes.outputs.code == 'true'
-        run: npm run verify -- --step lint
-
-      - name: Typecheck
-        if: steps.changes.outputs.code == 'true'
-        run: npm run verify -- --step typecheck
-
-      - name: Build
-        if: steps.changes.outputs.code == 'true'
-        run: npm run verify -- --step build
+        run: npm run verify:ci
 
       - name: Upload build artifact
         if: steps.changes.outputs.code == 'true' && hashFiles('dist/**') != ''

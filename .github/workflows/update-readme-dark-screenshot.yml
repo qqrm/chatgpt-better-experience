@@ -86,29 +86,25 @@ jobs:
         if: steps.changes.outputs.changed != 'true'
         run: echo "Popup UI unchanged and screenshot exists. Nothing to update."
 
-      - name: Use Node.js
+      - name: Setup Node and install dependencies
         if: steps.changes.outputs.changed == 'true'
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        if: steps.changes.outputs.changed == 'true'
-        env:
-          HUSKY: 0
-        run: npm ci
+        uses: ./.github/actions/setup-node-npm
 
       - name: Cache Playwright browsers
         if: steps.changes.outputs.changed == 'true'
+        id: playwright-cache
         uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}
 
+      - name: Install Playwright system dependencies
+        if: steps.changes.outputs.changed == 'true' && runner.os == 'Linux'
+        run: npx playwright install-deps chromium
+
       - name: Install Playwright Chromium
-        if: steps.changes.outputs.changed == 'true'
-        run: npx playwright install --with-deps chromium
+        if: steps.changes.outputs.changed == 'true' && steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium
 
       - name: Build extension
         if: steps.changes.outputs.changed == 'true'
