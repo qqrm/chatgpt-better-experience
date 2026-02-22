@@ -60,6 +60,24 @@ function mountYourChatsToggle(sidebar: HTMLElement, ariaExpanded = "false"): HTM
   return button;
 }
 
+function mountStandaloneChatHistoryNav(ariaExpanded = "false"): HTMLButtonElement {
+  const nav = document.createElement("nav");
+  nav.setAttribute("aria-label", "Chat history");
+  setVisibleRect(nav, 300, 700);
+
+  const section = document.createElement("div");
+  section.className = "group/sidebar-expando-section";
+  const button = document.createElement("button");
+  button.setAttribute("aria-expanded", ariaExpanded);
+  button.textContent = "Your chats";
+  setVisibleRect(button, 260, 28);
+  section.appendChild(button);
+  nav.appendChild(section);
+  document.body.appendChild(nav);
+
+  return button;
+}
+
 function makeDomBusCtx(): FeatureContext & {
   emitRoots: (roots: RootSnapshot) => void;
   emitNavDelta: () => void;
@@ -220,13 +238,46 @@ describe("autoExpandChats", () => {
     handle.dispose();
   });
 
-  it("opens sidebar first, then expands chats", async () => {
+  it("prefers visible nav path even if sidebar shell looks closed", async () => {
     const ctx = makeDomBusCtx();
     const sidebar = mountSidebarShell(false);
 
+    let openClicks = 0;
     mountOpenSidebarButton(() => {
+      openClicks += 1;
       setVisibleRect(sidebar, 320, 800);
     });
+
+    const toggle = mountStandaloneChatHistoryNav("false");
+    let chatsClicks = 0;
+    toggle.addEventListener("click", () => {
+      chatsClicks += 1;
+      toggle.setAttribute("aria-expanded", "true");
+    });
+
+    const handle = initAutoExpandChatsFeature(ctx);
+
+    ctx.emitNavDelta();
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(openClicks).toBe(0);
+    expect(chatsClicks).toBe(1);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    handle.dispose();
+  });
+
+  it("falls back to live nav query when domBus nav root is stale", async () => {
+    const ctx = makeDomBusCtx();
+    const sidebar = mountSidebarShell(true);
+    const staleNav = document.createElement("nav");
+    staleNav.setAttribute("aria-label", "Chat history");
+    setVisibleRect(staleNav, 300, 700);
+
+    ctx.domBus = {
+      ...ctx.domBus!,
+      getNavRoot: () => staleNav
+    };
 
     const toggle = mountYourChatsToggle(sidebar, "false");
     let clicks = 0;
@@ -238,15 +289,45 @@ describe("autoExpandChats", () => {
     const handle = initAutoExpandChatsFeature(ctx);
 
     ctx.emitNavDelta();
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(clicks).toBe(1);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    handle.dispose();
+  });
+
+  it("opens sidebar only when nav is unavailable, then expands chats", async () => {
+    const ctx = makeDomBusCtx();
+    const sidebar = mountSidebarShell(false);
+
+    let openClicks = 0;
+    let toggle: HTMLButtonElement | null = null;
+    let clicks = 0;
+    mountOpenSidebarButton(() => {
+      openClicks += 1;
+      setVisibleRect(sidebar, 320, 800);
+      toggle = mountYourChatsToggle(sidebar, "false");
+      toggle.addEventListener("click", () => {
+        clicks += 1;
+        toggle?.setAttribute("aria-expanded", "true");
+      });
+    });
+
+    const handle = initAutoExpandChatsFeature(ctx);
+
+    ctx.emitNavDelta();
     await vi.advanceTimersByTimeAsync(800);
 
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-
-    await vi.advanceTimersByTimeAsync(5000);
     ctx.emitNavDelta();
     await vi.advanceTimersByTimeAsync(500);
 
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(openClicks).toBe(1);
+    const liveToggle = document.querySelector<HTMLButtonElement>(
+      'nav[aria-label="Chat history"] button[aria-expanded]'
+    );
+    expect(liveToggle).not.toBeNull();
+    expect(liveToggle?.getAttribute("aria-expanded")).toBe("true");
     expect(clicks).toBe(1);
 
     handle.dispose();
