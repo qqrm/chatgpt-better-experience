@@ -1,4 +1,4 @@
-name: update-readme-dark-screenshot
+name: Update README Dark Screenshot
 
 on:
   push:
