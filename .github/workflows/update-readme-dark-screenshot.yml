@@ -86,18 +86,9 @@ jobs:
         if: steps.changes.outputs.changed != 'true'
         run: echo "Popup UI unchanged and screenshot exists. Nothing to update."
 
-      - name: Use Node.js
+      - name: Setup Node and install dependencies
         if: steps.changes.outputs.changed == 'true'
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        if: steps.changes.outputs.changed == 'true'
-        env:
-          HUSKY: 0
-        run: npm ci
+        uses: ./.github/actions/setup-node-npm
 
       - name: Cache Playwright browsers
         if: steps.changes.outputs.changed == 'true'
