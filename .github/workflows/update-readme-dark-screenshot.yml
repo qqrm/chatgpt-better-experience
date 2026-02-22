@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 0
 
@@ -93,7 +93,7 @@ jobs:
       - name: Cache Playwright browsers
         if: steps.changes.outputs.changed == 'true'
         id: playwright-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v5.0.3
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}
@@ -127,7 +127,7 @@ jobs:
       - name: Create PR with screenshot update
         id: create_pr
         if: steps.changes.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@v8.1.0
         with:
           token: ${{ secrets.AUTOMATION_BOT_TOKEN }}
           commit-message: "docs: refresh dark-theme popup screenshot"
