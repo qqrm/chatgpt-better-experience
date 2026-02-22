@@ -1,7 +1,10 @@
 (() => {
   const SOURCE = "qqrm-clipboard-hook";
   const INSTALLED_FLAG = "__qqrmClipboardHookInstalled__";
-  const CAPTURE_EXPIRY_MS = 2500;
+  const CAPTURE_EXPIRY_MS = 7000;
+
+  type CaptureMode = "capture-only" | "passthrough";
+  type ActiveCapture = { id: string; mode: CaptureMode };
 
   const g = globalThis as typeof globalThis & {
     [INSTALLED_FLAG]?: boolean;
@@ -20,34 +23,38 @@
   const originalWriteText = clipboardApi?.writeText?.bind(clipboardApi);
   const originalWrite = clipboardApi?.write?.bind(clipboardApi);
 
-  let activeCaptureId: string | null = null;
+  let activeCapture: ActiveCapture | null = null;
   let captureTimerId: number | null = null;
 
   const clearCapture = () => {
-    activeCaptureId = null;
+    activeCapture = null;
     if (captureTimerId !== null) {
       window.clearTimeout(captureTimerId);
       captureTimerId = null;
     }
   };
 
-  const postCaptured = (text: string | null | undefined) => {
-    if (!activeCaptureId) return;
+  const postCaptured = (
+    text: string | null | undefined,
+    transport?: "writeText" | "write" | "copy-event"
+  ) => {
+    if (!activeCapture) return;
     window.postMessage(
       {
         source: SOURCE,
         type: "captured",
-        id: activeCaptureId,
-        text: text ?? ""
+        id: activeCapture.id,
+        text: text ?? "",
+        transport
       },
       "*"
     );
     clearCapture();
   };
 
-  const beginCapture = (id: string) => {
+  const beginCapture = (id: string, mode?: CaptureMode) => {
     clearCapture();
-    activeCaptureId = id;
+    activeCapture = { id, mode: mode ?? "passthrough" };
     captureTimerId = window.setTimeout(() => {
       clearCapture();
     }, CAPTURE_EXPIRY_MS);
@@ -57,15 +64,17 @@
     if (event.source !== window) return;
     const raw = event.data as unknown;
     if (!raw || typeof raw !== "object") return;
-    const data = raw as { source?: string; type?: string; id?: string };
+    const data = raw as { source?: string; type?: string; id?: string; mode?: CaptureMode };
     if (data.source !== SOURCE || data.type !== "begin" || !data.id) return;
-    beginCapture(data.id);
+    beginCapture(data.id, data.mode);
   });
 
   if (clipboardApi && originalWriteText) {
     clipboardApi.writeText = async (text: string) => {
-      if (activeCaptureId) {
-        postCaptured(text);
+      if (activeCapture) {
+        const mode = activeCapture.mode;
+        postCaptured(text, "writeText");
+        if (mode === "capture-only") return;
       }
       return originalWriteText(text);
     };
@@ -73,7 +82,7 @@
 
   if (clipboardApi && originalWrite) {
     clipboardApi.write = async (items: ClipboardItems) => {
-      if (activeCaptureId) {
+      if (activeCapture) {
         let capturedText = "";
         try {
           for (const item of items) {
@@ -85,7 +94,10 @@
         } catch {
           capturedText = "";
         }
-        postCaptured(capturedText);
+
+        const mode = activeCapture.mode;
+        postCaptured(capturedText, "write");
+        if (mode === "capture-only") return;
       }
       return originalWrite(items);
     };
@@ -94,10 +106,10 @@
   document.addEventListener(
     "copy",
     (event) => {
-      if (!activeCaptureId) return;
+      if (!activeCapture) return;
       const copied =
         event.clipboardData?.getData("text/plain") || window.getSelection()?.toString() || "";
-      postCaptured(copied);
+      postCaptured(copied, "copy-event");
     },
     true
   );

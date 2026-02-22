@@ -7,11 +7,17 @@ const MENU_ITEM_SELECTOR = '[role="menuitem"]';
 const MENU_MARK_ATTR = "data-qqrm-download-patch-menu";
 const ITEM_MARK_ATTR = "data-qqrm-download-patch-item";
 const DOWNLOAD_LABEL = "Download Patch";
-const CAPTURE_TIMEOUT_MS = 2000;
+const CAPTURE_TIMEOUT_MS = 5000;
+const MESSAGE_TIMEOUT_MS = 10000;
+const MENU_OBSERVER_WINDOW_MS = 1500;
+const TRACE_PREFIX = "[download-patch]";
 const MENU_LOOKUP_DELAYS_MS = [0, 50, 100, 150, 250, 400];
 const CLIPBOARD_HOOK_SOURCE = "qqrm-clipboard-hook";
 
 type DownloadPatchResponse = { ok: true; downloadId: number } | { ok: false; error: string };
+type ClipboardCaptureResult = { text: string | null; transport?: string };
+type PatchSourceKind = "clipboard" | "dom-full";
+type PatchAcquireResult = { text: string; source: PatchSourceKind; transport?: string };
 
 type ChromeRuntime = {
   sendMessage?: (message: unknown, callback: (response?: DownloadPatchResponse) => void) => void;
@@ -25,10 +31,12 @@ type BrowserRuntime = {
 export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureHandle {
   let disposed = false;
   let hookInjected = false;
+  let activeOperationId: string | null = null;
   const timerIds = new Set<number>();
+  const observerCleanupFns = new Set<() => void>();
   const pendingCaptures = new Map<
     string,
-    { resolve: (text: string | null) => void; timeoutId: number }
+    { resolve: (result: ClipboardCaptureResult) => void; timeoutId: number }
   >();
 
   const clearTimers = () => {
@@ -36,6 +44,13 @@ export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureH
       window.clearTimeout(id);
     }
     timerIds.clear();
+  };
+
+  const clearObservers = () => {
+    for (const cleanup of observerCleanupFns) {
+      cleanup();
+    }
+    observerCleanupFns.clear();
   };
 
   const schedule = (fn: () => void, delayMs: number) => {
@@ -74,18 +89,21 @@ export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureH
     document.documentElement.appendChild(script);
   };
 
-  const captureClipboardFromAction = (trigger: () => void): Promise<string | null> => {
+  const captureClipboardFromAction = (trigger: () => void): Promise<ClipboardCaptureResult> => {
     injectPageClipboardHookOnce();
 
     const id = `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
-    return new Promise<string | null>((resolve) => {
+    return new Promise<ClipboardCaptureResult>((resolve) => {
       const timeoutId = window.setTimeout(() => {
         pendingCaptures.delete(id);
-        resolve(null);
+        resolve({ text: null });
       }, CAPTURE_TIMEOUT_MS);
 
       pendingCaptures.set(id, { resolve, timeoutId });
-      window.postMessage({ source: CLIPBOARD_HOOK_SOURCE, type: "begin", id }, "*");
+      window.postMessage(
+        { source: CLIPBOARD_HOOK_SOURCE, type: "begin", id, mode: "capture-only" },
+        "*"
+      );
 
       try {
         trigger();
@@ -94,7 +112,7 @@ export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureH
         if (!pending) return;
         window.clearTimeout(pending.timeoutId);
         pendingCaptures.delete(id);
-        pending.resolve(null);
+        pending.resolve({ text: null });
       }
     });
   };
@@ -103,7 +121,13 @@ export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureH
     if (event.source !== window) return;
     const raw = event.data as unknown;
     if (!raw || typeof raw !== "object") return;
-    const data = raw as { source?: string; type?: string; id?: string; text?: string };
+    const data = raw as {
+      source?: string;
+      type?: string;
+      id?: string;
+      text?: string;
+      transport?: string;
+    };
     if (data.source !== CLIPBOARD_HOOK_SOURCE || data.type !== "captured" || !data.id) return;
 
     const pending = pendingCaptures.get(data.id);
@@ -111,7 +135,7 @@ export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureH
 
     window.clearTimeout(pending.timeoutId);
     pendingCaptures.delete(data.id);
-    pending.resolve(data.text ?? null);
+    pending.resolve({ text: data.text ?? null, transport: data.transport });
   };
 
   const handleDocumentClick = (event: MouseEvent) => {
@@ -123,14 +147,46 @@ export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureH
 
     const runLookup = () => {
       const menu = findGitActionMenu();
-      if (!menu) return;
-      injectDownloadPatchItem(menu, captureClipboardFromAction);
+      if (!menu) return false;
+      injectDownloadPatchItem(
+        menu,
+        captureClipboardFromAction,
+        () => activeOperationId,
+        (id) => {
+          activeOperationId = id;
+        }
+      );
+      return true;
     };
 
-    window.requestAnimationFrame(runLookup);
+    window.requestAnimationFrame(() => {
+      void runLookup();
+    });
+
     for (const delayMs of MENU_LOOKUP_DELAYS_MS) {
-      schedule(runLookup, delayMs);
+      schedule(() => {
+        void runLookup();
+      }, delayMs);
     }
+
+    if (!document.body) return;
+    const observer = new MutationObserver(() => {
+      if (runLookup()) {
+        cleanup();
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+    }, MENU_OBSERVER_WINDOW_MS);
+
+    const cleanup = () => {
+      window.clearTimeout(timeoutId);
+      observer.disconnect();
+      observerCleanupFns.delete(cleanup);
+    };
+    observerCleanupFns.add(cleanup);
   };
 
   document.addEventListener("click", handleDocumentClick, true);
@@ -141,9 +197,10 @@ export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureH
     dispose: () => {
       disposed = true;
       clearTimers();
+      clearObservers();
       for (const [id, pending] of pendingCaptures.entries()) {
         window.clearTimeout(pending.timeoutId);
-        pending.resolve(null);
+        pending.resolve({ text: null });
         pendingCaptures.delete(id);
       }
       document.removeEventListener("click", handleDocumentClick, true);
@@ -169,7 +226,9 @@ function findGitActionMenu(): HTMLElement | null {
 
 function injectDownloadPatchItem(
   menu: HTMLElement,
-  captureAction: (trigger: () => void) => Promise<string | null>
+  captureAction: (trigger: () => void) => Promise<ClipboardCaptureResult>,
+  getActiveOperationId: () => string | null,
+  setActiveOperationId: (id: string | null) => void
 ) {
   if (menu.getAttribute(MENU_MARK_ATTR) === "1") return;
 
@@ -190,7 +249,7 @@ function injectDownloadPatchItem(
   clonedItem.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    void onDownloadPatchClick(menu, captureAction);
+    void onDownloadPatchClick(menu, captureAction, getActiveOperationId, setActiveOperationId);
   });
 
   sourceItem.insertAdjacentElement("afterend", clonedItem);
@@ -199,38 +258,85 @@ function injectDownloadPatchItem(
 
 async function onDownloadPatchClick(
   menu: HTMLElement,
-  captureAction: (trigger: () => void) => Promise<string | null>
+  captureAction: (trigger: () => void) => Promise<ClipboardCaptureResult>,
+  getActiveOperationId: () => string | null,
+  setActiveOperationId: (id: string | null) => void
 ) {
-  const sourceItem =
-    findMenuItemByText(menu, /copy\s+git\s+apply/i) ?? findMenuItemByText(menu, /copy\s+patch/i);
-
-  if (!sourceItem) {
-    console.warn("[download-patch] Source copy menu item not found.");
+  const existingOperation = getActiveOperationId();
+  if (existingOperation) {
+    console.debug(`${TRACE_PREFIX}[${existingOperation}] operation already in progress`);
     return;
   }
 
-  if (isDisabled(sourceItem)) {
-    console.warn("[download-patch] Source copy menu item is disabled.");
-    return;
-  }
+  const traceId = `t_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  setActiveOperationId(traceId);
 
-  const patchText = await captureAction(() => {
-    sourceItem.click();
-  });
+  try {
+    const sourceItem =
+      findMenuItemByText(menu, /copy\s+git\s+apply/i) ?? findMenuItemByText(menu, /copy\s+patch/i);
 
-  if (!patchText || !patchText.trim()) {
-    console.warn("[download-patch] Unable to capture patch content.");
-    return;
-  }
+    if (!sourceItem) {
+      console.warn(`${TRACE_PREFIX}[${traceId}] source copy menu item not found`);
+      return;
+    }
 
-  const result = await requestPatchDownload({
-    filename: buildPatchFilename(),
-    text: patchText
-  });
+    if (isDisabled(sourceItem)) {
+      console.warn(`${TRACE_PREFIX}[${traceId}] source copy menu item is disabled`);
+      return;
+    }
 
-  if (!result.ok) {
-    console.warn(`[download-patch] ${result.error}`);
-    window.alert(`Download failed: ${result.error}`);
+    console.debug(`${TRACE_PREFIX}[${traceId}] capture start`);
+    const captured = await captureAction(() => {
+      sourceItem.click();
+    });
+
+    const normalizedCaptured = normalizePatchText(captured.text ?? "");
+    if (captured.text) {
+      console.info(
+        `${TRACE_PREFIX}[${traceId}] capture result transport=${captured.transport ?? "unknown"} bytes=${normalizedCaptured.length}`
+      );
+    } else {
+      console.info(`${TRACE_PREFIX}[${traceId}] capture result transport=none bytes=0`);
+    }
+
+    let patchResult: PatchAcquireResult | null = null;
+    if (looksLikePatch(normalizedCaptured)) {
+      patchResult = {
+        text: normalizedCaptured,
+        source: "clipboard",
+        transport: captured.transport
+      };
+    } else {
+      const domPatch = tryExtractFullPatchFromDom();
+      if (domPatch) {
+        patchResult = { text: domPatch, source: "dom-full" };
+        console.info(`${TRACE_PREFIX}[${traceId}] fallback dom-full used`);
+      }
+    }
+
+    if (!patchResult) {
+      const reason = "Unable to capture patch content (clipboard and DOM fallback failed).";
+      console.warn(`${TRACE_PREFIX}[${traceId}] ${reason}`);
+      window.alert(`Download failed: ${reason}`);
+      return;
+    }
+
+    const result = await requestPatchDownload({
+      filename: buildPatchFilename(),
+      text: patchResult.text
+    });
+
+    if (!result.ok) {
+      console.warn(`${TRACE_PREFIX}[${traceId}] fail ${result.error}`);
+      window.alert(`Download failed: ${result.error}`);
+      return;
+    }
+
+    console.info(
+      `${TRACE_PREFIX}[${traceId}] download ok id=${result.downloadId} source=${patchResult.source} transport=${patchResult.transport ?? "n/a"}`
+    );
+  } finally {
+    setActiveOperationId(null);
   }
 }
 
@@ -275,6 +381,48 @@ function findTextNode(root: HTMLElement, textToReplace: string): Text | null {
     current = walker.nextNode();
   }
   return null;
+}
+
+function looksLikePatch(text: string): boolean {
+  const normalized = text.trim();
+  if (normalized.length <= 20) return false;
+
+  const lower = normalized.toLowerCase();
+  if (lower === "copied patch to clipboard" || lower === "patch copied to clipboard") {
+    return false;
+  }
+
+  if (normalized.includes("diff --git")) return true;
+  return normalized.includes("--- ") && normalized.includes("+++ ") && normalized.includes("@@");
+}
+
+function normalizePatchText(text: string): string {
+  const normalized = text.replace(/\r\n?/g, "\n").trim();
+  if (!normalized) return "";
+  return normalized.endsWith("\n") ? normalized : `${normalized}\n`;
+}
+
+function isVisible(el: Element): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.hidden) return false;
+  const style = window.getComputedStyle(el);
+  return style.display !== "none" && style.visibility !== "hidden";
+}
+
+function tryExtractFullPatchFromDom(): string | null {
+  const candidates = Array.from(
+    document.querySelectorAll<HTMLElement>("pre, code, textarea, [data-testid*='patch']")
+  )
+    .filter(isVisible)
+    .map((el) => normalizePatchText(el.textContent ?? ""))
+    .filter((text) => looksLikePatch(text));
+
+  if (candidates.length === 0) return null;
+
+  const withDiff = candidates.filter((text) => text.includes("diff --git"));
+  const pool = withDiff.length > 0 ? withDiff : candidates;
+  pool.sort((a, b) => b.length - a.length);
+  return pool[0] ?? null;
 }
 
 function buildPatchFilename(): string {
@@ -341,7 +489,12 @@ async function requestPatchDownload({
 
   if (browserRuntime?.sendMessage) {
     try {
-      const response = await browserRuntime.sendMessage(message);
+      const timeoutPromise = new Promise<DownloadPatchResponse>((resolve) => {
+        window.setTimeout(() => {
+          resolve({ ok: false, error: "Background timeout" });
+        }, MESSAGE_TIMEOUT_MS);
+      });
+      const response = await Promise.race([browserRuntime.sendMessage(message), timeoutPromise]);
       return response ?? { ok: false, error: "Background did not provide a response." };
     } catch (error) {
       return {
@@ -363,7 +516,18 @@ async function requestPatchDownload({
   }
 
   return new Promise<DownloadPatchResponse>((resolve) => {
+    let settled = false;
+    const timeoutId = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve({ ok: false, error: "Background timeout" });
+    }, MESSAGE_TIMEOUT_MS);
+
     chromeRuntime.sendMessage?.(message, (response?: DownloadPatchResponse) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+
       const runtimeError = chromeRuntime.lastError;
       if (runtimeError?.message) {
         resolve({ ok: false, error: runtimeError.message });
