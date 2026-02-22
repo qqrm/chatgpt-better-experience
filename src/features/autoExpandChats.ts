@@ -35,10 +35,16 @@ function isSidebarOpen(ctx: FeatureContext): boolean {
 }
 
 function getChatHistoryNav(ctx: FeatureContext): HTMLElement | null {
-  return (
-    (ctx.domBus?.getNavRoot() as HTMLElement | null) ??
-    ctx.helpers.safeQuery<HTMLElement>('nav[aria-label="Chat history"]')
-  );
+  const busNav = ctx.domBus?.getNavRoot() as HTMLElement | null;
+  const liveNav = ctx.helpers.safeQuery<HTMLElement>('nav[aria-label="Chat history"]');
+
+  if (busNav && canInteract(busNav)) return busNav;
+  if (liveNav && canInteract(liveNav)) return liveNav;
+
+  if (busNav?.isConnected) return busNav;
+  if (liveNav?.isConnected) return liveNav;
+
+  return liveNav ?? busNav ?? null;
 }
 
 function findYourChatsToggle(nav: HTMLElement): HTMLButtonElement | null {
@@ -80,7 +86,7 @@ function isToggleCollapsed(toggle: HTMLElement): boolean {
   return false;
 }
 
-function canInteract(el: HTMLElement | null): el is HTMLElement {
+function canInteract(el: HTMLElement | null): boolean {
   if (!el) return false;
   if (!el.isConnected) return false;
   if (!isElementVisible(el)) return false;
@@ -135,6 +141,47 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const runOnce = (reason: string): boolean => {
+    const nav = getChatHistoryNav(ctx);
+    if (nav && canInteract(nav)) {
+      const toggle = findYourChatsToggle(nav);
+      if (!toggle) {
+        ctx.logger.debug("autoExpandChats", `skip (${reason}): Your chats toggle missing`);
+        return false;
+      }
+      if (!canInteract(toggle)) {
+        ctx.logger.debug("autoExpandChats", `skip (${reason}): Your chats toggle not interactable`);
+        return false;
+      }
+
+      if (isToggleExpanded(toggle)) {
+        ctx.logger.debug("autoExpandChats", `already expanded (${reason})`);
+        return true;
+      }
+
+      if (!isToggleCollapsed(toggle)) {
+        ctx.logger.debug("autoExpandChats", `skip (${reason}): toggle state unknown`);
+        return false;
+      }
+
+      ctx.logger.debug("autoExpandChats", `click Your chats toggle (${reason})`);
+      dispatchHumanClick(toggle);
+
+      const success = isToggleExpanded(toggle);
+      ctx.logger.debug(
+        "autoExpandChats",
+        `post-click expanded=${success ? "true" : "false"} (${reason})`
+      );
+
+      return success;
+    }
+
+    if (nav) {
+      ctx.logger.debug(
+        "autoExpandChats",
+        `skip (${reason}): chat history nav not interactable yet`
+      );
+    }
+
     const sidebar = getSidebar(ctx);
     if (!sidebar) {
       ctx.logger.debug("autoExpandChats", `skip (${reason}): missing sidebar root`);
@@ -144,7 +191,7 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
     const sidebarOpen = isSidebarOpen(ctx);
     if (!sidebarOpen) {
       const openBtn = getSidebarOpenButton(ctx);
-      if (!canInteract(openBtn)) {
+      if (!openBtn || !canInteract(openBtn)) {
         ctx.logger.debug(
           "autoExpandChats",
           `skip (${reason}): sidebar closed and no usable open button`
@@ -157,42 +204,8 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
       return false;
     }
 
-    const nav = getChatHistoryNav(ctx);
-    if (!nav || !canInteract(nav)) {
-      ctx.logger.debug("autoExpandChats", `skip (${reason}): chat history nav missing/unready`);
-      return false;
-    }
-
-    const toggle = findYourChatsToggle(nav);
-    if (!toggle) {
-      ctx.logger.debug("autoExpandChats", `skip (${reason}): Your chats toggle missing`);
-      return false;
-    }
-    if (!canInteract(toggle)) {
-      ctx.logger.debug("autoExpandChats", `skip (${reason}): Your chats toggle not interactable`);
-      return false;
-    }
-
-    if (isToggleExpanded(toggle)) {
-      ctx.logger.debug("autoExpandChats", `already expanded (${reason})`);
-      return true;
-    }
-
-    if (!isToggleCollapsed(toggle)) {
-      ctx.logger.debug("autoExpandChats", `skip (${reason}): toggle state unknown`);
-      return false;
-    }
-
-    ctx.logger.debug("autoExpandChats", `click Your chats toggle (${reason})`);
-    dispatchHumanClick(toggle);
-
-    const success = isToggleExpanded(toggle);
-    ctx.logger.debug(
-      "autoExpandChats",
-      `post-click expanded=${success ? "true" : "false"} (${reason})`
-    );
-
-    return success;
+    ctx.logger.debug("autoExpandChats", `skip (${reason}): chat history nav missing/unready`);
+    return false;
   };
 
   const schedule = (reason: string): void => {
