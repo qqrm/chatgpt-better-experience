@@ -60,21 +60,9 @@ jobs:
           HUSKY: 0
         run: npm ci
 
-      - name: Format check
+      - name: Verify CI
         if: steps.changes.outputs.code == 'true'
-        run: npm run verify -- --step format:check
-
-      - name: Lint
-        if: steps.changes.outputs.code == 'true'
-        run: npm run verify -- --step lint
-
-      - name: Typecheck
-        if: steps.changes.outputs.code == 'true'
-        run: npm run verify -- --step typecheck
-
-      - name: Build
-        if: steps.changes.outputs.code == 'true'
-        run: npm run verify -- --step build
+        run: npm run verify:ci
 
       - name: Upload build artifact
         if: steps.changes.outputs.code == 'true' && hashFiles('dist/**') != ''
