@@ -4,6 +4,7 @@ const ONE_CLICK_DELETE_HOOK_MARK = "data-qqrm-oneclick-del-hooked";
 const ONE_CLICK_DELETE_ARCHIVE_MARK = "data-qqrm-oneclick-archive";
 const ONE_CLICK_DELETE_PIN_MARK = "data-qqrm-oneclick-pin";
 const ONE_CLICK_DELETE_NATIVE_DOTS_MARK = "data-qqrm-native-dots";
+const ONE_CLICK_DELETE_ROW_MARK = "data-qqrm-oneclick-row";
 const ONE_CLICK_DELETE_X_MARK = "data-qqrm-oneclick-del-x";
 const ONE_CLICK_DELETE_STYLE_ID = "cgptbe-silent-delete-style";
 const ONE_CLICK_DELETE_ROOT_FLAG = "data-cgptbe-silent-delete";
@@ -28,6 +29,7 @@ const ONE_CLICK_DELETE_TOOLTIP = "Click to delete";
 const ONE_CLICK_DELETE_ARCHIVE_TOOLTIP = "Archive";
 const ONE_CLICK_DELETE_PIN_TOOLTIP = "Pin / unpin";
 const CHAT_CONVERSATION_ID_REGEX = /\/c\/([^/?#]+)/;
+type QuickIconKind = "pin" | "archive" | "delete";
 
 export const extractConversationIdFromRow = (row: HTMLElement | null): string | null => {
   if (!row) return null;
@@ -322,6 +324,8 @@ export const buildOneClickDeleteStyleText = () => `
   }
 
   ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:hover > span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"],
+  [${ONE_CLICK_DELETE_ROW_MARK}="1"]:hover ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"],
+  [${ONE_CLICK_DELETE_ROW_MARK}="1"]:focus-within ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"],
   ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:focus-visible > span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]{
     opacity: 1.0;
     color: var(--qqrm-archive, #2563eb);
@@ -331,6 +335,8 @@ export const buildOneClickDeleteStyleText = () => `
   }
 
   ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:hover > span[${ONE_CLICK_DELETE_PIN_MARK}="1"],
+  [${ONE_CLICK_DELETE_ROW_MARK}="1"]:hover ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_PIN_MARK}="1"],
+  [${ONE_CLICK_DELETE_ROW_MARK}="1"]:focus-within ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_PIN_MARK}="1"],
   ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:focus-visible > span[${ONE_CLICK_DELETE_PIN_MARK}="1"]{
     opacity: 1.0;
     color: var(--qqrm-pin, #16a34a);
@@ -340,6 +346,8 @@ export const buildOneClickDeleteStyleText = () => `
   }
 
   ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:hover > span[${ONE_CLICK_DELETE_X_MARK}="1"],
+  [${ONE_CLICK_DELETE_ROW_MARK}="1"]:hover ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"],
+  [${ONE_CLICK_DELETE_ROW_MARK}="1"]:focus-within ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"],
   ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:focus-visible > span[${ONE_CLICK_DELETE_X_MARK}="1"]{
     opacity: 1.0;
     color: var(--qqrm-danger, #d13b3b);
@@ -532,6 +540,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     deleteQueue: Promise<void>;
     sweepTimeoutsById: Map<string, number[]>;
     recentlyDeleted: Map<string, number>;
+    nativeQuickIcons: Partial<Record<QuickIconKind, string>>;
   } = {
     started: false,
     deleteSweepSchedule: null,
@@ -545,7 +554,46 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     pendingByRow: new Map(),
     deleteQueue: Promise.resolve(),
     sweepTimeoutsById: new Map(),
-    recentlyDeleted: new Map()
+    recentlyDeleted: new Map(),
+    nativeQuickIcons: {}
+  };
+
+  const hasHistoryMarker = (el: HTMLElement) => {
+    const dataTestId = el.getAttribute("data-testid")?.toLowerCase() ?? "";
+    if (dataTestId.includes("history-item")) return true;
+    if (el.hasAttribute("data-sidebar-item")) return true;
+    if (el.classList.contains("__menu-item")) return true;
+    return false;
+  };
+
+  const findHistoryRowFromNode = (node: HTMLElement | null) => {
+    if (!node) return null;
+    const rowFromAnchor = node
+      .closest<HTMLElement>("a[href^='/c/'], a[href*='/c/']")
+      ?.closest<HTMLElement>(
+        "[data-sidebar-item='true'], .group.__menu-item, [role='listitem'], li, [data-testid*='history-item' i]"
+      );
+    if (rowFromAnchor) return rowFromAnchor;
+    const row = node.closest<HTMLElement>(
+      ".group.__menu-item.hoverable, .group.__menu-item, [data-sidebar-item='true'], [data-testid*='history-item' i], [role='listitem'], li"
+    );
+    if (!row) return null;
+    if (row.querySelector("a[href^='/c/'], a[href*='/c/']") || hasHistoryMarker(row)) return row;
+    return null;
+  };
+
+  const isHistoryRowTrailingButton = (btn: HTMLElement) => {
+    if (!(btn instanceof HTMLButtonElement)) return false;
+    const cls = btn.className || "";
+    const dataTestId = btn.getAttribute("data-testid")?.toLowerCase() ?? "";
+    const looksTrailing =
+      btn.hasAttribute("data-trailing-button") ||
+      cls.includes("__menu-item-trailing-btn") ||
+      dataTestId.includes("history-item") ||
+      dataTestId.includes("options");
+    if (!looksTrailing) return false;
+    const row = findHistoryRowFromNode(btn);
+    return Boolean(row);
   };
 
   const enqueueDelete = (job: () => Promise<void>) => {
@@ -672,9 +720,26 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     state.deleteSweepCancel = sched.cancel;
   };
 
+  const collectHookableButtons = (root: ParentNode) => {
+    const fastSelector = `${ONE_CLICK_DELETE_BUTTON_SELECTOR}:not([${ONE_CLICK_DELETE_HOOK_MARK}="1"])`;
+    const fastButtons = qsa<HTMLElement>(fastSelector, root as Document | Element).filter(
+      isHistoryRowTrailingButton
+    );
+    const fallbackCandidates = qsa<HTMLElement>(
+      `button[data-trailing-button], button.__menu-item-trailing-btn, button[data-testid*='history-item' i]`,
+      root as Document | Element
+    );
+    const dedup = new Set<HTMLElement>(fastButtons);
+    for (const btn of fallbackCandidates) {
+      if (btn.hasAttribute(ONE_CLICK_DELETE_HOOK_MARK)) continue;
+      if (!isHistoryRowTrailingButton(btn)) continue;
+      dedup.add(btn);
+    }
+    return Array.from(dedup);
+  };
+
   const hookOptionsButtonsInNav = (nav: Element) => {
-    const selector = `${ONE_CLICK_DELETE_BUTTON_SELECTOR}:not([${ONE_CLICK_DELETE_HOOK_MARK}="1"])`;
-    const buttons = qsa<HTMLElement>(selector, nav);
+    const buttons = collectHookableButtons(nav);
     for (const button of buttons) {
       hookOneClickDeleteButton(button);
       state.stats.applyRuns += 1;
@@ -683,12 +748,57 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
 
   const runHookScan = () => {
     const nav = ctx.domBus?.getNavRoot();
-    if (!nav) return;
-    const selector = `${ONE_CLICK_DELETE_BUTTON_SELECTOR}:not([${ONE_CLICK_DELETE_HOOK_MARK}="1"])`;
-    const buttons = qsa<HTMLElement>(selector, nav);
+    const buttons = nav ? collectHookableButtons(nav) : [];
+    if (buttons.length === 0) {
+      buttons.push(...collectHookableButtons(document));
+    }
     for (const button of buttons) {
       hookOneClickDeleteButton(button);
       state.stats.applyRuns += 1;
+    }
+  };
+
+  const cloneMenuItemIconSvg = (menuItem: HTMLElement): SVGElement | null => {
+    const source =
+      menuItem.querySelector<SVGElement>(".icon svg") ?? menuItem.querySelector<SVGElement>("svg");
+    if (!source) return null;
+    return source.cloneNode(true) as SVGElement;
+  };
+
+  const cacheNativeQuickIconsFromMenu = (menuRoot: ParentNode) => {
+    const items = Array.from(
+      menuRoot.querySelectorAll<HTMLElement>('div[role="menuitem"], button[role="menuitem"]')
+    );
+    for (const item of items) {
+      const text = item.textContent?.trim().toLowerCase() ?? "";
+      const dataTestId = item.getAttribute("data-testid")?.toLowerCase() ?? "";
+      let kind: QuickIconKind | null = null;
+      if (text.includes("unpin") || text.includes("pin") || dataTestId.includes("pin"))
+        kind = "pin";
+      else if (text.includes("archive") || dataTestId.includes("archive")) kind = "archive";
+      else if (text.includes("delete") || dataTestId.includes("delete")) kind = "delete";
+      if (!kind) continue;
+      const svg = cloneMenuItemIconSvg(item);
+      if (!svg) continue;
+      state.nativeQuickIcons[kind] = svg.outerHTML;
+    }
+  };
+
+  const applyCachedNativeIcon = (span: HTMLElement, kind: QuickIconKind) => {
+    const iconHtml = state.nativeQuickIcons[kind];
+    if (!iconHtml) return;
+    span.innerHTML = iconHtml;
+  };
+
+  const refreshAllHookedIcons = () => {
+    const btns = qsa<HTMLElement>(`button[${ONE_CLICK_DELETE_HOOK_MARK}="1"]`);
+    for (const btn of btns) {
+      const del = btn.querySelector<HTMLElement>(`span[${ONE_CLICK_DELETE_X_MARK}="1"]`);
+      const archive = btn.querySelector<HTMLElement>(`span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]`);
+      const pin = btn.querySelector<HTMLElement>(`span[${ONE_CLICK_DELETE_PIN_MARK}="1"]`);
+      if (del) applyCachedNativeIcon(del, "delete");
+      if (archive) applyCachedNativeIcon(archive, "archive");
+      if (pin) applyCachedNativeIcon(pin, "pin");
     }
   };
 
@@ -732,6 +842,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       </svg>
     `;
     btn.appendChild(x);
+    applyCachedNativeIcon(x, "delete");
     return x;
   };
 
@@ -762,6 +873,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       </svg>
     `;
     btn.appendChild(archive);
+    applyCachedNativeIcon(archive, "archive");
     return archive;
   };
 
@@ -795,12 +907,12 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       </svg>
     `;
     btn.appendChild(pin);
+    applyCachedNativeIcon(pin, "pin");
     return pin;
   };
 
   const clearOneClickDeleteButtons = () => {
-    const nav = document.querySelector('nav[aria-label="Chat history"]');
-    const btns = qsa<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR, nav ?? document);
+    const btns = qsa<HTMLElement>(`button[${ONE_CLICK_DELETE_HOOK_MARK}="1"]`);
     for (const btn of btns) {
       btn.removeAttribute(ONE_CLICK_DELETE_HOOK_MARK);
       const x = btn.querySelector(`span[${ONE_CLICK_DELETE_X_MARK}="1"]`);
@@ -811,6 +923,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       if (pin) pin.remove();
       const dots = btn.querySelector(`svg[${ONE_CLICK_DELETE_NATIVE_DOTS_MARK}="1"]`);
       if (dots) dots.removeAttribute(ONE_CLICK_DELETE_NATIVE_DOTS_MARK);
+      const row = findChatRowFromOptionsButton(btn);
+      row?.removeAttribute(ONE_CLICK_DELETE_ROW_MARK);
     }
   };
 
@@ -823,8 +937,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const findChatRowFromOptionsButton = (btn: HTMLElement) => {
-    const row = btn.closest<HTMLElement>(".group.__menu-item.hoverable");
-    return row ?? null;
+    return findHistoryRowFromNode(btn);
   };
 
   const applyRowTypographyVars = (row: HTMLElement) => {
@@ -978,19 +1091,25 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     return target.closest<HTMLElement>(`span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]`);
   };
 
-  const getDeleteButtonFromX = (x: HTMLElement) =>
-    x.closest<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
+  const getDeleteButtonFromX = (x: HTMLElement) => {
+    const btn = x.closest<HTMLElement>("button");
+    return btn && isHistoryRowTrailingButton(btn) ? btn : null;
+  };
 
-  const getOptionsButtonFromArchive = (archive: HTMLElement) =>
-    archive.closest<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
+  const getOptionsButtonFromArchive = (archive: HTMLElement) => {
+    const btn = archive.closest<HTMLElement>("button");
+    return btn && isHistoryRowTrailingButton(btn) ? btn : null;
+  };
 
   const getPinFromEvent = (target: EventTarget | null) => {
     if (!(target instanceof Element)) return null;
     return target.closest<HTMLElement>(`span[${ONE_CLICK_DELETE_PIN_MARK}="1"]`);
   };
 
-  const getOptionsButtonFromPin = (pin: HTMLElement) =>
-    pin.closest<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR);
+  const getOptionsButtonFromPin = (pin: HTMLElement) => {
+    const btn = pin.closest<HTMLElement>("button");
+    return btn && isHistoryRowTrailingButton(btn) ? btn : null;
+  };
 
   const hookOneClickDeleteButton = (btn: HTMLElement) => {
     if (!btn || btn.nodeType !== 1) return;
@@ -1000,6 +1119,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     ensureOneClickArchiveSpan(btn);
     ensureOneClickPinSpan(btn);
     ensureNativeDotsMark(btn);
+    const row = findChatRowFromOptionsButton(btn);
+    row?.setAttribute(ONE_CLICK_DELETE_ROW_MARK, "1");
   };
 
   const closeOpenMenuSilently = async (optionsBtn?: HTMLElement | null) => {
@@ -1073,6 +1194,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
         while (performance.now() - t0 < 1500) {
           const menus = qsa('[role="menu"]');
           for (const menu of menus) {
+            cacheNativeQuickIconsFromMenu(menu);
+            refreshAllHookedIcons();
             for (const selector of pinSelectors) {
               const item = menu.querySelector<HTMLElement>(selector);
               if (item) return item;
@@ -1115,6 +1238,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
         while (performance.now() - t0 < 1500) {
           const menus = qsa('[role="menu"]');
           for (const menu of menus) {
+            cacheNativeQuickIconsFromMenu(menu);
+            refreshAllHookedIcons();
             const item =
               menu.querySelector<HTMLElement>(
                 'div[role="menuitem"][data-testid="delete-chat-menu-item"]'
@@ -1183,6 +1308,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
         while (performance.now() - t0 < 1500) {
           const menus = qsa('[role="menu"]');
           for (const menu of menus) {
+            cacheNativeQuickIconsFromMenu(menu);
+            refreshAllHookedIcons();
             for (const selector of archiveSelectors) {
               const item = menu.querySelector<HTMLElement>(selector);
               if (item) return item;

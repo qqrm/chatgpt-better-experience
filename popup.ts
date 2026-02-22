@@ -10,7 +10,6 @@ function mustGetElement<T extends HTMLElement>(id: string) {
 
 type ThemeMode = "auto" | "dark" | "light";
 
-const hintEl = mustGetElement<HTMLElement>("hint");
 const autoSendEl = mustGetElement<HTMLInputElement>("autoSend");
 const allowCodexEl = mustGetElement<HTMLInputElement>("allowAutoSendInCodex");
 const editLastMessageEl = mustGetElement<HTMLInputElement>("editLastMessageOnArrowUp");
@@ -138,7 +137,7 @@ function renderMacroRecorderStatus(status: unknown, lastExportAt: unknown) {
 }
 
 async function load() {
-  const [{ settings, hint }, themeData, macroData] = await Promise.all([
+  const [{ settings }, themeData, macroData] = await Promise.all([
     loadPopupSettings(popupDeps),
     storagePort.get({ popupThemeMode: "auto" as ThemeMode }),
     storagePort.get({ macroRecorderStatus: "off", macroRecorderLastExportAt: 0 })
@@ -165,8 +164,6 @@ async function load() {
   macroRecorderEnabledEl.checked = !!settings.macroRecorderEnabled;
   renderMacroRecorderStatus(macroData.macroRecorderStatus, macroData.macroRecorderLastExportAt);
 
-  hintEl.textContent = hint;
-
   applyThemeMode(normalizeThemeMode(themeData.popupThemeMode));
 }
 
@@ -192,8 +189,7 @@ async function save() {
     macroRecorderEnabled: !!macroRecorderEnabledEl.checked
   };
 
-  const { hint } = await savePopupSettings(popupDeps, input);
-  hintEl.textContent = hint;
+  await savePopupSettings(popupDeps, input);
   trimChatDomKeepValueEl.textContent = String(trimChatDomKeep);
   wideChatWidthValueEl.textContent = `${wideChatWidth}%`;
 }

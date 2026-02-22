@@ -479,8 +479,6 @@
       </button>
     </div>
 
-    <div class="hint" id="hint"></div>
-
     <div class="grid2">
       <div class="col">
         <div class="sectionTitle">Automation</div>
@@ -488,7 +486,10 @@
         <div class="row">
           <div class="check">
             <input id="autoSend" type="checkbox" checked />
-            <label for="autoSend">Auto-send</label>
+            <label for="autoSend">
+              <span>Auto-send</span>
+              <span class="note">Hold Shift while accepting dictation to skip auto-send</span>
+            </label>
           </div>
         </div>
 
@@ -624,7 +625,9 @@
           </label>
         </div>
       </div>
-      <div class="hint" id="macroRecorderMeta" style="margin-top: 4px">F5 start • F6 stop+save</div>
+      <div class="hint" id="macroRecorderMeta" style="margin-top: 4px">
+        Ctrl/Cmd+Shift+F8 toggle
+      </div>
     </div>
 
     <script src="dist/popup.js"></script>
