@@ -1,182 +1,134 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeTestContext } from "./helpers/testContext";
-
-const { recordMock } = vi.hoisted(() => ({
-  recordMock: vi.fn()
-}));
-
-vi.mock("@rrweb/record", () => ({
-  record: recordMock
-}));
-
-import { initMacroRecorderFeature } from "../src/features/macroRecorder";
-
-type StorageWrite = Record<string, unknown>;
-
-function makeStorageCapture() {
-  const writes: StorageWrite[] = [];
-  return {
-    writes,
-    set: async (values: StorageWrite) => {
-      writes.push(values);
-    }
-  };
-}
-
-function keydown(key: string, options: KeyboardEventInit & { target?: EventTarget } = {}) {
-  const { target, ...init } = options;
-  const event = new KeyboardEvent("keydown", {
-    key,
-    bubbles: true,
-    cancelable: true,
-    ...init
-  });
-
-  if (target instanceof EventTarget) {
-    target.dispatchEvent(event);
-  } else {
-    window.dispatchEvent(event);
-  }
-
-  return event;
-}
+import { beforeEach, describe, expect, it } from "vitest";
+import { makeMacroRecorderHarness } from "./helpers/macroRecorderHarness";
 
 describe("macroRecorder feature", () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
-    recordMock.mockReset();
-    recordMock.mockImplementation(() => vi.fn());
     document.body.innerHTML = "<button id='x'>Click</button>";
   });
 
   it("does nothing on Ctrl+Shift+F8 while disabled", () => {
-    const storage = makeStorageCapture();
-    const ctx = makeTestContext({ macroRecorderEnabled: false });
-    ctx.storagePort.set = storage.set;
+    const h = makeMacroRecorderHarness(false);
 
-    const handle = initMacroRecorderFeature(ctx);
-
-    const event = keydown("F8", { ctrlKey: true, shiftKey: true });
+    const event = h.pressToggle();
 
     expect(event.defaultPrevented).toBe(false);
-    expect(recordMock).not.toHaveBeenCalled();
-    expect(storage.writes.length).toBe(0);
+    expect(h.fx.rrwebStarts).toHaveLength(0);
+    expect(h.storageWrites).toHaveLength(0);
 
-    handle.dispose();
+    h.dispose();
   });
 
   it("handles toggle while typing in editable targets", () => {
-    const storage = makeStorageCapture();
-    const ctx = makeTestContext({ macroRecorderEnabled: true });
-    ctx.storagePort.set = storage.set;
-
+    const h = makeMacroRecorderHarness(true);
     const input = document.createElement("input");
     document.body.appendChild(input);
 
-    const handle = initMacroRecorderFeature(ctx);
-
-    const event = keydown("F8", { ctrlKey: true, shiftKey: true, target: input });
+    const event = h.pressToggle(input);
 
     expect(event.defaultPrevented).toBe(true);
-    expect(recordMock).toHaveBeenCalledTimes(1);
-    expect(storage.writes.some((w) => w.macroRecorderStatus === "recording")).toBe(true);
-    expect(document.getElementById("qqrm-macro-recorder-toast")?.textContent).toBe(
-      "Macro recording started"
-    );
+    expect(h.fx.rrwebStarts).toHaveLength(1);
+    expect(h.storageWrites.some((w) => w.macroRecorderStatus === "recording")).toBe(true);
+    expect(h.fx.toasts[h.fx.toasts.length - 1]?.message).toBe("Macro recording started");
 
-    handle.dispose();
+    h.dispose();
   });
 
   it("starts recording on first Ctrl+Shift+F8 press", () => {
-    const storage = makeStorageCapture();
-    const ctx = makeTestContext({ macroRecorderEnabled: true });
-    ctx.storagePort.set = storage.set;
+    const h = makeMacroRecorderHarness(true);
 
-    const handle = initMacroRecorderFeature(ctx);
-
-    const event = keydown("F8", { ctrlKey: true, shiftKey: true });
+    const event = h.pressToggle();
 
     expect(event.defaultPrevented).toBe(true);
-    expect(recordMock).toHaveBeenCalledTimes(1);
-    expect(handle.getStatus?.().details).toBe("recording");
-    expect(storage.writes.some((w) => w.macroRecorderStatus === "recording")).toBe(true);
-    expect(document.getElementById("qqrm-macro-recorder-toast")?.textContent).toBe(
-      "Macro recording started"
-    );
+    expect(h.fx.rrwebStarts).toHaveLength(1);
+    expect(h.handle.getStatus?.().details).toBe("recording");
+    expect(h.storageWrites.some((w) => w.macroRecorderStatus === "recording")).toBe(true);
+    expect(h.fx.toasts[h.fx.toasts.length - 1]).toEqual({
+      message: "Macro recording started",
+      tone: "active"
+    });
 
-    handle.dispose();
+    h.dispose();
   });
 
-  it("stops and exports on second Ctrl+Shift+F8 press", async () => {
-    const storage = makeStorageCapture();
-    const stopFn = vi.fn();
-    recordMock.mockImplementation(() => stopFn);
+  it("stops and exports on second Ctrl+Shift+F8 press", () => {
+    const h = makeMacroRecorderHarness(true);
 
-    const createObjectUrlSpy = vi
-      .spyOn(URL, "createObjectURL")
-      .mockImplementation(() => "blob:test");
-    const revokeSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-    const anchorClickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, "click")
-      .mockImplementation(() => {});
-
-    const ctx = makeTestContext({ macroRecorderEnabled: true });
-    ctx.storagePort.set = storage.set;
-    const handle = initMacroRecorderFeature(ctx);
-
-    const startEvent = keydown("F8", { ctrlKey: true, shiftKey: true });
-    const stopEvent = keydown("F8", { ctrlKey: true, shiftKey: true });
+    const startEvent = h.pressToggle();
+    const stopEvent = h.pressToggle();
 
     expect(startEvent.defaultPrevented).toBe(true);
     expect(stopEvent.defaultPrevented).toBe(true);
-    expect(stopFn).toHaveBeenCalledTimes(1);
-    expect(anchorClickSpy).toHaveBeenCalledTimes(1);
-    expect(createObjectUrlSpy).toHaveBeenCalledTimes(1);
-    expect(handle.getStatus?.().details).toBe("ready");
-    expect(document.getElementById("qqrm-macro-recorder-toast")?.textContent).toBe(
-      "Macro recording saved"
-    );
+    expect(h.fx.rrwebStarts).toHaveLength(1);
+    expect(h.fx.rrwebStopCalls).toBe(1);
+    expect(h.handle.getStatus?.().details).toBe("ready");
+    expect(h.fx.toasts[h.fx.toasts.length - 1]?.message).toBe("Macro recording saved");
+    expect(h.fx.downloads).toHaveLength(1);
+    expect(h.storageWrites.some((w) => "macroRecorderLastExportAt" in w)).toBe(true);
 
-    const exportWrites = storage.writes.filter((w) => "macroRecorderLastExportAt" in w);
-    expect(exportWrites.length).toBe(1);
-
-    const blob = createObjectUrlSpy.mock.calls[0]?.[0] as Blob;
-    const payload = JSON.parse(await blob.text()) as {
+    const payload = h.fx.downloads[0]?.payload as {
+      schemaVersion: number;
       rrwebEvents: unknown[];
       actions: unknown[];
-      schemaVersion: number;
     };
     expect(payload.schemaVersion).toBe(1);
     expect(Array.isArray(payload.rrwebEvents)).toBe(true);
     expect(Array.isArray(payload.actions)).toBe(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(revokeSpy).toHaveBeenCalled();
-
-    handle.dispose();
+    h.dispose();
   });
 
   it("is idempotent for repeated stop-intent presses", () => {
-    const storage = makeStorageCapture();
-    const stopFn = vi.fn();
-    recordMock.mockImplementation(() => stopFn);
+    const h = makeMacroRecorderHarness(true);
 
-    const anchorClickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, "click")
-      .mockImplementation(() => {});
+    h.pressToggle();
+    h.pressToggle();
+    h.pressToggle(undefined, { repeat: true });
 
-    const ctx = makeTestContext({ macroRecorderEnabled: true });
-    ctx.storagePort.set = storage.set;
-    const handle = initMacroRecorderFeature(ctx);
+    expect(h.fx.rrwebStarts).toHaveLength(1);
+    expect(h.fx.rrwebStopCalls).toBe(1);
+    expect(h.fx.downloads).toHaveLength(1);
 
-    keydown("F8", { ctrlKey: true, shiftKey: true });
-    keydown("F8", { ctrlKey: true, shiftKey: true });
-    keydown("F8", { ctrlKey: true, shiftKey: true, repeat: true });
+    h.dispose();
+  });
 
-    expect(stopFn).toHaveBeenCalledTimes(1);
-    expect(anchorClickSpy).toHaveBeenCalledTimes(1);
-    expect(recordMock).toHaveBeenCalledTimes(1);
+  it("exports contract-compatible payload", () => {
+    const h = makeMacroRecorderHarness(true);
 
-    handle.dispose();
+    h.pressToggle();
+    h.fx.emitRrweb({ type: 0, timestamp: 1700000000500, data: {} as never });
+
+    const input = document.createElement("input");
+    input.id = "prompt-input";
+    input.value = "hello";
+    document.body.appendChild(input);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    h.pressToggle();
+
+    const exported = h.fx.downloads[0]?.payload as {
+      schemaVersion: number;
+      rrwebEvents: Array<{ timestamp?: number }>;
+      actions: Array<{ t: number; kind: string; selector?: string }>;
+      meta: { durationMs: number };
+    };
+
+    expect(exported.schemaVersion).toBe(1);
+    expect(Array.isArray(exported.rrwebEvents)).toBe(true);
+    expect(Array.isArray(exported.actions)).toBe(true);
+    expect(exported.meta.durationMs).toBeGreaterThanOrEqual(0);
+
+    for (const action of exported.actions) {
+      expect(["click", "input", "keydown"]).toContain(action.kind);
+      if (action.kind === "click" || action.kind === "input") {
+        expect(typeof action.selector).toBe("string");
+        expect(action.selector?.length).toBeGreaterThan(0);
+      }
+    }
+
+    for (let i = 1; i < exported.actions.length; i += 1) {
+      expect(exported.actions[i]!.t).toBeGreaterThanOrEqual(exported.actions[i - 1]!.t);
+    }
+
+    h.dispose();
   });
 });
