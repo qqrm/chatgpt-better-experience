@@ -2,7 +2,7 @@ name: Dependabot Auto-Update & Auto-Merge
 
 on:
   schedule:
-    - cron: "0 */2 * * *"
+    - cron: "17 3 * * *"
   workflow_dispatch:
 
 permissions:
