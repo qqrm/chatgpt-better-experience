@@ -252,10 +252,10 @@ export const buildOneClickDeleteStyleText = () => `
     font-size: 16px;
     font-weight: 600;
     line-height: 18px;
-    color: var(--qqrm-archive-muted, #6b7280);
-    background: var(--qqrm-archive-muted-bg, rgba(107, 114, 128, 0.1));
-    border: 1px solid var(--qqrm-archive-muted-border, rgba(107, 114, 128, 0.28));
-    box-shadow: -1px 0 0 rgba(255, 255, 255, 0.08) inset;
+    color: currentColor;
+    background: transparent;
+    border: 1px solid transparent;
+    box-shadow: none;
     opacity: 0.0;
     will-change: opacity, transform;
     transition: opacity 140ms ease, background 140ms ease;
@@ -282,10 +282,10 @@ export const buildOneClickDeleteStyleText = () => `
     font-size: 16px;
     font-weight: 600;
     line-height: 18px;
-    color: var(--qqrm-pin-muted, #6b7280);
-    background: var(--qqrm-pin-muted-bg, rgba(107, 114, 128, 0.1));
-    border: 1px solid var(--qqrm-pin-muted-border, rgba(107, 114, 128, 0.28));
-    box-shadow: -1px 0 0 rgba(255, 255, 255, 0.08) inset;
+    color: currentColor;
+    background: transparent;
+    border: 1px solid transparent;
+    box-shadow: none;
     opacity: 0.0;
     will-change: opacity, transform;
     transition: opacity 140ms ease, background 140ms ease;
@@ -312,10 +312,10 @@ export const buildOneClickDeleteStyleText = () => `
     font-size: 18px;
     font-weight: 600;
     line-height: 18px;
-    color: var(--qqrm-danger-muted, #6b7280);
-    background: var(--qqrm-danger-muted-bg, rgba(107, 114, 128, 0.1));
-    border: 1px solid var(--qqrm-danger-muted-border, rgba(107, 114, 128, 0.28));
-    box-shadow: -1px 0 0 rgba(255, 255, 255, 0.08) inset;
+    color: currentColor;
+    background: transparent;
+    border: 1px solid transparent;
+    box-shadow: none;
     opacity: 0.0;
     will-change: opacity, transform;
     transition: opacity 140ms ease, background 140ms ease;
@@ -358,9 +358,9 @@ export const buildOneClickDeleteStyleText = () => `
   [${ONE_CLICK_DELETE_ROW_MARK}="1"]:focus-within ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"],
   ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:focus-visible > span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]{
     opacity: 1.0;
-    color: var(--qqrm-archive, #2563eb);
-    background: var(--qqrm-archive-bg, rgba(37, 99, 235, 0.18));
-    border-color: var(--qqrm-archive-border, rgba(37, 99, 235, 0.35));
+    color: currentColor;
+    background: transparent;
+    border-color: transparent;
     transform: translate3d(0, -50%, 0);
   }
 
@@ -369,9 +369,9 @@ export const buildOneClickDeleteStyleText = () => `
   [${ONE_CLICK_DELETE_ROW_MARK}="1"]:focus-within ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_PIN_MARK}="1"],
   ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:focus-visible > span[${ONE_CLICK_DELETE_PIN_MARK}="1"]{
     opacity: 1.0;
-    color: var(--qqrm-pin, #16a34a);
-    background: var(--qqrm-pin-bg, rgba(22, 163, 74, 0.18));
-    border-color: var(--qqrm-pin-border, rgba(22, 163, 74, 0.35));
+    color: currentColor;
+    background: transparent;
+    border-color: transparent;
     transform: translate3d(0, -50%, 0);
   }
 
@@ -380,9 +380,9 @@ export const buildOneClickDeleteStyleText = () => `
   [${ONE_CLICK_DELETE_ROW_MARK}="1"]:focus-within ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_X_MARK}="1"],
   ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:focus-visible > span[${ONE_CLICK_DELETE_X_MARK}="1"]{
     opacity: 1.0;
-    color: var(--qqrm-danger, #d13b3b);
-    background: var(--qqrm-danger-bg, rgba(209, 59, 59, 0.18));
-    border-color: var(--qqrm-danger-border, rgba(209, 59, 59, 0.35));
+    color: currentColor;
+    background: transparent;
+    border-color: transparent;
     transform: translate3d(0, -50%, 0);
   }
 
