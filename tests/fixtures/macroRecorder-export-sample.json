@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-02-24T18:42:22.883Z",
+  "pageUrl": "https://chatgpt.com/c/example-thread",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_0)",
+  "rrwebEvents": [
+    {
+      "type": 0,
+      "timestamp": 1700000000100,
+      "data": {}
+    },
+    {
+      "type": 3,
+      "timestamp": 1700000000200,
+      "data": {
+        "source": 2,
+        "positions": []
+      }
+    }
+  ],
+  "actions": [
+    {
+      "t": 1700000000300,
+      "kind": "click",
+      "selector": "button[aria-label=\"Send\"]",
+      "meta": {
+        "tag": "button",
+        "ariaLabel": "Send",
+        "text": "Send"
+      }
+    },
+    {
+      "t": 1700000000400,
+      "kind": "input",
+      "selector": "#prompt-textarea",
+      "valueLength": 12,
+      "meta": {
+        "tag": "textarea",
+        "id": "prompt-textarea"
+      }
+    },
+    {
+      "t": 1700000000500,
+      "kind": "keydown",
+      "key": "Enter",
+      "ctrl": false,
+      "alt": false,
+      "shift": false,
+      "metaKey": false
+    }
+  ],
+  "meta": {
+    "startedAt": 1700000000000,
+    "stoppedAt": 1700000000600,
+    "durationMs": 600
+  }
+}

@@ -1,5 +1,9 @@
-import { record } from "@rrweb/record";
 import type { eventWithTime } from "@rrweb/types";
+import {
+  defaultMacroRecorderDeps,
+  type MacroRecorderDeps,
+  type RrwebStartOptions
+} from "./macroRecorder.deps";
 import type { FeatureContext, FeatureHandle } from "../application/featureContext";
 import { routeKeyCombos, type KeyCombo } from "./keyCombos";
 
@@ -57,8 +61,6 @@ const STATUS_KEY = "macroRecorderStatus";
 const STATUS_UPDATED_AT_KEY = "macroRecorderStatusUpdatedAt";
 const LAST_EXPORT_KEY = "macroRecorderLastExportAt";
 
-const now = () => Date.now();
-
 function isMacroRecorderToggleHotkey(event: KeyboardEvent) {
   return event.key === "F8" && event.shiftKey && (event.ctrlKey || event.metaKey);
 }
@@ -90,135 +92,103 @@ function getElementMeta(el: Element | null): ElementMeta {
   };
 }
 
+function escapeCss(value: string) {
+  const cssEscape = globalThis.CSS?.escape;
+  if (typeof cssEscape === "function") return cssEscape(value);
+
+  // Best-effort fallback aligned with the CSS.escape polyfill behavior.
+  const string = String(value);
+  const length = string.length;
+  let index = -1;
+  let codeUnit: number;
+  let result = "";
+  const firstCodeUnit = string.charCodeAt(0);
+
+  while (++index < length) {
+    codeUnit = string.charCodeAt(index);
+
+    if (codeUnit === 0x0000) {
+      result += "\uFFFD";
+      continue;
+    }
+
+    if (
+      (codeUnit >= 0x0001 && codeUnit <= 0x001f) ||
+      codeUnit === 0x007f ||
+      (index === 0 && codeUnit >= 0x0030 && codeUnit <= 0x0039) ||
+      (index === 1 && codeUnit >= 0x0030 && codeUnit <= 0x0039 && firstCodeUnit === 0x002d)
+    ) {
+      result += `\\${codeUnit.toString(16)} `;
+      continue;
+    }
+
+    if (index === 0 && codeUnit === 0x002d && length === 1) {
+      result += "\\-";
+      continue;
+    }
+
+    if (
+      codeUnit >= 0x0080 ||
+      codeUnit === 0x002d ||
+      codeUnit === 0x005f ||
+      (codeUnit >= 0x0030 && codeUnit <= 0x0039) ||
+      (codeUnit >= 0x0041 && codeUnit <= 0x005a) ||
+      (codeUnit >= 0x0061 && codeUnit <= 0x007a)
+    ) {
+      result += string.charAt(index);
+      continue;
+    }
+
+    result += `\\${string.charAt(index)}`;
+  }
+
+  return result;
+}
+
 function buildStableSelector(el: Element | null): string | null {
   if (!el) return null;
 
   const testId = el.getAttribute("data-testid");
-  if (testId) return `[data-testid="${CSS.escape(testId)}"]`;
+  if (testId) return `[data-testid="${escapeCss(testId)}"]`;
 
   const ariaLabel = el.getAttribute("aria-label");
-  if (ariaLabel) return `${el.tagName.toLowerCase()}[aria-label="${CSS.escape(ariaLabel)}"]`;
+  if (ariaLabel) return `${el.tagName.toLowerCase()}[aria-label="${escapeCss(ariaLabel)}"]`;
 
   const html = el as HTMLElement;
-  if (html.id) return `#${CSS.escape(html.id)}`;
+  if (html.id) return `#${escapeCss(html.id)}`;
 
   const tag = el.tagName.toLowerCase();
   const role = el.getAttribute("role");
   const parent = el.parentElement;
-  if (!parent) return role ? `${tag}[role="${CSS.escape(role)}"]` : tag;
+  if (!parent) return role ? `${tag}[role="${escapeCss(role)}"]` : tag;
 
   const matchingSiblings = Array.from(parent.children).filter(
     (child) => child.tagName === el.tagName
   );
   const nth = matchingSiblings.indexOf(el) + 1;
-  if (nth <= 0) return role ? `${tag}[role="${CSS.escape(role)}"]` : tag;
+  if (nth <= 0) return role ? `${tag}[role="${escapeCss(role)}"]` : tag;
 
   return role
-    ? `${tag}[role="${CSS.escape(role)}"]:nth-of-type(${nth})`
+    ? `${tag}[role="${escapeCss(role)}"]:nth-of-type(${nth})`
     : `${tag}:nth-of-type(${nth})`;
 }
 
-function triggerJsonDownload(filename: string, payload: unknown) {
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.className = "qqrm-macro-recorder-ignore";
-  anchor.style.display = "none";
-  (document.body || document.documentElement).appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-const TOAST_HOST_ID = "qqrm-macro-recorder-toast-host";
-const TOAST_ID = "qqrm-macro-recorder-toast";
-
-function ensureToastHost(retry = false) {
-  const existing = document.getElementById(TOAST_HOST_ID);
-  if (existing) return existing;
-
-  const mount = document.body || document.documentElement;
-  if (!mount) {
-    if (!retry) {
-      window.setTimeout(() => {
-        ensureToastHost(true);
-      }, 0);
-    }
-    return null;
-  }
-
-  const host = document.createElement("div");
-  host.id = TOAST_HOST_ID;
-  host.className = "qqrm-macro-recorder-ignore";
-  host.style.position = "fixed";
-  host.style.top = "16px";
-  host.style.left = "50%";
-  host.style.transform = "translateX(-50%)";
-  host.style.zIndex = "2147483647";
-  host.style.pointerEvents = "none";
-  mount.appendChild(host);
-  return host;
-}
-
-function showRecorderToast(message: string, tone: "active" | "neutral" = "neutral") {
-  try {
-    const host = ensureToastHost();
-    if (!host) return;
-
-    const existingToast = document.getElementById(TOAST_ID);
-    const toast =
-      existingToast instanceof HTMLDivElement ? existingToast : document.createElement("div");
-    if (!existingToast) {
-      toast.id = TOAST_ID;
-      toast.className = "qqrm-macro-recorder-ignore";
-      host.appendChild(toast);
-    }
-
-    toast.textContent = message;
-    toast.style.background =
-      tone === "active" ? "rgba(22, 101, 52, 0.9)" : "rgba(17, 24, 39, 0.88)";
-    toast.style.color = "#fff";
-    toast.style.borderRadius = "8px";
-    toast.style.padding = "8px 12px";
-    toast.style.fontSize = "12px";
-    toast.style.fontWeight = "500";
-    toast.style.maxWidth = "320px";
-    toast.style.boxShadow = "0 10px 25px rgba(0, 0, 0, 0.25)";
-    toast.style.opacity = "1";
-    toast.style.transition = "opacity 140ms ease-out";
-
-    const timerKey = "qqrmMacroRecorderToastTimer";
-    const priorTimer = Number(toast.dataset[timerKey] || 0);
-    if (priorTimer) {
-      window.clearTimeout(priorTimer);
-    }
-    const timerId = window.setTimeout(() => {
-      toast.style.opacity = "0";
-      window.setTimeout(() => {
-        if (toast.parentElement) toast.remove();
-      }, 160);
-    }, 1500);
-    toast.dataset[timerKey] = String(timerId);
-  } catch {
-    // visual feedback is best-effort only.
-  }
-}
-
-export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
+export function initMacroRecorderFeature(
+  ctx: FeatureContext,
+  deps: MacroRecorderDeps = defaultMacroRecorderDeps
+): FeatureHandle {
   let status: RecorderStatus = ctx.settings.macroRecorderEnabled ? "armed" : "off";
   let activeRecording = false;
   let rrwebEvents: eventWithTime[] = [];
   let actions: MacroAction[] = [];
   let startedAt: number | null = null;
   let stoppedAt: number | null = null;
-  let stopRrweb: ReturnType<typeof record> | null = null;
+  let stopRrweb: (() => void) | null = null;
   let lastPayload: ExportPayload | null = null;
 
   const persistStatus = (next: RecorderStatus) => {
     status = next;
-    const updatedAt = now();
+    const updatedAt = deps.now();
     void ctx.storagePort.set({
       [STATUS_KEY]: next,
       [STATUS_UPDATED_AT_KEY]: updatedAt
@@ -226,7 +196,7 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const persistLastExportAt = () => {
-    const timestamp = now();
+    const timestamp = deps.now();
     void ctx.storagePort.set({ [LAST_EXPORT_KEY]: timestamp });
   };
 
@@ -239,9 +209,9 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
 
   const makeExportPayload = (): ExportPayload => ({
     schemaVersion: 1,
-    createdAt: new Date().toISOString(),
-    pageUrl: location.href,
-    userAgent: navigator.userAgent,
+    createdAt: deps.isoNow(),
+    pageUrl: deps.pageUrl(),
+    userAgent: deps.userAgent(),
     rrwebEvents,
     actions,
     meta: {
@@ -253,13 +223,7 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
   });
 
   const addActionToRrwebCustomEvent = (action: MacroAction) => {
-    try {
-      (
-        record as typeof record & { addCustomEvent?: (tag: string, payload: unknown) => void }
-      ).addCustomEvent?.("macro_step", action);
-    } catch {
-      // rrweb custom event support varies by build; semantic log is still exported.
-    }
+    deps.addRrwebCustomEvent("macro_step", action);
   };
 
   const onClick = (event: MouseEvent) => {
@@ -275,7 +239,7 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
     if (!selector) return;
 
     const action: MacroAction = {
-      t: now(),
+      t: deps.now(),
       kind: "click",
       selector,
       meta: getElementMeta(element)
@@ -303,7 +267,7 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
     }
 
     const action: MacroAction = {
-      t: now(),
+      t: deps.now(),
       kind: "input",
       selector,
       valueLength,
@@ -318,7 +282,7 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
     if (isMacroRecorderToggleHotkey(event)) return;
 
     actions.push({
-      t: now(),
+      t: deps.now(),
       kind: "keydown",
       key: event.key,
       ctrl: event.ctrlKey,
@@ -344,7 +308,7 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
     if (!activeRecording) return false;
 
     activeRecording = false;
-    stoppedAt = now();
+    stoppedAt = deps.now();
     detachSemanticListeners();
 
     try {
@@ -362,8 +326,8 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
   const exportLastRecording = () => {
     if (!lastPayload) return false;
 
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    triggerJsonDownload(`qqrm-macro-recording-${stamp}.json`, lastPayload);
+    const stamp = deps.isoNow().replace(/[:.]/g, "-");
+    deps.downloadJson(`qqrm-macro-recording-${stamp}.json`, lastPayload);
     persistLastExportAt();
     return true;
   };
@@ -373,11 +337,10 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
 
     resetSession();
     activeRecording = true;
-    startedAt = now();
+    startedAt = deps.now();
     attachSemanticListeners();
 
-    // Static import is intentional for now; current bundling setup is single-bundle oriented.
-    stopRrweb = record({
+    const rrwebOptions: RrwebStartOptions = {
       emit: (event: eventWithTime) => {
         rrwebEvents.push(event);
       },
@@ -400,7 +363,9 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
       blockClass: "qqrm-macro-recorder-ignore",
       maskTextSelector: "input,textarea,[contenteditable='true']",
       slimDOMOptions: "all"
-    });
+    };
+
+    stopRrweb = deps.startRrweb(rrwebOptions);
 
     persistStatus("recording");
   };
@@ -427,13 +392,13 @@ export function initMacroRecorderFeature(ctx: FeatureContext): FeatureHandle {
       const stopped = stopRecording();
       if (stopped) {
         exportLastRecording();
-        showRecorderToast("Macro recording saved");
+        deps.showToast("Macro recording saved");
       }
       return;
     }
 
     startRecording();
-    showRecorderToast("Macro recording started", "active");
+    deps.showToast("Macro recording started", "active");
   };
 
   const combos: KeyCombo[] = [
