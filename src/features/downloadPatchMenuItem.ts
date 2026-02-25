@@ -354,6 +354,7 @@ async function onDownloadPatchClick(
   setActiveOperationId(traceId);
 
   try {
+    let sourceClickTriggered = false;
     const initialSourceItem = resolveSourceCopyMenuItem(menu);
 
     if (!initialSourceItem) {
@@ -369,9 +370,11 @@ async function onDownloadPatchClick(
     setMenuItemBusyState(downloadItem, true);
     console.debug(`${TRACE_PREFIX}[${traceId}] capture start`);
     const captured = await captureAction(() => {
-      const clicked = clickCurrentSourceCopyMenuItem(menu, initialSourceItem);
-      if (!clicked) {
-        throw new Error("Source copy menu item not available at click time.");
+      sourceClickTriggered = clickCurrentSourceCopyMenuItem(menu, initialSourceItem);
+      if (!sourceClickTriggered) {
+        console.warn(
+          `${TRACE_PREFIX}[${traceId}] source copy menu item not available at click time`
+        );
       }
     }, traceId);
 
@@ -393,6 +396,11 @@ async function onDownloadPatchClick(
       };
     } else {
       const domPatch = tryExtractFullPatchFromDom();
+      if (!sourceClickTriggered) {
+        console.info(
+          `${TRACE_PREFIX}[${traceId}] clipboard trigger unavailable; attempting DOM fallback`
+        );
+      }
       if (domPatch) {
         patchResult = { text: domPatch, source: "dom-full" };
         console.info(`${TRACE_PREFIX}[${traceId}] fallback dom-full used`);
