@@ -9,16 +9,88 @@ on:
       - docs/**
   workflow_dispatch: {}
 
+concurrency:
+  group: firefox-amo-sign-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
 jobs:
+  prepare-version:
+    # Skip the rerun caused by our own auto-bump commit to avoid duplicate AMO submissions.
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[amo-auto-bump]') }}
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      release_sha: ${{ steps.ensure-version.outputs.release_sha }}
+      release_version: ${{ steps.ensure-version.outputs.release_version }}
+      bumped: ${{ steps.ensure-version.outputs.bumped }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6.0.2
+        with:
+          ref: main
+          fetch-depth: 2
+
+      - name: Ensure manifest version bumped on main merge
+        id: ensure-version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f manifest.json ]]; then
+            echo "::error::manifest.json not found"
+            exit 1
+          fi
+
+          release_version="$(node scripts/manifest-version.mjs print manifest.json)"
+          bumped="false"
+
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            prev_manifest="$(mktemp)"
+            git show HEAD^:manifest.json > "$prev_manifest"
+            prev_version="$(node scripts/manifest-version.mjs print "$prev_manifest")"
+            rm -f "$prev_manifest"
+
+            if [[ "$release_version" == "$prev_version" ]]; then
+              echo "manifest.json version unchanged on main push; auto-bumping patch version"
+              release_version="$(node scripts/manifest-version.mjs bump-patch manifest.json)"
+
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add manifest.json
+              git commit -m "chore(version): bump manifest to ${release_version} [amo-auto-bump]"
+              git push origin HEAD:main
+
+              bumped="true"
+            fi
+          fi
+
+          release_sha="$(git rev-parse HEAD)"
+
+          echo "release_sha=$release_sha" >> "$GITHUB_OUTPUT"
+          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
+          echo "bumped=$bumped" >> "$GITHUB_OUTPUT"
+
   sign-and-submit:
+    needs: prepare-version
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.sha }}
-      cancel-in-progress: true
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ needs.prepare-version.outputs.release_sha }}
+
+      - name: Log release target
+        run: |
+          echo "release_sha=${{ needs.prepare-version.outputs.release_sha }}"
+          echo "release_version=${{ needs.prepare-version.outputs.release_version }}"
+          echo "bumped=${{ needs.prepare-version.outputs.bumped }}"
 
       - name: Setup Node and install dependencies
         uses: ./.github/actions/setup-node-npm
@@ -44,3 +116,4 @@ jobs:
           name: signed-xpi
           path: web-ext-artifacts/*.xpi
           if-no-files-found: error
+          retention-days: 7
