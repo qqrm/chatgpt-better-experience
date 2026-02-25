@@ -20,12 +20,12 @@ Dev:
 
 <!-- popup-screenshot:end -->
 
-## Dependabot automation
+## Renovate automation
 
-- Runs every 2 hours (and on manual dispatch) via `.github/workflows/dependabot-autoupdate-automerge.yml`.
-- Labels failing Dependabot PRs with `ci-failed` (sticky) and `needs-human`; those PRs are excluded from future automatic rebases and auto-merge enablement.
-- Respects `do-not-automerge` as a manual override.
-- To unblock a PR after CI is fixed, remove the `ci-failed` label manually and rerun the workflow.
+- Dependency updates are managed by Renovate using `.github/renovate.json`.
+- Renovate opens PRs for npm and GitHub Actions updates, plus pinned `web-ext` CLI versions referenced in workflows/scripts.
+- Auto-merge is enabled only for selected non-major updates (GitHub Actions, npm `devDependencies`, and pinned `web-ext` CLI updates), and only after required CI checks pass.
+- Major updates and npm runtime `dependencies` remain manual-review PRs.
 
 ## CI maintenance note
 
