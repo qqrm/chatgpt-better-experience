@@ -9,41 +9,48 @@ type FixtureAction = {
 
 type MacroRecorderExportFixture = {
   schemaVersion: number;
-  rrwebEvents: Array<{ timestamp?: number }>;
-  actions: FixtureAction[];
+  segments: Array<{
+    index: number;
+    rrwebEvents: Array<{ timestamp?: number }>;
+    actions: FixtureAction[];
+    lifecycleTrace: Array<{ event: string }>;
+  }>;
   meta: {
-    durationMs: number;
-    startedAt: number | null;
+    segmentCount: number;
+    startedAt: number;
     stoppedAt: number | null;
   };
 };
 
 describe("macro recorder export contract fixture", () => {
-  it("matches schema v1 invariants", () => {
+  it("matches schema v2 invariants", () => {
     const fixture = exportFixture as MacroRecorderExportFixture;
 
-    expect(fixture.schemaVersion).toBe(1);
-    expect(Array.isArray(fixture.rrwebEvents)).toBe(true);
-    expect(Array.isArray(fixture.actions)).toBe(true);
-    expect(fixture.meta.durationMs).toBeGreaterThanOrEqual(0);
+    expect(fixture.schemaVersion).toBe(2);
+    expect(Array.isArray(fixture.segments)).toBe(true);
+    expect(fixture.meta.segmentCount).toBe(fixture.segments.length);
+    expect(fixture.meta.startedAt).toBeGreaterThan(0);
 
-    for (const action of fixture.actions) {
-      expect(["click", "input", "keydown"]).toContain(action.kind);
-      if (action.kind === "click" || action.kind === "input") {
-        expect(typeof action.selector).toBe("string");
-        expect(action.selector?.length).toBeGreaterThan(0);
+    for (const segment of fixture.segments) {
+      expect(segment.index).toBeGreaterThan(0);
+      expect(Array.isArray(segment.rrwebEvents)).toBe(true);
+      expect(Array.isArray(segment.actions)).toBe(true);
+      expect(Array.isArray(segment.lifecycleTrace)).toBe(true);
+
+      for (const action of segment.actions) {
+        expect(["click", "input", "keydown"]).toContain(action.kind);
+        if (action.kind === "click" || action.kind === "input") {
+          expect(typeof action.selector).toBe("string");
+          expect(action.selector?.length).toBeGreaterThan(0);
+        }
       }
-    }
 
-    for (let i = 1; i < fixture.actions.length; i += 1) {
-      expect(fixture.actions[i]!.t).toBeGreaterThanOrEqual(fixture.actions[i - 1]!.t);
-    }
-
-    const rrwebTimestamps = fixture.rrwebEvents
-      .map((event) => event.timestamp)
-      .filter((timestamp): timestamp is number => typeof timestamp === "number");
-    for (let i = 1; i < rrwebTimestamps.length; i += 1) {
-      expect(rrwebTimestamps[i]!).toBeGreaterThanOrEqual(rrwebTimestamps[i - 1]!);
+      const rrwebTimestamps = segment.rrwebEvents
+        .map((event) => event.timestamp)
+        .filter((timestamp): timestamp is number => typeof timestamp === "number");
+      for (let i = 1; i < rrwebTimestamps.length; i += 1) {
+        expect(rrwebTimestamps[i]!).toBeGreaterThanOrEqual(rrwebTimestamps[i - 1]!);
+      }
     }
   });
 });

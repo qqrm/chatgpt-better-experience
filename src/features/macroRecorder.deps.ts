@@ -1,5 +1,10 @@
 import { record } from "@rrweb/record";
 import type { eventWithTime } from "@rrweb/types";
+import {
+  createChromeLocalStorageAdapter,
+  createMacroRecorderPersistence,
+  type MacroRecorderPersistence
+} from "./macroRecorder.persistence";
 
 export type RrwebStartOptions = {
   emit: (event: eventWithTime) => void;
@@ -20,6 +25,7 @@ export interface MacroRecorderDeps {
   addRrwebCustomEvent(tag: string, payload: unknown): void;
   downloadJson(filename: string, payload: unknown): void;
   showToast(message: string, tone?: "active" | "neutral"): void;
+  persistence: MacroRecorderPersistence;
 }
 
 const TOAST_HOST_ID = "qqrm-macro-recorder-toast-host";
@@ -129,5 +135,6 @@ export const defaultMacroRecorderDeps: MacroRecorderDeps = {
   },
   showToast: (message, tone = "neutral") => {
     showRecorderToast(message, tone);
-  }
+  },
+  persistence: createMacroRecorderPersistence(createChromeLocalStorageAdapter())
 };

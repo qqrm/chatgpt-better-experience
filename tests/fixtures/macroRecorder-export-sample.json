@@ -1,57 +1,59 @@
 {
-  "schemaVersion": 1,
-  "createdAt": "2026-02-24T18:42:22.883Z",
-  "pageUrl": "https://chatgpt.com/c/example-thread",
-  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_0)",
-  "rrwebEvents": [
+  "schemaVersion": 2,
+  "session": {
+    "sessionId": "macro-1700000000000-test",
+    "createdAt": "2026-02-24T18:42:22.883Z",
+    "stoppedAt": "2026-02-24T18:43:22.883Z",
+    "totalDurationMs": 60000,
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_0)"
+  },
+  "segments": [
     {
-      "type": 0,
-      "timestamp": 1700000000100,
-      "data": {}
-    },
-    {
-      "type": 3,
-      "timestamp": 1700000000200,
-      "data": {
-        "source": 2,
-        "positions": []
-      }
-    }
-  ],
-  "actions": [
-    {
-      "t": 1700000000300,
-      "kind": "click",
-      "selector": "button[aria-label=\"Send\"]",
-      "meta": {
-        "tag": "button",
-        "ariaLabel": "Send",
-        "text": "Send"
-      }
-    },
-    {
-      "t": 1700000000400,
-      "kind": "input",
-      "selector": "#prompt-textarea",
-      "valueLength": 12,
-      "meta": {
-        "tag": "textarea",
-        "id": "prompt-textarea"
-      }
-    },
-    {
-      "t": 1700000000500,
-      "kind": "keydown",
-      "key": "Enter",
-      "ctrl": false,
-      "alt": false,
-      "shift": false,
-      "metaKey": false
+      "segmentId": "macro-1700000000000-test-segment-1",
+      "index": 1,
+      "startedAt": 1700000000000,
+      "startedAtIso": "2026-02-24T18:42:22.883Z",
+      "endedAt": 1700000000600,
+      "endedAtIso": "2026-02-24T18:42:23.483Z",
+      "pageUrl": "https://chatgpt.com/c/example-thread",
+      "referrer": "https://chatgpt.com/",
+      "navigationType": "reload",
+      "rrwebEvents": [
+        {
+          "type": 0,
+          "timestamp": 1700000000100,
+          "data": {}
+        }
+      ],
+      "actions": [
+        {
+          "t": 1700000000300,
+          "kind": "click",
+          "selector": "button[aria-label=\"Send\"]",
+          "meta": {
+            "tag": "button",
+            "ariaLabel": "Send",
+            "text": "Send"
+          }
+        }
+      ],
+      "lifecycleTrace": [
+        {
+          "t": 1700000000001,
+          "isoTime": "2026-02-24T18:42:22.884Z",
+          "event": "segment_start",
+          "url": "https://chatgpt.com/c/example-thread",
+          "navType": "reload",
+          "visibilityState": "visible",
+          "readyState": "complete",
+          "referrer": "https://chatgpt.com/"
+        }
+      ]
     }
   ],
   "meta": {
     "startedAt": 1700000000000,
-    "stoppedAt": 1700000000600,
-    "durationMs": 600
+    "stoppedAt": 1700000060000,
+    "segmentCount": 1
   }
 }
