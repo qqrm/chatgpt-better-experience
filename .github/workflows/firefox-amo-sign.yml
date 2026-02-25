@@ -18,6 +18,9 @@ permissions:
 
 jobs:
   prepare-version:
+    # Skip the rerun caused by our own auto-bump commit to avoid duplicate AMO submissions.
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[amo-auto-bump]') }}
+
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -59,7 +62,7 @@ jobs:
               git config user.name "github-actions[bot]"
               git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
               git add manifest.json
-              git commit -m "chore(version): bump manifest to ${release_version}"
+              git commit -m "chore(version): bump manifest to ${release_version} [amo-auto-bump]"
               git push origin HEAD:main
 
               bumped="true"
