@@ -1,0 +1,66 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "Europe/Amsterdam",
+  "dependencyDashboard": true,
+  "labels": ["dependencies", "renovate"],
+  "prConcurrentLimit": 10,
+  "branchConcurrentLimit": 10,
+  "rebaseWhen": "auto",
+  "separateMajorMinor": true,
+  "schedule": ["after 11pm and before 5am every weekday"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 5am on monday"]
+  },
+  "packageRules": [
+    {
+      "matchDatasources": ["npm"],
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["web-ext"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "web-ext non-major updates",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "github actions non-major updates",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "npm devDependencies non-major updates",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["dependencies"],
+      "automerge": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)package\\.json$/", "/^\\.github\\/workflows\\/.*\\.ya?ml$/"],
+      "matchStrings": ["npx\\s+web-ext@(?<currentValue>\\d+\\.\\d+\\.\\d+)\\b"],
+      "datasourceTemplate": "npm",
+      "depNameTemplate": "web-ext"
+    }
+  ]
+}
