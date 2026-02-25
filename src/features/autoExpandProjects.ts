@@ -81,7 +81,8 @@ function expandSectionIfNeeded(ctx: FeatureContext, section: HTMLElement): boole
 
   ctx.logger.debug("autoExpandProjects", "expanding Projects section");
   dispatchHumanClick(headerBtn);
-  return true;
+  // Do not report success until the DOM confirms aria-expanded="true" on a later run.
+  return false;
 }
 
 function isProjectExpanded(projectLink: HTMLAnchorElement): boolean {
@@ -111,6 +112,9 @@ function findFolderToggleButton(rowScope: HTMLElement): HTMLButtonElement | null
   }
 
   // Common case in current UI: <button class="icon" data-state="...">
+  const byStatefulIcon = rowScope.querySelector<HTMLButtonElement>("button.icon[data-state]");
+  if (byStatefulIcon) return byStatefulIcon;
+
   const byIcon = rowScope.querySelector<HTMLButtonElement>("button.icon");
   if (byIcon) return byIcon;
 
@@ -124,6 +128,41 @@ function findFolderToggleButton(rowScope: HTMLElement): HTMLButtonElement | null
   }
 
   return null;
+}
+
+function findFolderToggleButtonForProject(
+  projectLink: HTMLAnchorElement
+): HTMLButtonElement | null {
+  // Current ChatGPT DOM usually nests the folder toggle inside the project row anchor.
+  let btn = findFolderToggleButton(projectLink);
+  if (btn) return btn;
+
+  const li = projectLink.closest<HTMLElement>("li");
+  if (li) {
+    btn = findFolderToggleButton(li);
+    if (btn) return btn;
+  }
+
+  const parent = projectLink.parentElement;
+  if (parent) {
+    // Avoid searching the whole Projects section (it makes us click the first row repeatedly).
+    const projectLinksInParent = parent.querySelectorAll('a[href*="/project"]').length;
+    if (projectLinksInParent <= 1) {
+      btn = findFolderToggleButton(parent);
+      if (btn) return btn;
+    }
+  }
+
+  return null;
+}
+
+function isExpandableProjectRow(
+  projectLink: HTMLAnchorElement,
+  rowFolderButton: HTMLButtonElement | null
+): boolean {
+  const sib = projectLink.nextElementSibling as HTMLElement | null;
+  if (sib && sib.className.includes("overflow-hidden")) return true;
+  return rowFolderButton?.matches("button.icon[data-state]") ?? false;
 }
 
 function expandCollapsedProjectFolders(
@@ -140,27 +179,19 @@ function expandCollapsedProjectFolders(
 
   for (const projectLink of projects) {
     const href = projectLink.getAttribute("href") ?? "";
+    const btn = findFolderToggleButtonForProject(projectLink);
+
+    // Skip non-expandable rows like "New project" (different icon/no folder state).
+    if (!isExpandableProjectRow(projectLink, btn)) {
+      continue;
+    }
+
     if (isProjectExpanded(projectLink)) continue;
 
     collapsedRows += 1;
 
     // Click at most one folder toggle per run to avoid sidebar jitter/rerenders.
     if (folderClicks > 0) continue;
-
-    const row =
-      projectLink.closest<HTMLElement>("li") ??
-      projectLink.closest<HTMLElement>("div") ??
-      projectLink.parentElement ??
-      projectLink;
-
-    const scopeCandidates: HTMLElement[] = [row];
-    if (row.parentElement) scopeCandidates.push(row.parentElement);
-
-    let btn: HTMLButtonElement | null = null;
-    for (const sc of scopeCandidates) {
-      btn = findFolderToggleButton(sc);
-      if (btn) break;
-    }
 
     if (!btn) {
       ctx.logger.debug("autoExpandProjects", `no folder button found for project: ${href}`);
@@ -259,7 +290,9 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     cleanupUserListeners?.();
     cleanupUserListeners = null;
     if (!nav) return;
-    const onUser = () => {
+    const onUser = (event: Event) => {
+      // Ignore synthetic clicks dispatched by this feature itself.
+      if (!event.isTrusted) return;
       lastUserInteractionAt = Date.now();
     };
     nav.addEventListener("pointerdown", onUser, true);
