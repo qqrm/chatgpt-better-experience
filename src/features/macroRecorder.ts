@@ -6,60 +6,18 @@ import {
 } from "./macroRecorder.deps";
 import type { FeatureContext, FeatureHandle } from "../application/featureContext";
 import { routeKeyCombos, type KeyCombo } from "./keyCombos";
-
-type RecorderStatus = "off" | "armed" | "recording" | "ready";
-
-type ElementMeta = {
-  tag: string;
-  id?: string;
-  role?: string;
-  testId?: string;
-  ariaLabel?: string;
-  title?: string;
-  text?: string;
-};
-
-type MacroAction =
-  | {
-      t: number;
-      kind: "click";
-      selector: string;
-      meta: ElementMeta;
-    }
-  | {
-      t: number;
-      kind: "input";
-      selector: string;
-      valueLength: number;
-      meta: ElementMeta;
-    }
-  | {
-      t: number;
-      kind: "keydown";
-      key: string;
-      ctrl: boolean;
-      alt: boolean;
-      shift: boolean;
-      metaKey: boolean;
-    };
-
-type ExportPayload = {
-  schemaVersion: 1;
-  createdAt: string;
-  pageUrl: string;
-  userAgent: string;
-  rrwebEvents: eventWithTime[];
-  actions: MacroAction[];
-  meta: {
-    startedAt: number | null;
-    stoppedAt: number | null;
-    durationMs: number;
-  };
-};
+import type {
+  LifecycleEventName,
+  MacroAction,
+  MacroLifecycleEntry,
+  RecorderStatus
+} from "./macroRecorder.persistence";
 
 const STATUS_KEY = "macroRecorderStatus";
 const STATUS_UPDATED_AT_KEY = "macroRecorderStatusUpdatedAt";
 const LAST_EXPORT_KEY = "macroRecorderLastExportAt";
+const FLUSH_INTERVAL_MS = 900;
+const FLUSH_EVENT_THRESHOLD = 25;
 
 function isMacroRecorderToggleHotkey(event: KeyboardEvent) {
   return event.key === "F8" && event.shiftKey && (event.ctrlKey || event.metaKey);
@@ -73,7 +31,7 @@ function shortText(value: string | null | undefined, max = 80) {
   return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized;
 }
 
-function getElementMeta(el: Element | null): ElementMeta {
+function getElementMeta(el: Element | null) {
   if (!el) return { tag: "unknown" };
 
   const html = el as HTMLElement;
@@ -96,7 +54,6 @@ function escapeCss(value: string) {
   const cssEscape = globalThis.CSS?.escape;
   if (typeof cssEscape === "function") return cssEscape(value);
 
-  // Best-effort fallback aligned with the CSS.escape polyfill behavior.
   const string = String(value);
   const length = string.length;
   let index = -1;
@@ -173,18 +130,33 @@ function buildStableSelector(el: Element | null): string | null {
     : `${tag}:nth-of-type(${nth})`;
 }
 
+function getNavigationType() {
+  const nav = performance.getEntriesByType("navigation")[0] as
+    | PerformanceNavigationTiming
+    | undefined;
+  return nav?.type ?? null;
+}
+
 export function initMacroRecorderFeature(
   ctx: FeatureContext,
   deps: MacroRecorderDeps = defaultMacroRecorderDeps
 ): FeatureHandle {
   let status: RecorderStatus = ctx.settings.macroRecorderEnabled ? "armed" : "off";
   let activeRecording = false;
-  let rrwebEvents: eventWithTime[] = [];
-  let actions: MacroAction[] = [];
-  let startedAt: number | null = null;
-  let stoppedAt: number | null = null;
+  let segmentIndex = 0;
+  let currentSessionId: string | null = null;
+  let currentSegmentId: string | null = null;
   let stopRrweb: (() => void) | null = null;
-  let lastPayload: ExportPayload | null = null;
+  let recorderListenersAttached = false;
+  let lifecycleListenersAttached = false;
+  let flushTimer: number | null = null;
+  let flushInFlight: Promise<void> = Promise.resolve();
+  let toggling = false;
+  let currentSegmentFinalized = false;
+
+  let rrwebBuffer: eventWithTime[] = [];
+  let actionsBuffer: MacroAction[] = [];
+  let lifecycleBuffer: MacroLifecycleEntry[] = [];
 
   const persistStatus = (next: RecorderStatus) => {
     status = next;
@@ -200,30 +172,78 @@ export function initMacroRecorderFeature(
     void ctx.storagePort.set({ [LAST_EXPORT_KEY]: timestamp });
   };
 
-  const resetSession = () => {
-    rrwebEvents = [];
-    actions = [];
-    startedAt = null;
-    stoppedAt = null;
+  const enqueueFlush = () => {
+    const pendingCount = rrwebBuffer.length + actionsBuffer.length + lifecycleBuffer.length;
+    if (!currentSessionId || !currentSegmentId || pendingCount <= 0) return;
+    const sessionId = currentSessionId;
+    const segmentId = currentSegmentId;
+
+    const rrwebEvents = rrwebBuffer;
+    const actions = actionsBuffer;
+    const lifecycleTrace = lifecycleBuffer;
+    rrwebBuffer = [];
+    actionsBuffer = [];
+    lifecycleBuffer = [];
+
+    flushInFlight = flushInFlight
+      .then(async () => {
+        await deps.persistence.appendToSegment({
+          sessionId,
+          segmentId,
+          rrwebEvents,
+          actions,
+          lifecycleTrace
+        });
+      })
+      .catch(() => {
+        deps.showToast("Macro recording persistence failed", "neutral");
+      });
   };
 
-  const makeExportPayload = (): ExportPayload => ({
-    schemaVersion: 1,
-    createdAt: deps.isoNow(),
-    pageUrl: deps.pageUrl(),
-    userAgent: deps.userAgent(),
-    rrwebEvents,
-    actions,
-    meta: {
-      startedAt,
-      stoppedAt,
-      durationMs:
-        startedAt && stoppedAt && stoppedAt >= startedAt ? Math.max(0, stoppedAt - startedAt) : 0
+  const scheduleFlush = (force = false) => {
+    if (!activeRecording) return;
+    const pendingCount = rrwebBuffer.length + actionsBuffer.length + lifecycleBuffer.length;
+    if (pendingCount <= 0) return;
+    if (force || pendingCount >= FLUSH_EVENT_THRESHOLD) {
+      enqueueFlush();
+      return;
     }
-  });
+    if (flushTimer) return;
+    flushTimer = window.setTimeout(() => {
+      flushTimer = null;
+      enqueueFlush();
+    }, FLUSH_INTERVAL_MS);
+  };
 
-  const addActionToRrwebCustomEvent = (action: MacroAction) => {
-    deps.addRrwebCustomEvent("macro_step", action);
+  const cancelFlushTimer = () => {
+    if (!flushTimer) return;
+    window.clearTimeout(flushTimer);
+    flushTimer = null;
+  };
+
+  const addLifecycleEntry = (
+    event: LifecycleEventName,
+    persisted?: boolean,
+    options?: { allowWhenInactive?: boolean; forceFlush?: boolean }
+  ) => {
+    if (!activeRecording && !options?.allowWhenInactive) return;
+    lifecycleBuffer.push({
+      t: deps.now(),
+      isoTime: deps.isoNow(),
+      event,
+      url: deps.pageUrl(),
+      navType: getNavigationType(),
+      visibilityState: document.visibilityState,
+      readyState: document.readyState,
+      referrer: document.referrer,
+      ...(typeof persisted === "boolean" ? { persisted } : {})
+    });
+    scheduleFlush(
+      options?.forceFlush ||
+        event === "beforeunload" ||
+        event === "pagehide" ||
+        event === "segment_finalize"
+    );
   };
 
   const onClick = (event: MouseEvent) => {
@@ -244,8 +264,9 @@ export function initMacroRecorderFeature(
       selector,
       meta: getElementMeta(element)
     };
-    actions.push(action);
-    addActionToRrwebCustomEvent(action);
+    actionsBuffer.push(action);
+    deps.addRrwebCustomEvent("macro_step", action);
+    scheduleFlush();
   };
 
   const onInput = (event: Event) => {
@@ -273,15 +294,16 @@ export function initMacroRecorderFeature(
       valueLength,
       meta: getElementMeta(element)
     };
-    actions.push(action);
-    addActionToRrwebCustomEvent(action);
+    actionsBuffer.push(action);
+    deps.addRrwebCustomEvent("macro_step", action);
+    scheduleFlush();
   };
 
   const onKeydownForSemanticLog = (event: KeyboardEvent) => {
     if (!activeRecording) return;
     if (isMacroRecorderToggleHotkey(event)) return;
 
-    actions.push({
+    actionsBuffer.push({
       t: deps.now(),
       kind: "keydown",
       key: event.key,
@@ -290,26 +312,73 @@ export function initMacroRecorderFeature(
       shift: event.shiftKey,
       metaKey: event.metaKey
     });
+    scheduleFlush();
   };
 
   const attachSemanticListeners = () => {
+    if (recorderListenersAttached) return;
+    recorderListenersAttached = true;
     document.addEventListener("click", onClick, true);
     document.addEventListener("input", onInput, true);
     document.addEventListener("keydown", onKeydownForSemanticLog, true);
   };
 
   const detachSemanticListeners = () => {
+    if (!recorderListenersAttached) return;
+    recorderListenersAttached = false;
     document.removeEventListener("click", onClick, true);
     document.removeEventListener("input", onInput, true);
     document.removeEventListener("keydown", onKeydownForSemanticLog, true);
   };
 
-  const stopRecording = () => {
-    if (!activeRecording) return false;
+  const onPageShow = (event: PageTransitionEvent) => addLifecycleEntry("pageshow", event.persisted);
+  const onPageHide = (event: PageTransitionEvent) => addLifecycleEntry("pagehide", event.persisted);
+  const onBeforeUnload = () => addLifecycleEntry("beforeunload");
+  const onVisibilityChange = () => addLifecycleEntry("visibilitychange");
+  const onLoad = () => addLifecycleEntry("load");
 
-    activeRecording = false;
-    stoppedAt = deps.now();
+  const attachLifecycleListeners = () => {
+    if (lifecycleListenersAttached) return;
+    lifecycleListenersAttached = true;
+    window.addEventListener("pageshow", onPageShow, true);
+    window.addEventListener("pagehide", onPageHide, true);
+    window.addEventListener("beforeunload", onBeforeUnload, true);
+    window.addEventListener("load", onLoad, true);
+    document.addEventListener("visibilitychange", onVisibilityChange, true);
+  };
+
+  const detachLifecycleListeners = () => {
+    if (!lifecycleListenersAttached) return;
+    lifecycleListenersAttached = false;
+    window.removeEventListener("pageshow", onPageShow, true);
+    window.removeEventListener("pagehide", onPageHide, true);
+    window.removeEventListener("beforeunload", onBeforeUnload, true);
+    window.removeEventListener("load", onLoad, true);
+    document.removeEventListener("visibilitychange", onVisibilityChange, true);
+  };
+
+  const finalizeSegment = async () => {
+    if (!currentSessionId || !currentSegmentId || currentSegmentFinalized) return;
+    currentSegmentFinalized = true;
+
+    addLifecycleEntry("segment_finalize", undefined, { allowWhenInactive: true, forceFlush: true });
+    cancelFlushTimer();
+    enqueueFlush();
+    await flushInFlight;
+
+    await deps.persistence.finalizeSegment({
+      sessionId: currentSessionId,
+      segmentId: currentSegmentId,
+      endedAt: deps.now(),
+      endedAtIso: deps.isoNow()
+    });
+  };
+
+  const stopRecording = async () => {
+    if (!activeRecording || !currentSessionId) return false;
+
     detachSemanticListeners();
+    detachLifecycleListeners();
 
     try {
       stopRrweb?.();
@@ -318,31 +387,77 @@ export function initMacroRecorderFeature(
     }
     stopRrweb = null;
 
-    lastPayload = makeExportPayload();
+    await finalizeSegment();
+    activeRecording = false;
+    await deps.persistence.stopSession({
+      sessionId: currentSessionId,
+      stoppedAt: deps.now(),
+      stoppedAtIso: deps.isoNow()
+    });
+
     persistStatus("ready");
     return true;
   };
 
-  const exportLastRecording = () => {
-    if (!lastPayload) return false;
+  const exportLastRecording = async () => {
+    if (!currentSessionId) return false;
+    const payload = await deps.persistence.buildExport(currentSessionId);
+    if (!payload) return false;
 
     const stamp = deps.isoNow().replace(/[:.]/g, "-");
-    deps.downloadJson(`qqrm-macro-recording-${stamp}.json`, lastPayload);
+    deps.downloadJson(`qqrm-macro-recording-${stamp}.json`, payload);
     persistLastExportAt();
+    await deps.persistence.clearSession(currentSessionId);
     return true;
   };
 
-  const startRecording = () => {
+  const startSegment = async () => {
+    if (!currentSessionId) return;
+    segmentIndex += 1;
+    currentSegmentId = `${currentSessionId}-segment-${segmentIndex}`;
+    currentSegmentFinalized = false;
+
+    await deps.persistence.createSegment({
+      sessionId: currentSessionId,
+      segmentId: currentSegmentId,
+      index: segmentIndex,
+      startedAt: deps.now(),
+      startedAtIso: deps.isoNow(),
+      pageUrl: deps.pageUrl(),
+      referrer: document.referrer,
+      navigationType: getNavigationType()
+    });
+
+    addLifecycleEntry("segment_start");
+  };
+
+  const startRecording = async (resume = false) => {
     if (!ctx.settings.macroRecorderEnabled || activeRecording) return;
 
-    resetSession();
+    if (!resume) {
+      segmentIndex = 0;
+      currentSessionId = `macro-${deps.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      await deps.persistence.createSession({
+        sessionId: currentSessionId,
+        createdAt: deps.now(),
+        createdAtIso: deps.isoNow(),
+        userAgent: deps.userAgent()
+      });
+    }
+
+    rrwebBuffer = [];
+    actionsBuffer = [];
+    lifecycleBuffer = [];
     activeRecording = true;
-    startedAt = deps.now();
+
+    await startSegment();
     attachSemanticListeners();
+    attachLifecycleListeners();
 
     const rrwebOptions: RrwebStartOptions = {
       emit: (event: eventWithTime) => {
-        rrwebEvents.push(event);
+        rrwebBuffer.push(event);
+        scheduleFlush();
       },
       sampling: {
         mousemove: false,
@@ -359,46 +474,62 @@ export function initMacroRecorderFeature(
         tel: true,
         url: true
       },
-      // Keep extension helper nodes and editable text masked from rrweb snapshots.
       blockClass: "qqrm-macro-recorder-ignore",
       maskTextSelector: "input,textarea,[contenteditable='true']",
       slimDOMOptions: "all"
     };
 
     stopRrweb = deps.startRrweb(rrwebOptions);
-
     persistStatus("recording");
   };
 
-  const cleanupRecordingResources = () => {
+  const cleanupRecordingResources = async () => {
     if (!activeRecording) return;
-    activeRecording = false;
     detachSemanticListeners();
+    detachLifecycleListeners();
+    cancelFlushTimer();
     try {
       stopRrweb?.();
     } catch {
       // best-effort stop
     }
     stopRrweb = null;
+
+    try {
+      await finalizeSegment();
+    } catch {
+      // best-effort finalize during teardown
+    }
+
+    activeRecording = false;
   };
 
   const onToggleHotkey = (event: KeyboardEvent) => {
     event.preventDefault();
     event.stopImmediatePropagation();
     event.stopPropagation();
-    if (event.repeat) return;
+    if (event.repeat || toggling) return;
 
-    if (activeRecording) {
-      const stopped = stopRecording();
-      if (stopped) {
-        exportLastRecording();
-        deps.showToast("Macro recording saved");
+    toggling = true;
+    void (async () => {
+      try {
+        if (activeRecording) {
+          const stopped = await stopRecording();
+          if (stopped) {
+            await exportLastRecording();
+            deps.showToast("Macro recording saved");
+          }
+          return;
+        }
+
+        await startRecording(false);
+        deps.showToast("Macro recording started", "active");
+      } catch {
+        deps.showToast("Macro recording failed", "neutral");
+      } finally {
+        toggling = false;
       }
-      return;
-    }
-
-    startRecording();
-    deps.showToast("Macro recording started", "active");
+    })();
   };
 
   const combos: KeyCombo[] = [
@@ -428,25 +559,34 @@ export function initMacroRecorderFeature(
     }
   };
 
+  void (async () => {
+    if (!ctx.settings.macroRecorderEnabled) return;
+    const activeSession = await deps.persistence.loadActiveSession();
+    if (!activeSession) return;
+    currentSessionId = activeSession.sessionId;
+    segmentIndex = activeSession.segments.length;
+    await startRecording(true);
+    deps.showToast(`Macro recording resumed (segment ${segmentIndex})`, "active");
+  })();
+
   window.addEventListener("keydown", onHotkey, true);
 
   return {
     name: "macroRecorder",
     dispose() {
       window.removeEventListener("keydown", onHotkey, true);
-      cleanupRecordingResources();
+      void cleanupRecordingResources();
     },
     onSettingsChange(next, prev) {
       if (next.macroRecorderEnabled === prev.macroRecorderEnabled) return;
 
       if (!next.macroRecorderEnabled) {
-        stopRecording();
+        void stopRecording();
         persistStatus("off");
         return;
       }
 
       if (activeRecording) persistStatus("recording");
-      else if (lastPayload) persistStatus("ready");
       else persistStatus("armed");
     },
     getStatus() {

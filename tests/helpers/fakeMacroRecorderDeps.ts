@@ -1,5 +1,9 @@
 import type { eventWithTime } from "@rrweb/types";
 import type { MacroRecorderDeps, RrwebStartOptions } from "../../src/features/macroRecorder.deps";
+import {
+  createMacroRecorderPersistence,
+  type MacroRecorderStorageAdapter
+} from "../../src/features/macroRecorder.persistence";
 
 export function makeFakeMacroRecorderDeps() {
   let nowValue = 1_700_000_000_000;
@@ -9,6 +13,16 @@ export function makeFakeMacroRecorderDeps() {
   const rrwebCustomEvents: Array<{ tag: string; payload: unknown }> = [];
   const downloads: Array<{ filename: string; payload: unknown }> = [];
   const toasts: Array<{ message: string; tone: "active" | "neutral" }> = [];
+  const persistentStore = new Map<string, unknown>();
+  const storageAdapter: MacroRecorderStorageAdapter = {
+    get: async (key) => persistentStore.get(key) ?? null,
+    set: async (key, value) => {
+      persistentStore.set(key, value);
+    },
+    remove: async (key) => {
+      persistentStore.delete(key);
+    }
+  };
 
   const deps: MacroRecorderDeps = {
     now: () => ++nowValue,
@@ -29,7 +43,8 @@ export function makeFakeMacroRecorderDeps() {
     },
     showToast: (message, tone = "neutral") => {
       toasts.push({ message, tone });
-    }
+    },
+    persistence: createMacroRecorderPersistence(storageAdapter)
   };
 
   const emitRrweb = (event: eventWithTime) => {
@@ -45,6 +60,7 @@ export function makeFakeMacroRecorderDeps() {
     rrwebStarts,
     rrwebCustomEvents,
     emitRrweb,
+    persistentStore,
     get rrwebStopCalls() {
       return rrwebStopCalls;
     }
