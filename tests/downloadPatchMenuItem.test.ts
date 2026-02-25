@@ -151,11 +151,182 @@ describe("downloadPatchMenuItem", () => {
         type: string;
         filename: string;
         text: string;
+        saveAs?: boolean;
       };
 
       expect(message.type).toBe("downloadPatch");
       expect(message.filename.endsWith(".patch")).toBe(true);
       expect(message.text).toBe(expectedPatch);
+      expect(message.saveAs).toBe(false);
+    } finally {
+      handle.dispose();
+      delete (
+        globalThis as typeof globalThis & {
+          chrome?: unknown;
+        }
+      ).chrome;
+    }
+  });
+
+  it("re-resolves source copy menu item after menu rerender before capture trigger", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = `
+      <button aria-label="Open git action menu">menu</button>
+      <div role="menu" id="git-menu">
+        <div role="menuitem" id="copy-item"><span>Copy Git Apply</span></div>
+        <div role="menuitem"><span>Create Draft PR</span></div>
+      </div>
+    `;
+
+    const expectedPatch = "diff --git a/a b/a\n+1\n";
+    const sendMessageMock = vi.fn(
+      (_message: unknown, callback: (response: { ok: true; downloadId: number }) => void) => {
+        callback({ ok: true, downloadId: 7 });
+      }
+    );
+    (
+      globalThis as typeof globalThis & {
+        chrome?: { runtime?: { sendMessage?: typeof sendMessageMock; lastError?: Error } };
+      }
+    ).chrome = { runtime: { sendMessage: sendMessageMock } };
+
+    const originalPostMessage = window.postMessage.bind(window);
+    vi.spyOn(window, "postMessage").mockImplementation(
+      (message: unknown, options?: string | WindowPostMessageOptions) => {
+        const data = message as { source?: string; type?: string; id?: string };
+        if (data.source === "qqrm-clipboard-hook" && data.type === "begin" && data.id) {
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              source: window,
+              data: {
+                source: "qqrm-clipboard-hook",
+                type: "captured",
+                id: data.id,
+                text: expectedPatch,
+                transport: "copy-event"
+              }
+            })
+          );
+        }
+        if (typeof options === "string") {
+          return originalPostMessage(message, options);
+        }
+        return originalPostMessage(message, options);
+      }
+    );
+
+    const handle = initDownloadPatchMenuItemFeature(makeTestContext());
+
+    try {
+      const trigger = document.querySelector(
+        'button[aria-label="Open git action menu"]'
+      ) as HTMLButtonElement;
+      trigger.click();
+      await vi.runAllTimersAsync();
+      await Promise.resolve();
+
+      const downloadItem = findDownloadMenuItem();
+      expect(downloadItem).toBeTruthy();
+      expect(downloadItem?.textContent?.includes("Download Patch")).toBe(true);
+
+      const originalCopy = document.getElementById("copy-item") as HTMLElement;
+      let staleClicks = 0;
+      originalCopy.addEventListener("click", () => {
+        staleClicks += 1;
+      });
+
+      downloadItem?.click();
+
+      const menu = document.getElementById("git-menu") as HTMLElement;
+      menu.innerHTML = `
+        <div role="menuitem" id="copy-item-2"><span>Copy Git Apply</span></div>
+        <div role="menuitem"><span>Create Draft PR</span></div>
+      `;
+
+      let freshClicks = 0;
+      const freshCopy = document.getElementById("copy-item-2") as HTMLElement;
+      freshCopy.addEventListener("click", () => {
+        freshClicks += 1;
+      });
+
+      emitHookReady();
+      await vi.runAllTimersAsync();
+      await Promise.resolve();
+
+      expect(staleClicks).toBe(0);
+      expect(freshClicks).toBe(1);
+      expect(sendMessageMock).toHaveBeenCalledOnce();
+    } finally {
+      handle.dispose();
+      delete (
+        globalThis as typeof globalThis & {
+          chrome?: unknown;
+        }
+      ).chrome;
+    }
+  });
+
+  it("falls back to DOM patch when source copy item disappears before trigger-time click", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = `
+      <button aria-label="Open git action menu">menu</button>
+      <div role="menu" id="git-menu">
+        <div role="menuitem" id="copy-item"><span>Copy Git Apply</span></div>
+        <div role="menuitem"><span>Create Draft PR</span></div>
+      </div>
+      <pre id="patch-block">diff --git a/a.ts b/a.ts
+--- a/a.ts
++++ b/a.ts
+@@ -1 +1 @@
+-old
++new
+</pre>
+    `;
+
+    const sendMessageMock = vi.fn(
+      (_message: unknown, callback: (response: { ok: true; downloadId: number }) => void) => {
+        callback({ ok: true, downloadId: 42 });
+      }
+    );
+    (
+      globalThis as typeof globalThis & {
+        chrome?: { runtime?: { sendMessage?: typeof sendMessageMock; lastError?: Error } };
+      }
+    ).chrome = { runtime: { sendMessage: sendMessageMock } };
+
+    const handle = initDownloadPatchMenuItemFeature(makeTestContext());
+
+    try {
+      const trigger = document.querySelector(
+        'button[aria-label="Open git action menu"]'
+      ) as HTMLButtonElement;
+      trigger.click();
+      await vi.runAllTimersAsync();
+      await Promise.resolve();
+
+      const downloadItem = findDownloadMenuItem();
+      expect(downloadItem).toBeTruthy();
+
+      // Start operation, then remove source item before hook-ready/capture trigger fires.
+      downloadItem?.click();
+
+      const menu = document.getElementById("git-menu") as HTMLElement;
+      menu.innerHTML = `
+        <div role="menuitem"><span>Create Draft PR</span></div>
+      `;
+
+      emitHookReady();
+      await vi.runAllTimersAsync();
+      await Promise.resolve();
+
+      expect(sendMessageMock).toHaveBeenCalledOnce();
+      const message = sendMessageMock.mock.calls[0][0] as {
+        type: string;
+        filename: string;
+        text: string;
+      };
+      expect(message.type).toBe("downloadPatch");
+      expect(message.text).toContain("diff --git");
     } finally {
       handle.dispose();
       delete (
@@ -294,7 +465,7 @@ describe("downloadPatchMenuItem", () => {
 
       emitHookReady();
       findDownloadMenuItem()?.click();
-      await vi.advanceTimersByTimeAsync(10050);
+      await vi.advanceTimersByTimeAsync(30050);
 
       expect(sendMessageMock).toHaveBeenCalledOnce();
       expect(alertSpy).toHaveBeenCalledWith("Download failed: Background timeout");
