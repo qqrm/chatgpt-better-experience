@@ -318,8 +318,10 @@ function injectDownloadPatchItem(
   clonedItem.setAttribute(ITEM_MARK_ATTR, "1");
   clonedItem.setAttribute("aria-label", DOWNLOAD_LABEL);
   clonedItem.setAttribute("title", DOWNLOAD_LABEL);
+  clonedItem.removeAttribute("aria-labelledby");
   clonedItem.removeAttribute("id");
   clonedItem.removeAttribute("data-testid");
+  clonedItem.setAttribute("data-testid", "qqrm-download-patch-action");
   clonedItem.removeAttribute("aria-checked");
   clonedItem.removeAttribute("aria-disabled");
   clonedItem.removeAttribute("disabled");

@@ -87,18 +87,39 @@ describe("downloadPatchMenuItem", () => {
       expect(downloadItem?.textContent?.trim()).toBe("Download Patch");
       expect(downloadItem?.getAttribute("aria-label")).toBe("Download Patch");
       expect(downloadItem?.getAttribute("data-qqrm-download-patch-item")).toBe("1");
-      expect(downloadItem?.hasAttribute("data-testid")).toBe(false);
+      expect(downloadItem?.getAttribute("data-testid")).toBe("qqrm-download-patch-action");
 
       const copyGitApply = Array.from(
         document.querySelectorAll<HTMLElement>('[role="menuitem"]')
       ).find((item) => item.getAttribute("aria-label") === "Copy git apply");
       expect(copyGitApply).toBeTruthy();
       expect(copyGitApply?.textContent?.trim()).toBe("Copy Git Apply");
+      expect(copyGitApply?.getAttribute("data-testid")).toBe("copy-git-apply-action");
+
+      const copyPatch = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]')
+      ).find((item) => item.getAttribute("aria-label") === "Copy patch");
+      expect(copyPatch).toBeTruthy();
+      expect(copyPatch?.getAttribute("data-testid")).toBe("copy-patch-action");
 
       const copyGitApplyLabelItems = Array.from(
         document.querySelectorAll<HTMLElement>('[role="menuitem"][aria-label="Copy git apply"]')
       );
       expect(copyGitApplyLabelItems).toHaveLength(1);
+
+      const allTestIds = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"][data-testid]')
+      ).map((item) => item.getAttribute("data-testid"));
+      expect(allTestIds).toEqual(
+        expect.arrayContaining([
+          "copy-git-apply-action",
+          "copy-patch-action",
+          "qqrm-download-patch-action"
+        ])
+      );
+      expect(allTestIds.filter((testId) => testId === "qqrm-download-patch-action")).toHaveLength(
+        1
+      );
     } finally {
       handle.dispose();
     }
