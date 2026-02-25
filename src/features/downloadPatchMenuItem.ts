@@ -316,7 +316,12 @@ function injectDownloadPatchItem(
 
   const clonedItem = cloned;
   clonedItem.setAttribute(ITEM_MARK_ATTR, "1");
+  clonedItem.setAttribute("aria-label", DOWNLOAD_LABEL);
+  clonedItem.setAttribute("title", DOWNLOAD_LABEL);
+  clonedItem.removeAttribute("aria-labelledby");
   clonedItem.removeAttribute("id");
+  clonedItem.removeAttribute("data-testid");
+  clonedItem.setAttribute("data-testid", "qqrm-download-patch-action");
   clonedItem.removeAttribute("aria-checked");
   clonedItem.removeAttribute("aria-disabled");
   clonedItem.removeAttribute("disabled");
@@ -442,8 +447,11 @@ function isDisabled(el: HTMLElement): boolean {
 function findMenuItemByText(menu: HTMLElement, pattern: RegExp): HTMLElement | null {
   const items = Array.from(menu.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR));
   for (const item of items) {
-    if (item.getAttribute(ITEM_MARK_ATTR) === "1") continue;
-    if (pattern.test(item.textContent ?? "")) return item;
+    if (isInjectedDownloadMenuItem(item)) continue;
+
+    const visibleLabel = normalizeActionLabel(item.textContent ?? "");
+    const ariaLabel = normalizeActionLabel(item.getAttribute("aria-label") ?? "");
+    if (pattern.test(visibleLabel) || pattern.test(ariaLabel)) return item;
   }
   return null;
 }
@@ -488,19 +496,28 @@ function setMenuItemBusyState(item: HTMLElement, busy: boolean) {
 
 function resolveSourceCopyMenuItem(menu: HTMLElement): HTMLElement | null {
   return (
-    findMenuItemByText(menu, /copy\s+git\s+apply/i) ?? findMenuItemByText(menu, /copy\s+patch/i)
+    findMenuItemByText(menu, /^copy\s+patch$/i) ?? findMenuItemByText(menu, /^copy\s+git\s+apply$/i)
   );
 }
 
 function clickCurrentSourceCopyMenuItem(menu: HTMLElement, fallback: HTMLElement | null): boolean {
   const candidate = resolveSourceCopyMenuItem(menu);
-  const sourceItem = candidate && candidate.isConnected ? candidate : fallback;
+  const safeFallback = fallback && !isInjectedDownloadMenuItem(fallback) ? fallback : null;
+  const sourceItem = candidate && candidate.isConnected ? candidate : safeFallback;
   if (!sourceItem || !sourceItem.isConnected || isDisabled(sourceItem)) {
     return false;
   }
 
   sourceItem.click();
   return true;
+}
+
+function isInjectedDownloadMenuItem(item: HTMLElement): boolean {
+  return item.getAttribute(ITEM_MARK_ATTR) === "1";
+}
+
+function normalizeActionLabel(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function findTextNode(root: HTMLElement, textToReplace: string): Text | null {

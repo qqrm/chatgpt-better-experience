@@ -65,6 +65,66 @@ describe("downloadPatchMenuItem", () => {
     handle.dispose();
   });
 
+  it("keeps Download Patch selector identity separate from source copy actions", async () => {
+    document.body.innerHTML = `
+      <button aria-label="Open git action menu">menu</button>
+      <div role="menu">
+        <div role="menuitem" aria-label="Copy git apply" data-testid="copy-git-apply-action"><span>Copy Git Apply</span></div>
+        <div role="menuitem" aria-label="Copy patch" data-testid="copy-patch-action"><span>Copy Patch</span></div>
+      </div>
+    `;
+
+    const handle = initDownloadPatchMenuItemFeature(makeTestContext());
+
+    try {
+      (
+        document.querySelector('button[aria-label="Open git action menu"]') as HTMLButtonElement
+      ).click();
+      await flush();
+
+      const downloadItem = findDownloadMenuItem();
+      expect(downloadItem).toBeTruthy();
+      expect(downloadItem?.textContent?.trim()).toBe("Download Patch");
+      expect(downloadItem?.getAttribute("aria-label")).toBe("Download Patch");
+      expect(downloadItem?.getAttribute("data-qqrm-download-patch-item")).toBe("1");
+      expect(downloadItem?.getAttribute("data-testid")).toBe("qqrm-download-patch-action");
+
+      const copyGitApply = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]')
+      ).find((item) => item.getAttribute("aria-label") === "Copy git apply");
+      expect(copyGitApply).toBeTruthy();
+      expect(copyGitApply?.textContent?.trim()).toBe("Copy Git Apply");
+      expect(copyGitApply?.getAttribute("data-testid")).toBe("copy-git-apply-action");
+
+      const copyPatch = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]')
+      ).find((item) => item.getAttribute("aria-label") === "Copy patch");
+      expect(copyPatch).toBeTruthy();
+      expect(copyPatch?.getAttribute("data-testid")).toBe("copy-patch-action");
+
+      const copyGitApplyLabelItems = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"][aria-label="Copy git apply"]')
+      );
+      expect(copyGitApplyLabelItems).toHaveLength(1);
+
+      const allTestIds = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"][data-testid]')
+      ).map((item) => item.getAttribute("data-testid"));
+      expect(allTestIds).toEqual(
+        expect.arrayContaining([
+          "copy-git-apply-action",
+          "copy-patch-action",
+          "qqrm-download-patch-action"
+        ])
+      );
+      expect(allTestIds.filter((testId) => testId === "qqrm-download-patch-action")).toHaveLength(
+        1
+      );
+    } finally {
+      handle.dispose();
+    }
+  });
+
   it("clicking Download Patch captures clipboard text over bridge and asks background to download", async () => {
     document.body.innerHTML = `
       <h1>My Task Title</h1>
@@ -165,6 +225,91 @@ describe("downloadPatchMenuItem", () => {
           chrome?: unknown;
         }
       ).chrome;
+    }
+  });
+
+  it("clicks Copy Patch exactly once without self-recursion when both source actions exist", async () => {
+    document.body.innerHTML = `
+      <button aria-label="Open git action menu">menu</button>
+      <div role="menu">
+        <div role="menuitem" id="copy-git-apply" aria-label="Copy git apply"><span>Copy Git Apply</span></div>
+        <div role="menuitem" id="copy-patch" aria-label="Copy patch"><span>Copy Patch</span></div>
+      </div>
+    `;
+
+    const patchText = "diff --git a/file b/file\n+patched\n";
+    const originalPostMessage = window.postMessage.bind(window);
+    vi.spyOn(window, "postMessage").mockImplementation(
+      (message: unknown, options?: string | WindowPostMessageOptions) => {
+        const data = message as { source?: string; type?: string; id?: string };
+        if (data.source === "qqrm-clipboard-hook" && data.type === "begin" && data.id) {
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              source: window,
+              data: {
+                source: "qqrm-clipboard-hook",
+                type: "captured",
+                id: data.id,
+                text: patchText,
+                transport: "copy-event"
+              }
+            })
+          );
+        }
+        if (typeof options === "string") return originalPostMessage(message, options);
+        return originalPostMessage(message, options);
+      }
+    );
+
+    const sendMessageMock = vi.fn(
+      (_message: unknown, callback: (response: { ok: true; downloadId: number }) => void) => {
+        callback({ ok: true, downloadId: 99 });
+      }
+    );
+    (
+      globalThis as typeof globalThis & {
+        chrome?: { runtime?: { sendMessage?: typeof sendMessageMock; lastError?: Error } };
+      }
+    ).chrome = { runtime: { sendMessage: sendMessageMock } };
+
+    const handle = initDownloadPatchMenuItemFeature(makeTestContext());
+
+    try {
+      (
+        document.querySelector('button[aria-label="Open git action menu"]') as HTMLButtonElement
+      ).click();
+      await flush();
+
+      const gitApplyItem = document.getElementById("copy-git-apply") as HTMLElement;
+      const copyPatchItem = document.getElementById("copy-patch") as HTMLElement;
+      const downloadItem = findDownloadMenuItem() as HTMLElement;
+
+      let gitApplyClicks = 0;
+      let copyPatchClicks = 0;
+      let downloadClicks = 0;
+      gitApplyItem.addEventListener("click", () => {
+        gitApplyClicks += 1;
+      });
+      copyPatchItem.addEventListener("click", () => {
+        copyPatchClicks += 1;
+      });
+      downloadItem.addEventListener("click", () => {
+        downloadClicks += 1;
+      });
+
+      emitHookReady();
+      downloadItem.click();
+      await flush();
+
+      expect(downloadClicks).toBe(1);
+      expect(copyPatchClicks).toBe(1);
+      expect(gitApplyClicks).toBe(0);
+      expect(sendMessageMock).toHaveBeenCalledOnce();
+      const payload = sendMessageMock.mock.calls[0][0] as { text: string };
+      expect(payload.text).toBe(patchText);
+    } finally {
+      handle.dispose();
+      delete (globalThis as typeof globalThis & { chrome?: unknown }).chrome;
     }
   });
 
