@@ -214,8 +214,8 @@ describe("autoExpandProjects", () => {
     const result = t.runOnce(ctx, "test");
 
     expect(newProjectClicks).toBe(0);
-    expect(projectsClicks).toBe(1);
-    expect(auditClicks).toBe(0);
+    expect(projectsClicks).toBe(0);
+    expect(auditClicks).toBe(1);
     expect(result.stats.folderClicks).toBe(1);
     expect(result.stats.collapsedProjectRows).toBeGreaterThanOrEqual(2);
 
@@ -248,6 +248,132 @@ describe("autoExpandProjects", () => {
     await vi.advanceTimersByTimeAsync(4000);
 
     expect(folderClicks).toBeGreaterThanOrEqual(1);
+
+    handle.dispose();
+  });
+
+  it("treats mounted project chats with data-state=closed as collapsed", () => {
+    const { section } = mountProjectsNav("true");
+
+    const row = addProjectRow(section, "audit", { expanded: false });
+    // Simulate current ChatGPT behavior: chats remain mounted in DOM even when folder is collapsed.
+    if (!row.children.querySelector('a[href*="/c/"]')) {
+      const chat = document.createElement("a");
+      chat.href = "https://chatgpt.com/c/audit-chat";
+      chat.textContent = "audit chat";
+      row.children.appendChild(chat);
+    }
+    row.folderBtn.dataset.state = "closed";
+    row.children.style.height = "0px";
+    row.children.style.opacity = "0";
+    row.children.style.maxHeight = "0px";
+
+    const ctx = makeTestContext({
+      autoExpandProjects: true,
+      autoExpandProjectItems: true
+    });
+    const handle = initAutoExpandProjectsFeature(ctx);
+    const t = handle.__test as unknown as AutoExpandProjectsTestApi;
+
+    const result = t.runOnce(ctx, "test");
+
+    expect(result.stats.projectRows).toBeGreaterThanOrEqual(1);
+    expect(result.stats.collapsedProjectRows).toBeGreaterThanOrEqual(1);
+    expect(result.stats.folderClicks).toBe(1);
+    expect(result.done).toBe(false);
+
+    handle.dispose();
+  });
+
+  it("treats data-state=open as already expanded", () => {
+    const { section } = mountProjectsNav("true");
+    addProjectRow(section, "audit", { expanded: true });
+
+    const ctx = makeTestContext({
+      autoExpandProjects: true,
+      autoExpandProjectItems: true
+    });
+    const handle = initAutoExpandProjectsFeature(ctx);
+    const t = handle.__test as unknown as AutoExpandProjectsTestApi;
+
+    const result = t.runOnce(ctx, "test");
+
+    expect(result.stats.projectRows).toBeGreaterThanOrEqual(1);
+    expect(result.stats.collapsedProjectRows).toBe(0);
+    expect(result.stats.folderClicks).toBe(0);
+    expect(result.done).toBe(true);
+
+    handle.dispose();
+  });
+
+  it("falls back to hidden/collapsed signals when folder data-state is absent", () => {
+    const { section } = mountProjectsNav("true");
+
+    const row = addProjectRow(section, "audit-fallback", { expanded: false });
+    // Simulate a DOM variant where the folder button does not expose data-state.
+    row.folderBtn.removeAttribute("data-state");
+
+    // Ensure chats are mounted in DOM (presence alone must NOT imply expanded).
+    if (!row.children.querySelector('a[href*="/c/"]')) {
+      const chat = document.createElement("a");
+      chat.href = "https://chatgpt.com/c/audit-fallback-chat";
+      chat.textContent = "audit-fallback chat";
+      row.children.appendChild(chat);
+    }
+
+    row.children.setAttribute("aria-hidden", "true");
+    row.children.style.height = "0px";
+    row.children.style.maxHeight = "0px";
+    row.children.style.opacity = "0";
+
+    const ctx = makeTestContext({
+      autoExpandProjects: true,
+      autoExpandProjectItems: true
+    });
+    const handle = initAutoExpandProjectsFeature(ctx);
+    const t = handle.__test as unknown as AutoExpandProjectsTestApi;
+
+    const result = t.runOnce(ctx, "test");
+
+    expect(result.stats.projectRows).toBeGreaterThanOrEqual(1);
+    expect(result.stats.collapsedProjectRows).toBeGreaterThanOrEqual(1);
+    expect(result.stats.folderClicks).toBe(1);
+    expect(result.done).toBe(false);
+
+    handle.dispose();
+  });
+
+  it("clicks collapsed project folders from bottom to top", () => {
+    const { section } = mountProjectsNav("true");
+
+    const clickOrder: string[] = [];
+    addNewProjectRow(section); // ensure non-expandable row is still ignored
+    addProjectRow(section, "top-project", {
+      expanded: false,
+      onFolderClick: () => {
+        clickOrder.push("top-project");
+      }
+    });
+    addProjectRow(section, "bottom-project", {
+      expanded: false,
+      onFolderClick: () => {
+        clickOrder.push("bottom-project");
+      }
+    });
+
+    const ctx = makeTestContext({
+      autoExpandProjects: true,
+      autoExpandProjectItems: true
+    });
+    const handle = initAutoExpandProjectsFeature(ctx);
+    const t = handle.__test as unknown as AutoExpandProjectsTestApi;
+
+    const result = t.runOnce(ctx, "test");
+
+    // Implementation intentionally clicks at most one folder per run.
+    // This assertion verifies the first attempted click is the bottom-most collapsed project.
+    expect(result.stats.folderClicks).toBe(1);
+    expect(clickOrder).toEqual(["bottom-project"]);
 
     handle.dispose();
   });
