@@ -2,6 +2,7 @@ type DownloadPatchMessage = {
   type: "downloadPatch";
   filename: string;
   text: string;
+  saveAs?: boolean;
 };
 
 type DownloadPatchResponse = { ok: true; downloadId: number } | { ok: false; error: string };
@@ -26,7 +27,7 @@ type DownloadDelta = {
 
 type ChromeDownloads = {
   download?: (
-    options: { url: string; filename: string; saveAs: boolean },
+    options: { url: string; filename: string; saveAs?: boolean },
     callback: (downloadId?: number) => void
   ) => void;
   onChanged?: {
@@ -134,7 +135,7 @@ async function handleDownloadPatchMessage(
         {
           url,
           filename: message.filename,
-          saveAs: true
+          saveAs: typeof message.saveAs === "boolean" ? message.saveAs : false
         },
         (id?: number) => {
           const runtimeError = chromeApi.runtime?.lastError;

@@ -8,18 +8,25 @@ const MENU_MARK_ATTR = "data-qqrm-download-patch-menu";
 const ITEM_MARK_ATTR = "data-qqrm-download-patch-item";
 const DOWNLOAD_LABEL = "Download Patch";
 const CAPTURE_TIMEOUT_MS = 5000;
-const MESSAGE_TIMEOUT_MS = 10000;
+const MESSAGE_TIMEOUT_MS = 30000;
 const CLIPBOARD_HOOK_READY_TIMEOUT_MS = 1500;
 const MENU_OBSERVER_WINDOW_MS = 1500;
 const TRACE_PREFIX = "[download-patch]";
 const MENU_LOOKUP_DELAYS_MS = [0, 50, 100, 150, 250, 400];
 const CLIPBOARD_HOOK_SOURCE = "qqrm-clipboard-hook";
 const CLIPBOARD_HOOK_INSTALLED_ATTR = "data-qqrm-clipboard-hook-installed";
+const PATCH_DOWNLOAD_SAVE_AS = false;
 
 type DownloadPatchResponse = { ok: true; downloadId: number } | { ok: false; error: string };
 type ClipboardCaptureResult = { text: string | null; transport?: string };
 type PatchSourceKind = "clipboard" | "dom-full";
 type PatchAcquireResult = { text: string; source: PatchSourceKind; transport?: string };
+type DownloadPatchRequestMessage = {
+  type: "downloadPatch";
+  filename: string;
+  text: string;
+  saveAs?: boolean;
+};
 
 type ChromeRuntime = {
   sendMessage?: (message: unknown, callback: (response?: DownloadPatchResponse) => void) => void;
@@ -35,6 +42,7 @@ export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureH
   let hookInjected = false;
   let clipboardHookReady = false;
   let activeOperationId: string | null = null;
+  let clipboardHookWarmupPromise: Promise<boolean> | null = null;
   const timerIds = new Set<number>();
   const observerCleanupFns = new Set<() => void>();
   const pendingCaptures = new Map<
@@ -127,6 +135,18 @@ export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureH
     });
   };
 
+  const prewarmClipboardHook = () => {
+    injectPageClipboardHookOnce();
+    if (clipboardHookReady) return;
+    if (clipboardHookWarmupPromise) return;
+
+    clipboardHookWarmupPromise = waitForClipboardHookReady(CLIPBOARD_HOOK_READY_TIMEOUT_MS)
+      .catch(() => false)
+      .finally(() => {
+        clipboardHookWarmupPromise = null;
+      });
+  };
+
   const captureClipboardFromAction = async (
     trigger: () => void,
     traceId: string
@@ -198,6 +218,8 @@ export function initDownloadPatchMenuItemFeature(_ctx: FeatureContext): FeatureH
     if (!(target instanceof Element)) return;
     const trigger = target.closest(GIT_ACTION_TRIGGER_SELECTOR);
     if (!trigger) return;
+
+    prewarmClipboardHook();
 
     const runLookup = () => {
       const menu = findGitActionMenu();
@@ -286,8 +308,7 @@ function injectDownloadPatchItem(
 ) {
   if (menu.getAttribute(MENU_MARK_ATTR) === "1") return;
 
-  const sourceItem =
-    findMenuItemByText(menu, /copy\s+git\s+apply/i) ?? findMenuItemByText(menu, /copy\s+patch/i);
+  const sourceItem = resolveSourceCopyMenuItem(menu);
   if (!sourceItem) return;
 
   const cloned = sourceItem.cloneNode(true);
@@ -303,7 +324,13 @@ function injectDownloadPatchItem(
   clonedItem.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    void onDownloadPatchClick(menu, captureAction, getActiveOperationId, setActiveOperationId);
+    void onDownloadPatchClick(
+      clonedItem,
+      menu,
+      captureAction,
+      getActiveOperationId,
+      setActiveOperationId
+    );
   });
 
   sourceItem.insertAdjacentElement("afterend", clonedItem);
@@ -311,6 +338,7 @@ function injectDownloadPatchItem(
 }
 
 async function onDownloadPatchClick(
+  downloadItem: HTMLElement,
   menu: HTMLElement,
   captureAction: (trigger: () => void, traceId: string) => Promise<ClipboardCaptureResult>,
   getActiveOperationId: () => string | null,
@@ -326,22 +354,25 @@ async function onDownloadPatchClick(
   setActiveOperationId(traceId);
 
   try {
-    const sourceItem =
-      findMenuItemByText(menu, /copy\s+git\s+apply/i) ?? findMenuItemByText(menu, /copy\s+patch/i);
+    const initialSourceItem = resolveSourceCopyMenuItem(menu);
 
-    if (!sourceItem) {
+    if (!initialSourceItem) {
       console.warn(`${TRACE_PREFIX}[${traceId}] source copy menu item not found`);
       return;
     }
 
-    if (isDisabled(sourceItem)) {
+    if (isDisabled(initialSourceItem)) {
       console.warn(`${TRACE_PREFIX}[${traceId}] source copy menu item is disabled`);
       return;
     }
 
+    setMenuItemBusyState(downloadItem, true);
     console.debug(`${TRACE_PREFIX}[${traceId}] capture start`);
     const captured = await captureAction(() => {
-      sourceItem.click();
+      const clicked = clickCurrentSourceCopyMenuItem(menu, initialSourceItem);
+      if (!clicked) {
+        throw new Error("Source copy menu item not available at click time.");
+      }
     }, traceId);
 
     const normalizedCaptured = normalizePatchText(captured.text ?? "");
@@ -390,6 +421,7 @@ async function onDownloadPatchClick(
       `${TRACE_PREFIX}[${traceId}] download ok id=${result.downloadId} source=${patchResult.source} transport=${patchResult.transport ?? "n/a"}`
     );
   } finally {
+    setMenuItemBusyState(downloadItem, false);
     setActiveOperationId(null);
   }
 }
@@ -423,6 +455,44 @@ function replaceVisibleLabel(item: HTMLElement, label: string, originalText: str
   }
 
   item.textContent = label;
+}
+
+function setMenuItemBusyState(item: HTMLElement, busy: boolean) {
+  const label = busy ? "Downloading Patch…" : DOWNLOAD_LABEL;
+  const originalText = item.dataset.qqrmDownloadPatchOriginalText ?? item.textContent ?? "";
+  if (!item.dataset.qqrmDownloadPatchOriginalText) {
+    item.dataset.qqrmDownloadPatchOriginalText = originalText;
+  }
+
+  replaceVisibleLabel(item, label, busy ? DOWNLOAD_LABEL : originalText.trim());
+  if (busy) {
+    item.setAttribute("aria-disabled", "true");
+    item.setAttribute("data-disabled", "true");
+    item.style.pointerEvents = "none";
+    item.style.opacity = "0.7";
+  } else {
+    item.removeAttribute("aria-disabled");
+    item.removeAttribute("data-disabled");
+    item.style.pointerEvents = "";
+    item.style.opacity = "";
+  }
+}
+
+function resolveSourceCopyMenuItem(menu: HTMLElement): HTMLElement | null {
+  return (
+    findMenuItemByText(menu, /copy\s+git\s+apply/i) ?? findMenuItemByText(menu, /copy\s+patch/i)
+  );
+}
+
+function clickCurrentSourceCopyMenuItem(menu: HTMLElement, fallback: HTMLElement | null): boolean {
+  const candidate = resolveSourceCopyMenuItem(menu);
+  const sourceItem = candidate && candidate.isConnected ? candidate : fallback;
+  if (!sourceItem || !sourceItem.isConnected || isDisabled(sourceItem)) {
+    return false;
+  }
+
+  sourceItem.click();
+  return true;
 }
 
 function findTextNode(root: HTMLElement, textToReplace: string): Text | null {
@@ -550,7 +620,12 @@ async function requestPatchDownload({
   filename: string;
   text: string;
 }): Promise<DownloadPatchResponse> {
-  const message = { type: "downloadPatch" as const, filename, text };
+  const message: DownloadPatchRequestMessage = {
+    type: "downloadPatch",
+    filename,
+    text,
+    saveAs: PATCH_DOWNLOAD_SAVE_AS
+  };
 
   const browserRuntime =
     (
