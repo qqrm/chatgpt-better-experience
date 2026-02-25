@@ -85,11 +85,40 @@ function expandSectionIfNeeded(ctx: FeatureContext, section: HTMLElement): boole
   return false;
 }
 
-function isProjectExpanded(projectLink: HTMLAnchorElement): boolean {
+function isProjectExpanded(
+  projectLink: HTMLAnchorElement,
+  rowFolderButton?: HTMLButtonElement | null
+): boolean {
+  const folderButton = rowFolderButton ?? findFolderToggleButtonForProject(projectLink);
+  const folderState = folderButton?.getAttribute("data-state");
+  if (folderState === "open") return true;
+  if (folderState === "closed") return false;
+
   const sib = projectLink.nextElementSibling as HTMLElement | null;
   if (!sib) return false;
   if (!sib.className.includes("overflow-hidden")) return false;
-  return sib.querySelector('a[href*="/c/"]') !== null;
+
+  // ChatGPT can keep project chats mounted in the DOM even when the folder is collapsed.
+  // Presence of /c/ links alone is not a reliable expansion signal.
+  if (sib.querySelector('a[href*="/c/"]') === null) return false;
+
+  const ariaHidden = sib.getAttribute("aria-hidden");
+  if (ariaHidden === "true") return false;
+  if (sib.hasAttribute("hidden")) return false;
+
+  const inlineDisplay = norm(sib.style.display);
+  const inlineVisibility = norm(sib.style.visibility);
+  const inlineOpacity = norm(sib.style.opacity);
+  if (inlineDisplay === "none") return false;
+  if (inlineVisibility === "hidden") return false;
+  if (inlineOpacity === "0") return false;
+
+  const inlineHeight = sib.style.height.trim();
+  if (/^0(?:px|rem|em|%)?$/.test(inlineHeight)) return false;
+  const inlineMaxHeight = sib.style.maxHeight.trim();
+  if (/^0(?:px|rem|em|%)?$/.test(inlineMaxHeight)) return false;
+
+  return true;
 }
 
 function findFolderToggleButton(rowScope: HTMLElement): HTMLButtonElement | null {
@@ -177,7 +206,7 @@ function expandCollapsedProjectFolders(
   let collapsedRows = 0;
   let folderClicks = 0;
 
-  for (const projectLink of projects) {
+  for (const projectLink of [...projects].reverse()) {
     const href = projectLink.getAttribute("href") ?? "";
     const btn = findFolderToggleButtonForProject(projectLink);
 
@@ -186,7 +215,7 @@ function expandCollapsedProjectFolders(
       continue;
     }
 
-    if (isProjectExpanded(projectLink)) continue;
+    if (isProjectExpanded(projectLink, btn)) continue;
 
     collapsedRows += 1;
 
