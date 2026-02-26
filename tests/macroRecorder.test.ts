@@ -151,11 +151,13 @@ describe("macroRecorder feature", () => {
     h1.dispose();
     await h1.flushAsync();
 
+    const toastCountBeforeReload = fx.toasts.length;
     const h2 = makeMacroRecorderHarness(true, fx);
     await h2.waitFor(() => h2.fx.rrwebStarts.length > 1);
 
+    const newToasts = h2.fx.toasts.slice(toastCountBeforeReload);
     expect(
-      h2.fx.toasts.some(
+      newToasts.some(
         (toast) => toast.message === "Macro recording in progress" && toast.tone === "recording"
       )
     ).toBe(true);
