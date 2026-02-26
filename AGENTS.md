@@ -2,6 +2,7 @@
 
 - Do not manually bump the extension version in `manifest.json` during PR work; release automation in the Firefox AMO pipeline handles version bumps on `main`.
 - Before opening a pull request, run all existing checks (lint, format check, typecheck, tests, etc.) and fix any issues so the PR is green.
+- If any local check fails, fix the underlying issue in the same PR so all required checks are green before creating/updating the PR.
 - Before every PR, run the same checks used by CI (or a strict superset), not ad-hoc approximations.
 - Canonical local pre-PR validation command is `npm run verify:ci`; use it unless you have a documented reason to run a strict superset manually.
 - Firefox/AMO validation is mandatory for PRs that touch workflows, manifest, build scripts, packaging, or extension assets:
