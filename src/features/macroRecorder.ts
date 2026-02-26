@@ -483,6 +483,7 @@ export function initMacroRecorderFeature(
 
     stopRrweb = deps.startRrweb(rrwebOptions);
     persistStatus("recording");
+    deps.showToast("Macro recording in progress", "recording");
   };
 
   const cleanupRecordingResources = async () => {
@@ -526,7 +527,6 @@ export function initMacroRecorderFeature(
         }
 
         await startRecording(false);
-        deps.showToast("Macro recording in progress", "recording");
         deps.showToast("Macro recording started", "active");
       } catch {
         deps.showToast("Macro recording failed", "neutral");
@@ -570,7 +570,6 @@ export function initMacroRecorderFeature(
     currentSessionId = activeSession.sessionId;
     segmentIndex = activeSession.segments.length;
     await startRecording(true);
-    deps.showToast("Macro recording in progress", "recording");
   })();
 
   window.addEventListener("keydown", onHotkey, true);
