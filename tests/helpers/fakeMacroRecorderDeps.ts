@@ -12,7 +12,7 @@ export function makeFakeMacroRecorderDeps() {
   const rrwebStarts: RrwebStartOptions[] = [];
   const rrwebCustomEvents: Array<{ tag: string; payload: unknown }> = [];
   const downloads: Array<{ filename: string; payload: unknown }> = [];
-  const toasts: Array<{ message: string; tone: "active" | "neutral" }> = [];
+  const toasts: Array<{ message: string; tone: "active" | "neutral" | "recording" }> = [];
   const persistentStore = new Map<string, unknown>();
   const storageAdapter: MacroRecorderStorageAdapter = {
     get: async (key) => persistentStore.get(key) ?? null,
