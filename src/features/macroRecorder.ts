@@ -568,6 +568,23 @@ export function initMacroRecorderFeature(
     const activeSession = await deps.persistence.loadActiveSession();
     if (!activeSession) return;
     currentSessionId = activeSession.sessionId;
+
+    // If the previous segment did not get a chance to finalize during a hard reload,
+    // close it now to keep exports consistent.
+    const last = activeSession.segments[activeSession.segments.length - 1];
+    if (last && !last.endedAt) {
+      try {
+        await deps.persistence.finalizeSegment({
+          sessionId: activeSession.sessionId,
+          segmentId: last.segmentId,
+          endedAt: deps.now(),
+          endedAtIso: deps.isoNow()
+        });
+      } catch {
+        // best-effort
+      }
+    }
+
     segmentIndex = activeSession.segments.length;
     await startRecording(true);
   })();

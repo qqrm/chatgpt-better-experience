@@ -111,6 +111,10 @@ function addProjectRow(
   const folderBtn = document.createElement("button");
   folderBtn.className = "icon";
   folderBtn.dataset.state = opts.expanded ? "open" : "closed";
+  folderBtn.setAttribute(
+    "aria-label",
+    opts.expanded ? "Collapse project folder" : "Expand project folder"
+  );
   const iconSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   folderBtn.appendChild(iconSvg);
 
