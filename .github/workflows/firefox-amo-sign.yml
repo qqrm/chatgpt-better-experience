@@ -15,6 +15,7 @@ concurrency:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   prepare-version:
@@ -27,6 +28,9 @@ jobs:
       release_sha: ${{ steps.ensure-version.outputs.release_sha }}
       release_version: ${{ steps.ensure-version.outputs.release_version }}
       bumped: ${{ steps.ensure-version.outputs.bumped }}
+      checkout_ref: ${{ steps.ensure-version.outputs.checkout_ref }}
+      bump_branch: ${{ steps.ensure-version.outputs.bump_branch }}
+      bump_pr_url: ${{ steps.ensure-version.outputs.bump_pr_url }}
 
     steps:
       - name: Checkout main
@@ -38,6 +42,8 @@ jobs:
       - name: Ensure manifest version bumped on main merge
         id: ensure-version
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -48,8 +54,11 @@ jobs:
 
           release_version="$(node scripts/manifest-version.mjs print manifest.json)"
           bumped="false"
+          checkout_ref=""
+          bump_branch=""
+          bump_pr_url=""
 
-          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1 && git cat-file -e HEAD^:manifest.json >/dev/null 2>&1; then
             prev_manifest="$(mktemp)"
             git show HEAD^:manifest.json > "$prev_manifest"
             prev_version="$(node scripts/manifest-version.mjs print "$prev_manifest")"
@@ -62,20 +71,56 @@ jobs:
               git config user.name "github-actions[bot]"
               git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
               git add manifest.json
-              git commit -m "chore(version): bump manifest to ${release_version} [amo-auto-bump] [skip ci]"
-              git push origin HEAD:main
+              git commit -m "chore(version): bump manifest to ${release_version} [amo-auto-bump]"
+
+              release_sha="$(git rev-parse HEAD)"
+              bump_branch="amo-auto-bump/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+              git push origin "HEAD:refs/heads/${bump_branch}"
+
+              # Create (or reuse) a PR so branch protection and required checks still apply.
+              # If PR creation fails (repo setting, permissions, transient API error), continue publishing from the bump commit anyway.
+              pr_create_out=""
+              pr_create_err_file="$(mktemp)"
+              if pr_create_out="$(gh pr create \
+                  --base main \
+                  --head "${bump_branch}" \
+                  --title "[amo-auto-bump] chore(version): bump manifest to ${release_version}" \
+                  --body "Automated patch bump for AMO release ${release_version}. Run: ${GITHUB_RUN_ID}." 2>"$pr_create_err_file")"; then
+                bump_pr_url="$pr_create_out"
+              else
+                pr_create_err="$(cat "$pr_create_err_file" 2>/dev/null || true)"
+                echo "::warning::gh pr create failed. stderr: ${pr_create_err}"
+                bump_pr_url="$(gh pr list --base main --head "${bump_branch}" --state open --json url --jq '.[0].url // empty' 2>/dev/null || true)"
+              fi
+              rm -f "$pr_create_err_file"
+
+              if [[ -n "$bump_pr_url" ]]; then
+                gh pr merge --auto --squash "$bump_pr_url" || echo "Could not enable auto-merge for ${bump_pr_url}; merge manually if needed."
+              else
+                echo "::warning::Auto-bump branch pushed (${bump_branch}) but PR was not created. Create PR manually to sync main."
+              fi
 
               bumped="true"
+              checkout_ref="$bump_branch"
             fi
           fi
 
-          release_sha="$(git rev-parse HEAD)"
+          if [[ -z "${release_sha:-}" ]]; then
+            release_sha="$(git rev-parse HEAD)"
+          fi
+          if [[ -z "$checkout_ref" ]]; then
+            checkout_ref="$release_sha"
+          fi
 
           echo "release_sha=$release_sha" >> "$GITHUB_OUTPUT"
           echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
           echo "bumped=$bumped" >> "$GITHUB_OUTPUT"
+          echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
+          echo "bump_branch=$bump_branch" >> "$GITHUB_OUTPUT"
+          echo "bump_pr_url=$bump_pr_url" >> "$GITHUB_OUTPUT"
 
   sign-and-submit:
+    if: ${{ needs.prepare-version.result == 'success' && needs.prepare-version.outputs.checkout_ref != '' }}
     needs: prepare-version
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -84,13 +129,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.2
         with:
-          ref: ${{ needs.prepare-version.outputs.release_sha }}
+          ref: ${{ needs.prepare-version.outputs.checkout_ref }}
 
       - name: Log release target
         run: |
           echo "release_sha=${{ needs.prepare-version.outputs.release_sha }}"
           echo "release_version=${{ needs.prepare-version.outputs.release_version }}"
           echo "bumped=${{ needs.prepare-version.outputs.bumped }}"
+          echo "checkout_ref=${{ needs.prepare-version.outputs.checkout_ref }}"
+          echo "bump_branch=${{ needs.prepare-version.outputs.bump_branch }}"
+          echo "bump_pr_url=${{ needs.prepare-version.outputs.bump_pr_url }}"
 
       - name: Setup Node and install dependencies
         uses: ./.github/actions/setup-node-npm
