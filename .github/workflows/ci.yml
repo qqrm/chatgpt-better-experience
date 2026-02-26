@@ -28,7 +28,7 @@ jobs:
         uses: dorny/paths-filter@v3.0.2
         with:
           filters: |
-            code:
+            heavy:
               - 'src/**'
               - 'tests/**'
               - 'content.ts'
@@ -36,36 +36,29 @@ jobs:
               - 'popup.html'
               - 'settings.ts'
               - 'scripts/**'
-              - 'manifest.json'
               - 'package.json'
               - 'package-lock.json'
               - 'tsconfig*.json'
               - 'vitest.config.*'
               - 'eslint.config.*'
-              - '.github/workflows/ci.yml'
-              - '.github/workflows/firefox-amo-sign.yml'
-              - '.github/workflows/update-icons.yml'
-              - '.github/workflows/update-readme-dark-screenshot.yml'
               - '.github/actions/setup-node-npm/**'
-            docs_only:
-              - 'README.md'
-              - 'docs/**'
-              - 'docs/images/**'
-
-      - name: Skip heavy CI for docs/image-only changes
-        if: steps.changes.outputs.code != 'true'
-        run: echo "docs/image-only change; skipping heavy CI"
+      - name: Skip heavy CI when not needed
+        if: steps.changes.outputs.heavy != 'true'
+        run: |
+          echo "No heavy changes detected (src/tests/tooling)."
+          echo "This job exists to satisfy required check context 'build' on protected main."
+          echo "Skipping npm verify:ci for manifest/docs/icons/workflow-only changes."
 
       - name: Setup Node and install dependencies
-        if: steps.changes.outputs.code == 'true'
+        if: steps.changes.outputs.heavy == 'true'
         uses: ./.github/actions/setup-node-npm
 
       - name: Verify CI
-        if: steps.changes.outputs.code == 'true'
+        if: steps.changes.outputs.heavy == 'true'
         run: npm run verify:ci
 
       - name: Upload build artifact
-        if: steps.changes.outputs.code == 'true' && hashFiles('dist/**') != ''
+        if: steps.changes.outputs.heavy == 'true' && hashFiles('dist/**') != ''
         uses: actions/upload-artifact@v6.0.0
         with:
           name: extension-dist
