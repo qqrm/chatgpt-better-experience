@@ -30,11 +30,52 @@ function isFeatureEnabled(ctx: FeatureContext): boolean {
 }
 
 function dispatchHumanClick(el: HTMLElement): void {
-  el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-  el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-  el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
-  el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-  el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  // Some ChatGPT sidebar toggles are nested inside <a>. Clicking the toggle can bubble
+  // and trigger anchor navigation (sometimes resulting in a full reload). Guard by
+  // temporarily preventing default on the closest anchor.
+  const anchor = el.closest<HTMLAnchorElement>("a[href]");
+  const preventIfFromToggle = (event: Event) => {
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    if (target === el) {
+      // Keep target handlers on the toggle working while still canceling anchor navigation.
+      event.preventDefault();
+      return;
+    }
+    if (el.contains(target)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (
+        "stopImmediatePropagation" in event &&
+        typeof event.stopImmediatePropagation === "function"
+      ) {
+        event.stopImmediatePropagation();
+      }
+    }
+  };
+
+  if (anchor) {
+    anchor.addEventListener("pointerdown", preventIfFromToggle, true);
+    anchor.addEventListener("mousedown", preventIfFromToggle, true);
+    anchor.addEventListener("click", preventIfFromToggle, true);
+  }
+
+  try {
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
+    el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true }));
+    el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  } finally {
+    if (anchor) {
+      // Remove on next tick to avoid interfering with any async handlers.
+      window.setTimeout(() => {
+        anchor.removeEventListener("pointerdown", preventIfFromToggle, true);
+        anchor.removeEventListener("mousedown", preventIfFromToggle, true);
+        anchor.removeEventListener("click", preventIfFromToggle, true);
+      }, 0);
+    }
+  }
 }
 
 function getChatHistoryNav(ctx: FeatureContext): HTMLElement | null {
@@ -140,20 +181,27 @@ function findFolderToggleButton(rowScope: HTMLElement): HTMLButtonElement | null
     }
   }
 
-  // Common case in current UI: <button class="icon" data-state="...">
+  // Common case in current UI: <button class="icon" data-state="open|closed">
   const byStatefulIcon = rowScope.querySelector<HTMLButtonElement>("button.icon[data-state]");
   if (byStatefulIcon) return byStatefulIcon;
 
-  const byIcon = rowScope.querySelector<HTMLButtonElement>("button.icon");
-  if (byIcon) return byIcon;
-
-  // Fallback: only accept small icon-like buttons with an svg.
-  // Avoid clicking wide buttons (often navigation) to prevent rerender jitter.
+  // Safer fallback: only accept icon buttons that explicitly look like a folder toggle.
+  // Avoid generic icon buttons (menus, kebab, navigation) that can trigger route changes/reloads.
   for (const b of buttons) {
+    if (!b.classList.contains("icon")) continue;
     if (!b.querySelector("svg")) continue;
-    const r = b.getBoundingClientRect();
-    if (r.width > 48 || r.height > 48) continue;
-    return b;
+    const aria = norm(b.getAttribute("aria-label"));
+    const title = norm(b.getAttribute("title"));
+    const hint = `${aria} ${title}`;
+    if (
+      (hint.includes("folder") || hint.includes("project")) &&
+      (hint.includes("show") ||
+        hint.includes("hide") ||
+        hint.includes("expand") ||
+        hint.includes("collapse"))
+    ) {
+      return b;
+    }
   }
 
   return null;
