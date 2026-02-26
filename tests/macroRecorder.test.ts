@@ -55,6 +55,11 @@ describe("macroRecorder feature", () => {
       message: "Macro recording started",
       tone: "active"
     });
+    expect(
+      h.fx.toasts.some(
+        (toast) => toast.message === "Macro recording in progress" && toast.tone === "recording"
+      )
+    ).toBe(true);
 
     h.dispose();
   });
@@ -149,7 +154,11 @@ describe("macroRecorder feature", () => {
     const h2 = makeMacroRecorderHarness(true, fx);
     await h2.waitFor(() => h2.fx.rrwebStarts.length > 1);
 
-    expect(h2.fx.toasts.some((toast) => toast.message.includes("resumed (segment 2)"))).toBe(true);
+    expect(
+      h2.fx.toasts.some(
+        (toast) => toast.message === "Macro recording in progress" && toast.tone === "recording"
+      )
+    ).toBe(true);
 
     h2.fx.emitRrweb({ type: 0, timestamp: 2, data: {} as never });
     h2.pressToggle();
@@ -317,10 +326,12 @@ describe("macroRecorder feature", () => {
     await h1.flushAsync();
     h1.dispose();
 
+    const toastCountBeforeReload = fx.toasts.length;
     const h2 = makeMacroRecorderHarness(true, fx);
     await h2.flushAsync();
 
-    expect(h2.fx.toasts.some((toast) => toast.message.includes("resumed"))).toBe(false);
+    const newToasts = h2.fx.toasts.slice(toastCountBeforeReload);
+    expect(newToasts.some((toast) => toast.message === "Macro recording in progress")).toBe(false);
 
     h2.dispose();
   });

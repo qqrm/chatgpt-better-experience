@@ -1,5 +1,6 @@
 import type { eventWithTime } from "@rrweb/types";
 import {
+  clearRecorderToast,
   defaultMacroRecorderDeps,
   type MacroRecorderDeps,
   type RrwebStartOptions
@@ -395,6 +396,7 @@ export function initMacroRecorderFeature(
       stoppedAtIso: deps.isoNow()
     });
 
+    clearRecorderToast();
     persistStatus("ready");
     return true;
   };
@@ -502,6 +504,7 @@ export function initMacroRecorderFeature(
     }
 
     activeRecording = false;
+    clearRecorderToast();
   };
 
   const onToggleHotkey = (event: KeyboardEvent) => {
@@ -523,6 +526,7 @@ export function initMacroRecorderFeature(
         }
 
         await startRecording(false);
+        deps.showToast("Macro recording in progress", "recording");
         deps.showToast("Macro recording started", "active");
       } catch {
         deps.showToast("Macro recording failed", "neutral");
@@ -566,7 +570,7 @@ export function initMacroRecorderFeature(
     currentSessionId = activeSession.sessionId;
     segmentIndex = activeSession.segments.length;
     await startRecording(true);
-    deps.showToast(`Macro recording resumed (segment ${segmentIndex})`, "active");
+    deps.showToast("Macro recording in progress", "recording");
   })();
 
   window.addEventListener("keydown", onHotkey, true);
@@ -576,6 +580,7 @@ export function initMacroRecorderFeature(
     dispose() {
       window.removeEventListener("keydown", onHotkey, true);
       void cleanupRecordingResources();
+      clearRecorderToast();
     },
     onSettingsChange(next, prev) {
       if (next.macroRecorderEnabled === prev.macroRecorderEnabled) return;
