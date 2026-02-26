@@ -1,44 +1,25 @@
 {
   "manifest_version": 3,
   "name": "chat-gpt-better-experience",
-  "version": "1.0.157",
+  "version": "1.0.158",
   "description": "Auto-sends ChatGPT dictation transcripts, with optional Temporary Chat auto-enable and chat list auto-expand.",
-  "permissions": [
-    "storage",
-    "downloads"
-  ],
+  "permissions": ["storage", "downloads"],
   "background": {
     "service_worker": "dist/background.js",
-    "scripts": [
-      "dist/background.js"
-    ]
+    "scripts": ["dist/background.js"]
   },
-  "host_permissions": [
-    "https://chatgpt.com/*",
-    "https://chat.openai.com/*"
-  ],
+  "host_permissions": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
   "content_scripts": [
     {
-      "matches": [
-        "https://chatgpt.com/*",
-        "https://chat.openai.com/*"
-      ],
-      "js": [
-        "dist/content.js"
-      ],
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "js": ["dist/content.js"],
       "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": [
-        "pageClipboardHook.js",
-        "pageTranscribeHook.js"
-      ],
-      "matches": [
-        "https://chatgpt.com/*",
-        "https://chat.openai.com/*"
-      ]
+      "resources": ["pageClipboardHook.js", "pageTranscribeHook.js"],
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"]
     }
   ],
   "action": {

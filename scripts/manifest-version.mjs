@@ -7,13 +7,12 @@ function die(message) {
   process.exit(1);
 }
 
-function readJson(filePath) {
-  const raw = fs.readFileSync(filePath, "utf8");
-  return JSON.parse(raw);
+function readRaw(filePath) {
+  return fs.readFileSync(filePath, "utf8");
 }
 
-function writeJson(filePath, value) {
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+function readJson(filePath) {
+  return JSON.parse(readRaw(filePath));
 }
 
 function parseSemver(version) {
@@ -24,6 +23,30 @@ function parseSemver(version) {
     minor: Number(m[2]),
     patch: Number(m[3])
   };
+}
+
+function bumpPatchString(version) {
+  const parsed = parseSemver(version);
+  return `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
+}
+
+function replaceVersionInRaw(raw, expectedOld, nextVersion) {
+  const re = /("version"\s*:\s*")(\d+\.\d+\.\d+)(")/g;
+  let count = 0;
+  let seenOld = null;
+  const updated = raw.replace(re, (match, p1, oldV, p3) => {
+    count += 1;
+    seenOld = oldV;
+    return `${p1}${nextVersion}${p3}`;
+  });
+
+  if (count !== 1) {
+    die(`Expected exactly 1 "version" field match, found ${count}.`);
+  }
+  if (seenOld !== String(expectedOld).trim()) {
+    die(`Version in text ("${seenOld}") does not match parsed JSON version ("${expectedOld}").`);
+  }
+  return updated;
 }
 
 function printUsage() {
@@ -45,6 +68,7 @@ if (!fs.existsSync(filePath)) {
   die(`File not found: ${filePath}`);
 }
 
+const raw = readRaw(filePath);
 const json = readJson(filePath);
 const currentVersion = json?.version;
 
@@ -58,10 +82,9 @@ if (command === "print") {
 }
 
 if (command === "bump-patch") {
-  const parsed = parseSemver(currentVersion);
-  const nextVersion = `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
-  json.version = nextVersion;
-  writeJson(filePath, json);
+  const nextVersion = bumpPatchString(currentVersion);
+  const updatedRaw = replaceVersionInRaw(raw, currentVersion, nextVersion);
+  fs.writeFileSync(filePath, updatedRaw, "utf8");
   console.log(nextVersion);
   process.exit(0);
 }
