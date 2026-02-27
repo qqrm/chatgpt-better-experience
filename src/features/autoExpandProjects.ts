@@ -11,19 +11,23 @@ import { isElementVisible, norm } from "../lib/utils";
 
 const AUTO_EXPAND_START_TIMEOUT_MS = 3500;
 const AUTO_EXPAND_NAV_TIMEOUT_MS = 1500;
+const AUTO_EXPAND_POST_CLICK_DELAY_MS = 1700;
 const AUTO_EXPAND_DEBOUNCE_MS = 250;
 // User interaction cooldown must be long enough to cover React re-renders caused
 // by project toggle clicks. Otherwise we can end up clicking the same toggle
 // multiple times while the UI is still animating, causing jitter/shake.
 const AUTO_EXPAND_USER_COOLDOWN_MS = 5000;
-const AUTO_EXPAND_MAX_ATTEMPTS = 25;
+const AUTO_EXPAND_MAX_ATTEMPTS = 120;
 
 type ExpandStats = {
   projectsExpanded: boolean;
+  sectionClicked: boolean;
   projectRows: number;
   collapsedProjectRows: number;
   folderClicks: number;
 };
+
+type ExpandSectionResult = { expanded: boolean; clicked: boolean };
 
 function isFeatureEnabled(ctx: FeatureContext): boolean {
   return ctx.settings.autoExpandProjects || ctx.settings.autoExpandProjectItems;
@@ -111,19 +115,19 @@ function isSectionCollapsed(section: HTMLElement): boolean {
   return headerBtn?.getAttribute("aria-expanded") === "false";
 }
 
-function expandSectionIfNeeded(ctx: FeatureContext, section: HTMLElement): boolean {
+function expandSectionIfNeeded(ctx: FeatureContext, section: HTMLElement): ExpandSectionResult {
   const headerBtn = section.querySelector<HTMLButtonElement>("button[aria-expanded]");
-  if (!headerBtn) return false;
+  if (!headerBtn) return { expanded: false, clicked: false };
 
   const expanded = headerBtn.getAttribute("aria-expanded") === "true";
-  if (expanded) return true;
+  if (expanded) return { expanded: true, clicked: false };
 
-  if (!isElementVisible(headerBtn)) return false;
+  if (!isElementVisible(headerBtn)) return { expanded: false, clicked: false };
 
   ctx.logger.debug("autoExpandProjects", "expanding Projects section");
   dispatchHumanClick(headerBtn);
   // Do not report success until the DOM confirms aria-expanded="true" on a later run.
-  return false;
+  return { expanded: false, clicked: true };
 }
 
 function isProjectExpanded(
@@ -292,7 +296,13 @@ function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; don
   if (!nav) {
     ctx.logger.debug("autoExpandProjects", `no sidebar nav yet (${reason})`);
     return {
-      stats: { projectsExpanded: false, projectRows: 0, collapsedProjectRows: 0, folderClicks: 0 },
+      stats: {
+        projectsExpanded: false,
+        sectionClicked: false,
+        projectRows: 0,
+        collapsedProjectRows: 0,
+        folderClicks: 0
+      },
       done: false
     };
   }
@@ -301,7 +311,13 @@ function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; don
   if (!section) {
     ctx.logger.debug("autoExpandProjects", `no Projects section yet (${reason})`);
     return {
-      stats: { projectsExpanded: false, projectRows: 0, collapsedProjectRows: 0, folderClicks: 0 },
+      stats: {
+        projectsExpanded: false,
+        sectionClicked: false,
+        projectRows: 0,
+        collapsedProjectRows: 0,
+        folderClicks: 0
+      },
       done: false
     };
   }
@@ -311,14 +327,23 @@ function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; don
 
   if (!wantProjects && !wantItems) {
     return {
-      stats: { projectsExpanded: false, projectRows: 0, collapsedProjectRows: 0, folderClicks: 0 },
+      stats: {
+        projectsExpanded: false,
+        sectionClicked: false,
+        projectRows: 0,
+        collapsedProjectRows: 0,
+        folderClicks: 0
+      },
       done: true
     };
   }
 
   let expanded = !isSectionCollapsed(section);
+  let sectionClicked = false;
   if (wantProjects && !expanded) {
-    expanded = expandSectionIfNeeded(ctx, section);
+    const res = expandSectionIfNeeded(ctx, section);
+    expanded = res.expanded;
+    sectionClicked = res.clicked;
   }
 
   let rows = section.querySelectorAll('a[href*="/project"]').length;
@@ -341,6 +366,7 @@ function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; don
   return {
     stats: {
       projectsExpanded: expanded,
+      sectionClicked,
       projectRows: rows,
       collapsedProjectRows: collapsedRows,
       folderClicks
@@ -361,6 +387,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   let unsubRoots: (() => void) | null = null;
   let startTimer: number | null = null;
   let navReadyTimer: number | null = null;
+  let postClickTimer: number | null = null;
   let goalReached = false;
 
   const bindUserInteractionGuards = (nav: HTMLElement | null) => {
@@ -391,6 +418,8 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     startTimer = null;
     if (navReadyTimer !== null) window.clearTimeout(navReadyTimer);
     navReadyTimer = null;
+    if (postClickTimer !== null) window.clearTimeout(postClickTimer);
+    postClickTimer = null;
   };
 
   const stop = (): void => {
@@ -427,11 +456,23 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       }
 
       const { stats, done } = runOnce(ctx, reason);
-      if (stats.folderClicks > 0) lastAutoClickAt = Date.now();
+
+      if (stats.folderClicks > 0 || stats.sectionClicked) {
+        lastAutoClickAt = Date.now();
+
+        if (postClickTimer !== null) window.clearTimeout(postClickTimer);
+        postClickTimer = window.setTimeout(() => {
+          postClickTimer = null;
+          schedule("post-click");
+        }, AUTO_EXPAND_POST_CLICK_DELAY_MS);
+      }
+
       if (done) {
         ctx.logger.debug("autoExpandProjects", "goal reached, idle until route/settings change");
         goalReached = true;
         attempts = 0;
+        if (postClickTimer !== null) window.clearTimeout(postClickTimer);
+        postClickTimer = null;
       }
     }, AUTO_EXPAND_DEBOUNCE_MS);
   };
@@ -492,6 +533,8 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       if (!nextEnabled) {
         goalReached = true;
         attempts = 0;
+        if (postClickTimer !== null) window.clearTimeout(postClickTimer);
+        postClickTimer = null;
         cancelTimers();
         return;
       }
