@@ -12,6 +12,12 @@ type ThemeMode = "auto" | "dark" | "light";
 
 const autoSendEl = mustGetElement<HTMLInputElement>("autoSend");
 const allowCodexEl = mustGetElement<HTMLInputElement>("allowAutoSendInCodex");
+const downloadGitPatchesWithShiftClickEl = mustGetElement<HTMLInputElement>(
+  "downloadGitPatchesWithShiftClick"
+);
+const clearClipboardAfterShiftDownloadEl = mustGetElement<HTMLInputElement>(
+  "clearClipboardAfterShiftDownload"
+);
 const editLastMessageEl = mustGetElement<HTMLInputElement>("editLastMessageOnArrowUp");
 const autoExpandEl = mustGetElement<HTMLInputElement>("autoExpandChats");
 const autoExpandProjectsEl = mustGetElement<HTMLInputElement>("autoExpandProjects");
@@ -145,6 +151,8 @@ async function load() {
 
   autoSendEl.checked = settings.autoSend;
   allowCodexEl.checked = settings.allowAutoSendInCodex;
+  downloadGitPatchesWithShiftClickEl.checked = settings.downloadGitPatchesWithShiftClick;
+  clearClipboardAfterShiftDownloadEl.checked = settings.clearClipboardAfterShiftDownload;
   editLastMessageEl.checked = settings.editLastMessageOnArrowUp;
   autoExpandEl.checked = settings.autoExpandChats;
   autoExpandProjectsEl.checked = settings.autoExpandProjects;
@@ -174,6 +182,8 @@ async function save() {
   const input = {
     autoSend: !!autoSendEl.checked,
     allowAutoSendInCodex: !!allowCodexEl.checked,
+    downloadGitPatchesWithShiftClick: !!downloadGitPatchesWithShiftClickEl.checked,
+    clearClipboardAfterShiftDownload: !!clearClipboardAfterShiftDownloadEl.checked,
     editLastMessageOnArrowUp: !!editLastMessageEl.checked,
     autoExpandChats: !!autoExpandEl.checked,
     autoExpandProjects: !!autoExpandProjectsEl.checked,
@@ -196,6 +206,8 @@ async function save() {
 
 autoSendEl.addEventListener("change", () => void save().catch(() => {}));
 allowCodexEl.addEventListener("change", () => void save().catch(() => {}));
+downloadGitPatchesWithShiftClickEl.addEventListener("change", () => void save().catch(() => {}));
+clearClipboardAfterShiftDownloadEl.addEventListener("change", () => void save().catch(() => {}));
 editLastMessageEl.addEventListener("change", () => void save().catch(() => {}));
 autoExpandEl.addEventListener("change", () => void save().catch(() => {}));
 autoExpandProjectsEl.addEventListener("change", () => void save().catch(() => {}));
