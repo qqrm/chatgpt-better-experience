@@ -1,6 +1,8 @@
 export interface Settings {
   autoSend: boolean;
   allowAutoSendInCodex: boolean;
+  downloadGitPatchesWithShiftClick: boolean;
+  clearClipboardAfterShiftDownload: boolean;
   editLastMessageOnArrowUp: boolean;
   autoExpandChats: boolean;
   autoExpandProjects: boolean;
@@ -22,6 +24,8 @@ export type SettingsRecord = Settings & Record<string, unknown>;
 export const SETTINGS_DEFAULTS: SettingsRecord = {
   autoSend: true,
   allowAutoSendInCodex: true,
+  downloadGitPatchesWithShiftClick: true,
+  clearClipboardAfterShiftDownload: false,
   editLastMessageOnArrowUp: true,
   autoExpandChats: true,
   autoExpandProjects: true,

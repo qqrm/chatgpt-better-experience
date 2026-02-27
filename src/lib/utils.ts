@@ -58,6 +58,20 @@ export function normalizeSettings(data: Record<string, unknown>): Settings {
         ? ((data as { allowAutoSendInCodex?: unknown }).allowAutoSendInCodex as boolean)
         : base.allowAutoSendInCodex,
 
+    downloadGitPatchesWithShiftClick:
+      typeof (data as { downloadGitPatchesWithShiftClick?: unknown })
+        .downloadGitPatchesWithShiftClick === "boolean"
+        ? ((data as { downloadGitPatchesWithShiftClick?: unknown })
+            .downloadGitPatchesWithShiftClick as boolean)
+        : base.downloadGitPatchesWithShiftClick,
+
+    clearClipboardAfterShiftDownload:
+      typeof (data as { clearClipboardAfterShiftDownload?: unknown })
+        .clearClipboardAfterShiftDownload === "boolean"
+        ? ((data as { clearClipboardAfterShiftDownload?: unknown })
+            .clearClipboardAfterShiftDownload as boolean)
+        : base.clearClipboardAfterShiftDownload,
+
     editLastMessageOnArrowUp:
       typeof (data as { editLastMessageOnArrowUp?: unknown }).editLastMessageOnArrowUp === "boolean"
         ? ((data as { editLastMessageOnArrowUp?: unknown }).editLastMessageOnArrowUp as boolean)

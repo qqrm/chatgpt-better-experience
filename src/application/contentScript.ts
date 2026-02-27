@@ -94,6 +94,8 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
           "autoExpandProjectItems" in changes ||
           "autoSend" in changes ||
           "allowAutoSendInCodex" in changes ||
+          "downloadGitPatchesWithShiftClick" in changes ||
+          "clearClipboardAfterShiftDownload" in changes ||
           "editLastMessageOnArrowUp" in changes ||
           "autoTempChat" in changes ||
           "oneClickDelete" in changes ||
