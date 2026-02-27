@@ -24,6 +24,8 @@ describe("popup use cases macroRecorderEnabled", () => {
       {
         autoSend: true,
         allowAutoSendInCodex: true,
+        downloadGitPatchesWithShiftClick: true,
+        clearClipboardAfterShiftDownload: false,
         editLastMessageOnArrowUp: true,
         autoExpandChats: true,
         autoExpandProjects: true,

@@ -495,13 +495,6 @@
 
         <div class="row">
           <div class="check">
-            <input id="allowAutoSendInCodex" type="checkbox" />
-            <label for="allowAutoSendInCodex">Allow auto-send in Codex</label>
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="check">
             <input id="autoTempChat" type="checkbox" />
             <label for="autoTempChat">Auto-enable Temporary Chat</label>
           </div>
@@ -609,6 +602,37 @@
         </div>
 
         <div class="hint">0 = base width · 100 = 95% of the viewport</div>
+
+        <div class="sectionTitle">Codex</div>
+
+        <div class="row">
+          <div class="check">
+            <input id="allowAutoSendInCodex" type="checkbox" />
+            <label for="allowAutoSendInCodex">Allow auto-send in Codex</label>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="check">
+            <input id="downloadGitPatchesWithShiftClick" type="checkbox" checked />
+            <label for="downloadGitPatchesWithShiftClick">
+              <span>Download Git patches with Shift-click</span>
+              <span class="note"
+                >Hold Shift on “Copy patch” / “Copy git apply” to also save a .patch file</span
+              >
+            </label>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="check">
+            <input id="clearClipboardAfterShiftDownload" type="checkbox" />
+            <label for="clearClipboardAfterShiftDownload">
+              <span>Clear clipboard after Shift-download</span>
+              <span class="note">Attempts to wipe clipboard after saving the patch</span>
+            </label>
+          </div>
+        </div>
       </div>
     </div>
 
