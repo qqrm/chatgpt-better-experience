@@ -18,6 +18,10 @@ const AUTO_EXPAND_DEBOUNCE_MS = 250;
 // multiple times while the UI is still animating, causing jitter/shake.
 const AUTO_EXPAND_USER_COOLDOWN_MS = 5000;
 const AUTO_EXPAND_MAX_ATTEMPTS = 120;
+const AUTO_EXPAND_REPEAT_CLICK_COOLDOWN_MS = 8000;
+
+let lastClickedProjectHref: string | null = null;
+let lastClickedProjectAt = 0;
 
 type ExpandStats = {
   projectsExpanded: boolean;
@@ -130,6 +134,26 @@ function expandSectionIfNeeded(ctx: FeatureContext, section: HTMLElement): Expan
   return { expanded: false, clicked: true };
 }
 
+function isLikelyOptionsButton(btn: HTMLButtonElement): boolean {
+  const aria = norm(btn.getAttribute("aria-label"));
+  const title = norm(btn.getAttribute("title"));
+  const hint = `${aria} ${title}`;
+  if (!hint) return false;
+
+  // Avoid clicking trailing "..." / options / menu buttons.
+  return (
+    hint.includes("options") ||
+    hint.includes("option") ||
+    hint.includes("menu") ||
+    hint.includes("more") ||
+    hint.includes("ellipsis")
+  );
+}
+
+function isInsideOverflowHidden(el: HTMLElement): boolean {
+  return el.closest('[class*="overflow-hidden"]') !== null;
+}
+
 function isProjectExpanded(
   projectLink: HTMLAnchorElement,
   rowFolderButton?: HTMLButtonElement | null
@@ -139,13 +163,13 @@ function isProjectExpanded(
   if (folderState === "open") return true;
   if (folderState === "closed") return false;
 
+  const ariaExpanded = folderButton?.getAttribute("aria-expanded");
+  if (ariaExpanded === "true") return true;
+  if (ariaExpanded === "false") return false;
+
   const sib = projectLink.nextElementSibling as HTMLElement | null;
   if (!sib) return false;
   if (!sib.className.includes("overflow-hidden")) return false;
-
-  // ChatGPT can keep project chats mounted in the DOM even when the folder is collapsed.
-  // Presence of /c/ links alone is not a reliable expansion signal.
-  if (sib.querySelector('a[href*="/c/"]') === null) return false;
 
   const ariaHidden = sib.getAttribute("aria-hidden");
   if (ariaHidden === "true") return false;
@@ -171,6 +195,7 @@ function findFolderToggleButton(rowScope: HTMLElement): HTMLButtonElement | null
 
   // Prefer explicit toggles first.
   for (const b of buttons) {
+    if (isLikelyOptionsButton(b)) continue;
     const aria = norm(b.getAttribute("aria-label"));
     const title = norm(b.getAttribute("title"));
     const hint = `${aria} ${title}`;
@@ -186,12 +211,15 @@ function findFolderToggleButton(rowScope: HTMLElement): HTMLButtonElement | null
   }
 
   // Common case in current UI: <button class="icon" data-state="open|closed">
-  const byStatefulIcon = rowScope.querySelector<HTMLButtonElement>("button.icon[data-state]");
-  if (byStatefulIcon) return byStatefulIcon;
+  const statefulIcons = Array.from(
+    rowScope.querySelectorAll<HTMLButtonElement>("button.icon[data-state]")
+  ).filter((b) => !isLikelyOptionsButton(b) && !isInsideOverflowHidden(b));
+  if (statefulIcons.length > 0) return statefulIcons[0];
 
   // Safer fallback: only accept icon buttons that explicitly look like a folder toggle.
   // Avoid generic icon buttons (menus, kebab, navigation) that can trigger route changes/reloads.
   for (const b of buttons) {
+    if (isLikelyOptionsButton(b)) continue;
     if (!b.classList.contains("icon")) continue;
     if (!b.querySelector("svg")) continue;
     const aria = norm(b.getAttribute("aria-label"));
@@ -243,7 +271,10 @@ function isExpandableProjectRow(
 ): boolean {
   const sib = projectLink.nextElementSibling as HTMLElement | null;
   if (sib && sib.className.includes("overflow-hidden")) return true;
-  return rowFolderButton?.matches("button.icon[data-state]") ?? false;
+  return (
+    rowFolderButton?.hasAttribute("data-state") === true ||
+    rowFolderButton?.hasAttribute("aria-expanded") === true
+  );
 }
 
 function expandCollapsedProjectFolders(
@@ -283,9 +314,21 @@ function expandCollapsedProjectFolders(
       continue;
     }
 
+    const now = Date.now();
+    if (
+      href &&
+      href === lastClickedProjectHref &&
+      now - lastClickedProjectAt < AUTO_EXPAND_REPEAT_CLICK_COOLDOWN_MS
+    ) {
+      ctx.logger.debug("autoExpandProjects", `skip repeat click for project: ${href}`);
+      continue;
+    }
+
     ctx.logger.debug("autoExpandProjects", `click folder icon for project: ${href}`);
     dispatchHumanClick(btn);
     folderClicks = 1;
+    lastClickedProjectHref = href;
+    lastClickedProjectAt = now;
   }
 
   return { totalRows: projects.length, collapsedRows, folderClicks };
