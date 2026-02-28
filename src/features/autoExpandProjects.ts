@@ -190,12 +190,21 @@ function isProjectExpanded(
   return true;
 }
 
+function isTrailingMenuButton(b: HTMLButtonElement): boolean {
+  // ChatGPT uses a trailing “…” options button with these markers.
+  if (b.hasAttribute("data-trailing-button")) return true;
+  if (b.getAttribute("aria-haspopup") === "menu") return true;
+  return false;
+}
+
 function findFolderToggleButton(rowScope: HTMLElement): HTMLButtonElement | null {
-  const buttons = Array.from(rowScope.querySelectorAll<HTMLButtonElement>("button"));
+  const buttons = Array.from(rowScope.querySelectorAll<HTMLButtonElement>("button")).filter(
+    (b) => !isTrailingMenuButton(b) && !isInsideOverflowHidden(b)
+  );
 
   // Prefer explicit toggles first.
   for (const b of buttons) {
-    if (isLikelyOptionsButton(b)) continue;
+    if (isLikelyOptionsButton(b) || isTrailingMenuButton(b) || isInsideOverflowHidden(b)) continue;
     const aria = norm(b.getAttribute("aria-label"));
     const title = norm(b.getAttribute("title"));
     const hint = `${aria} ${title}`;
@@ -211,29 +220,29 @@ function findFolderToggleButton(rowScope: HTMLElement): HTMLButtonElement | null
   }
 
   // Common case in current UI: <button class="icon" data-state="open|closed">
-  const statefulIcons = Array.from(
-    rowScope.querySelectorAll<HTMLButtonElement>("button.icon[data-state]")
-  ).filter((b) => !isLikelyOptionsButton(b) && !isInsideOverflowHidden(b));
-  if (statefulIcons.length > 0) return statefulIcons[0];
+  const byStatefulIcon = rowScope.querySelector<HTMLButtonElement>(
+    "button.icon[data-state]:not([data-trailing-button]):not([aria-haspopup])"
+  );
+  if (
+    byStatefulIcon &&
+    !isTrailingMenuButton(byStatefulIcon) &&
+    !isInsideOverflowHidden(byStatefulIcon)
+  )
+    return byStatefulIcon;
 
-  // Safer fallback: only accept icon buttons that explicitly look like a folder toggle.
-  // Avoid generic icon buttons (menus, kebab, navigation) that can trigger route changes/reloads.
+  const byIcon = rowScope.querySelector<HTMLButtonElement>(
+    "button.icon:not([data-trailing-button]):not([aria-haspopup])"
+  );
+  if (byIcon && !isTrailingMenuButton(byIcon) && !isInsideOverflowHidden(byIcon)) return byIcon;
+
+  // Fallback: only accept small icon-like buttons with an svg.
+  // Avoid clicking wide buttons (often navigation) to prevent rerender jitter.
   for (const b of buttons) {
-    if (isLikelyOptionsButton(b)) continue;
-    if (!b.classList.contains("icon")) continue;
+    if (isLikelyOptionsButton(b) || isTrailingMenuButton(b) || isInsideOverflowHidden(b)) continue;
     if (!b.querySelector("svg")) continue;
-    const aria = norm(b.getAttribute("aria-label"));
-    const title = norm(b.getAttribute("title"));
-    const hint = `${aria} ${title}`;
-    if (
-      (hint.includes("folder") || hint.includes("project")) &&
-      (hint.includes("show") ||
-        hint.includes("hide") ||
-        hint.includes("expand") ||
-        hint.includes("collapse"))
-    ) {
-      return b;
-    }
+    const r = b.getBoundingClientRect();
+    if (r.width > 48 || r.height > 48) continue;
+    return b;
   }
 
   return null;
@@ -309,11 +318,6 @@ function expandCollapsedProjectFolders(
       ctx.logger.debug("autoExpandProjects", `no folder button found for project: ${href}`);
       continue;
     }
-    if (!isElementVisible(btn)) {
-      ctx.logger.debug("autoExpandProjects", `folder button not visible for project: ${href}`);
-      continue;
-    }
-
     const now = Date.now();
     if (
       href &&
@@ -332,6 +336,31 @@ function expandCollapsedProjectFolders(
   }
 
   return { totalRows: projects.length, collapsedRows, folderClicks };
+}
+
+function getBottomExpandableProjectHref(section: HTMLElement): string | null {
+  const projects = Array.from(section.querySelectorAll<HTMLAnchorElement>('a[href*="/project"]'));
+  for (let i = projects.length - 1; i >= 0; i -= 1) {
+    const link = projects[i]!;
+    // Fast, layout-free heuristic:
+    // - Prefer rows that have the collapsible sibling container.
+    // - Otherwise, accept rows with a stateful icon button (excluding trailing menu),
+    //   either nested in the anchor or in the closest <li>.
+    const sib = link.nextElementSibling as HTMLElement | null;
+    if (sib && sib.className.includes("overflow-hidden")) return link.getAttribute("href") ?? null;
+
+    const btnInLink = link.querySelector<HTMLButtonElement>(
+      "button.icon[data-state]:not([data-trailing-button]):not([aria-haspopup])"
+    );
+    if (btnInLink && !isInsideOverflowHidden(btnInLink)) return link.getAttribute("href") ?? null;
+
+    const li = link.closest<HTMLElement>("li");
+    const btnInLi = li?.querySelector<HTMLButtonElement>(
+      "button.icon[data-state]:not([data-trailing-button]):not([aria-haspopup])"
+    );
+    if (btnInLi && !isInsideOverflowHidden(btnInLi)) return link.getAttribute("href") ?? null;
+  }
+  return null;
 }
 
 function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; done: boolean } {
@@ -432,6 +461,8 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   let navReadyTimer: number | null = null;
   let postClickTimer: number | null = null;
   let goalReached = false;
+  let rowsAtGoal = 0;
+  let bottomHrefAtGoal: string | null = null;
 
   const bindUserInteractionGuards = (nav: HTMLElement | null) => {
     cleanupUserListeners?.();
@@ -514,6 +545,10 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
         ctx.logger.debug("autoExpandProjects", "goal reached, idle until route/settings change");
         goalReached = true;
         attempts = 0;
+        rowsAtGoal = stats.projectRows;
+        const navNow = getChatHistoryNav(ctx);
+        const secNow = navNow ? findProjectsSection(navNow) : null;
+        bottomHrefAtGoal = secNow ? getBottomExpandableProjectHref(secNow) : null;
         if (postClickTimer !== null) window.clearTimeout(postClickTimer);
         postClickTimer = null;
       }
@@ -558,11 +593,34 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       if (!isFeatureEnabled(ctx)) return;
       goalReached = false;
       attempts = 0;
+      rowsAtGoal = 0;
+      bottomHrefAtGoal = null;
       schedule("route");
     }) ?? null;
 
   unsubNavDelta =
     ctx.domBus?.onDelta("nav", () => {
+      if (!isFeatureEnabled(ctx)) return;
+
+      if (goalReached) {
+        const nav = getChatHistoryNav(ctx);
+        const section = nav ? findProjectsSection(nav) : null;
+        if (!section) return;
+
+        const rows = section.querySelectorAll('a[href*="/project"]').length;
+        const bottomHref = getBottomExpandableProjectHref(section);
+
+        if (rows !== rowsAtGoal || bottomHref !== bottomHrefAtGoal) {
+          goalReached = false;
+          attempts = 0;
+          rowsAtGoal = 0;
+          bottomHrefAtGoal = null;
+          schedule("mutation-rearm");
+        }
+
+        return;
+      }
+
       schedule("mutation");
     }) ?? null;
 
@@ -589,6 +647,8 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       if (!prevEnabled || goalChanged) {
         goalReached = false;
         attempts = 0;
+        rowsAtGoal = 0;
+        bottomHrefAtGoal = null;
         refreshNavBindings();
         schedule("settings");
       }

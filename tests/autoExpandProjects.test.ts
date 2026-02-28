@@ -256,6 +256,56 @@ describe("autoExpandProjects", () => {
     handle.dispose();
   });
 
+  it("rearms after goal reached when the bottom project row changes (virtualized/lazy load)", async () => {
+    const ctx = makeDomBusCtx({ autoExpandProjects: true, autoExpandProjectItems: true });
+    const { section } = mountProjectsNav("true");
+
+    addNewProjectRow(section);
+
+    let auditClicks = 0;
+    const auditRow = addProjectRow(section, "audit", {
+      expanded: false,
+      onFolderClick: () => {
+        auditClicks += 1;
+        ctx.emitNavDelta();
+      }
+    });
+
+    const handle = initAutoExpandProjectsFeature(ctx);
+
+    // First run: expand the only collapsed project.
+    ctx.emitNavDelta();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(auditClicks).toBe(1);
+
+    // Second run: observe the expanded DOM and reach goal.
+    await vi.advanceTimersByTimeAsync(2000);
+    ctx.emitNavDelta();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(auditClicks).toBe(1);
+
+    // Simulate virtualization: the rendered bottom-most project changes.
+    auditRow.link.remove();
+    auditRow.children.remove();
+
+    let vpnClicks = 0;
+    addProjectRow(section, "vpn", {
+      expanded: false,
+      onFolderClick: () => {
+        vpnClicks += 1;
+        ctx.emitNavDelta();
+      }
+    });
+
+    ctx.emitNavDelta();
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(vpnClicks).toBe(1);
+
+    handle.dispose();
+  });
+
   it("treats mounted project chats with data-state=closed as collapsed", () => {
     const { section } = mountProjectsNav("true");
 
