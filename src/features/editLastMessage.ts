@@ -335,18 +335,14 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "F2" && !e.repeat) {
-      const targetEl = e.target instanceof Element ? e.target : null;
-      const activeEl = document.activeElement instanceof Element ? document.activeElement : null;
-      if (!isEditableElement(targetEl) && !isEditableElement(activeEl)) {
-        const activeChat = findActiveChat();
-        if (activeChat) {
-          e.preventDefault();
-          e.stopPropagation();
-          void (async () => {
-            await triggerRenameActiveChat(activeChat);
-          })();
-          return;
-        }
+      const activeChat = findActiveChat();
+      if (activeChat) {
+        e.preventDefault();
+        e.stopPropagation();
+        void (async () => {
+          await triggerRenameActiveChat(activeChat);
+        })();
+        return;
       }
     }
 
