@@ -130,7 +130,57 @@ describe("downloadPatchMenuItem shift-click", () => {
 
       expect(copySpy).toHaveBeenCalledOnce();
       expect(postSpy).toHaveBeenCalled();
-      expect(sendMessageMock).toHaveBeenCalledOnce();
+      expect(sendMessageMock).toHaveBeenCalledTimes(2);
+
+      const filenames = sendMessageMock.mock.calls.map(
+        (args) => (args[0] as { filename?: string }).filename
+      );
+      expect(filenames[0]).toMatch(/\.patch$/);
+      expect(filenames[1]).toMatch(/\.gitapply$/);
+    } finally {
+      handle.dispose();
+    }
+  });
+
+  it("uses clipboard patch text when hook capture misses", async () => {
+    document.body.innerHTML = `
+      <div role="menu">
+        <div role="menuitem" id="copy-item" aria-label="Copy patch"><span>Copy patch</span></div>
+      </div>
+    `;
+
+    const patchText = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
+
+    const readTextMock = vi.fn(async () => patchText);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { readText: readTextMock }
+    });
+
+    const sendMessageMock = vi.fn(
+      (_message: unknown, callback: (response: { ok: true; downloadId: number }) => void) => {
+        callback({ ok: true, downloadId: 1 });
+      }
+    );
+    (
+      globalThis as typeof globalThis & {
+        chrome?: { runtime?: { sendMessage?: typeof sendMessageMock; lastError?: Error } };
+      }
+    ).chrome = { runtime: { sendMessage: sendMessageMock } };
+
+    const handle = initDownloadPatchMenuItemFeature(
+      makeTestContext({ downloadGitPatchesWithShiftClick: true })
+    );
+    try {
+      (document.getElementById("copy-item") as HTMLElement).dispatchEvent(
+        new MouseEvent("click", { bubbles: true, shiftKey: true })
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      await flush();
+
+      expect(readTextMock).toHaveBeenCalled();
+      expect(sendMessageMock).toHaveBeenCalledTimes(2);
     } finally {
       handle.dispose();
     }
@@ -226,11 +276,16 @@ describe("downloadPatchMenuItem shift-click", () => {
       );
       await flush();
 
-      expect(sendMessageMock).toHaveBeenCalledOnce();
+      expect(sendMessageMock).toHaveBeenCalledTimes(2);
       expect(writeTextMock).not.toHaveBeenCalled();
 
-      expect(responders).toHaveLength(1);
+      expect(responders).toHaveLength(2);
       responders[0]?.({ ok: true, downloadId: 1 });
+      await flush();
+
+      expect(writeTextMock).not.toHaveBeenCalled();
+
+      responders[1]?.({ ok: true, downloadId: 2 });
       await flush();
 
       expect(writeTextMock).toHaveBeenCalledWith("");
