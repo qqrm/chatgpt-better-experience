@@ -7,6 +7,9 @@ const CLIPBOARD_HOOK_SOURCE = "qqrm-clipboard-hook";
 const CLIPBOARD_HOOK_READY_ATTR = "data-qqrm-clipboard-hook-installed";
 const CLIPBOARD_HOOK_READY_TIMEOUT_MS = 1500;
 const CAPTURE_TIMEOUT_MS = 5000;
+const CLIPBOARD_READ_RETRY_DELAY_MS = 120;
+const CLIPBOARD_READ_ATTEMPTS = 4;
+const CAPTURE_WAIT_BEFORE_CLIPBOARD_MS = 350;
 const MESSAGE_TIMEOUT_MS = 30000;
 const PATCH_DOWNLOAD_SAVE_AS = false;
 
@@ -191,9 +194,17 @@ export function initDownloadPatchMenuItemFeature(ctx: FeatureContext): FeatureHa
     traceId: string
   ) => {
     try {
-      const captured = await capturePromise;
+      const captured = await withTimeout(capturePromise, CAPTURE_WAIT_BEFORE_CLIPBOARD_MS, {
+        text: null,
+        transport: undefined
+      });
+      const clipboardPatch = await readPatchFromClipboard();
       const normalizedCaptured = normalizePatchText(captured.text ?? "");
-      let patch = looksLikePatch(normalizedCaptured) ? normalizedCaptured : null;
+      let patch = clipboardPatch;
+
+      if (!patch) {
+        patch = looksLikePatch(normalizedCaptured) ? normalizedCaptured : null;
+      }
 
       if (!patch) {
         patch = tryExtractFullPatchFromDom();
@@ -206,9 +217,15 @@ export function initDownloadPatchMenuItemFeature(ctx: FeatureContext): FeatureHa
         return;
       }
 
-      const result = await requestPatchDownload({ filename: buildPatchFilename(), text: patch });
-      if (!result.ok) {
-        window.alert(`Download failed: ${result.error}`);
+      const baseFilename = buildPatchFilenameBase();
+      const patchDownloads = await Promise.all([
+        requestPatchDownload({ filename: `${baseFilename}.patch`, text: patch }),
+        requestPatchDownload({ filename: `${baseFilename}.gitapply`, text: patch })
+      ]);
+
+      const failed = patchDownloads.find((result) => !result.ok);
+      if (failed && !failed.ok) {
+        window.alert(`Download failed: ${failed.error}`);
         return;
       }
 
@@ -313,16 +330,37 @@ function tryExtractFullPatchFromDom(): string | null {
   return pool[0] ?? null;
 }
 
-function buildPatchFilename(): string {
+async function readPatchFromClipboard(): Promise<string | null> {
+  const clipboardApi = navigator.clipboard as Clipboard | undefined;
+  const readText = clipboardApi?.readText?.bind(clipboardApi);
+  if (!readText) return null;
+
+  for (let i = 0; i < CLIPBOARD_READ_ATTEMPTS; i += 1) {
+    if (i > 0) {
+      await new Promise((resolve) => window.setTimeout(resolve, CLIPBOARD_READ_RETRY_DELAY_MS));
+    }
+
+    try {
+      const text = normalizePatchText(await readText());
+      if (looksLikePatch(text)) return text;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function buildPatchFilenameBase(): string {
   const title = findTaskTitle();
   const repo = findHeaderValue(/repo/i);
   const branch = findHeaderValue(/branch/i);
 
-  if (!title || !repo || !branch) return "task-patch.patch";
+  if (!title || !repo || !branch) return "task-patch";
 
   const slug = [title, repo, branch].map(slugify).filter(Boolean).join("-");
-  if (!slug) return "task-patch.patch";
-  return `${slug}.patch`;
+  if (!slug) return "task-patch";
+  return slug;
 }
 
 function findTaskTitle(): string | null {
