@@ -182,20 +182,20 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     const dt = norm(dtRaw).trim();
     const txt = norm(txtRaw).trim();
 
+    const hasExplicitDictationMarker = [a, t, dt, txt].some((value) =>
+      /dictat|dictation|microphone|диктов|микроф|голос|надикт|voice/.test(value)
+    );
+
+    const inDictationActionContainer = findDictationActionContainers().some((container) =>
+      container.contains(btn)
+    );
+
     if (a === "submit" || a === "done" || t === "done" || txt === "done") {
       if (btn.classList.contains("composer-submit-btn")) return false;
       if (hasDictationButtonNearby(btn)) return true;
-
-      // ChatGPT UI can temporarily replace the dictation toggle with submit/cancel buttons,
-      // so the "near dictation button" heuristic may fail. Treat Submit/Done as dictation
-      // submit when the button is part of the composer UI.
-      const promptEl =
-        document.getElementById("prompt-textarea") ||
-        document.querySelector('[data-testid="prompt-textarea"]');
-      const parentForm = btn.closest("form");
-      const inComposerFooter = !!btn.closest('[data-testid="composer-footer-actions"]');
-      const inComposerForm = !!(promptEl && parentForm && parentForm.contains(promptEl));
-      if (inComposerFooter || inComposerForm) return true;
+      if (hasExplicitDictationMarker) return true;
+      if (inDictationActionContainer) return true;
+      return false;
     }
 
     if (a.includes("submit dictation")) return true;
@@ -238,6 +238,24 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     if (aria.includes("отправ")) return true;
     if (title.includes("send")) return true;
     if (title.includes("отправ")) return true;
+    return false;
+  };
+
+  const isKnownComposerSendButton = (btn: Element | null) => {
+    if (!btn) return false;
+    if (btn instanceof HTMLElement && btn.id === "composer-submit-button") return true;
+
+    const dt = norm(btn.getAttribute("data-testid"));
+    const aria = norm(btn.getAttribute("aria-label"));
+    const title = norm(btn.getAttribute("title"));
+    const text = norm(btn.textContent);
+
+    if (dt === "send-button") return true;
+    if (dt.includes("composer-submit")) return true;
+    if (aria.includes("send") || aria.includes("отправ")) return true;
+    if (title.includes("send") || title.includes("отправ")) return true;
+    if (text === "send" || text === "отправить") return true;
+
     return false;
   };
 
@@ -495,8 +513,10 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
           if (type === "submit") continue;
         }
         if (b === findSendButton()) continue;
+        if (isKnownComposerSendButton(b)) continue;
         if (!isSubmitDictationButton(b)) continue;
         if (isSendButton(b)) continue;
+        if (isKnownComposerSendButton(b)) continue;
         if (!isVisible(b)) continue;
         return b;
       }
