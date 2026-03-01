@@ -41,6 +41,7 @@ type ChromeLikeApi = {
 };
 
 const DOWNLOAD_BLOB_URL_TTL_MS = 120000;
+const DOWNLOAD_COMPLETION_TIMEOUT_MS = 25000;
 
 const chromeApi =
   (
@@ -52,6 +53,13 @@ const chromeApi =
 const pendingBlobUrls = new Map<
   number,
   { url: string; timeoutId: ReturnType<typeof setTimeout> }
+>();
+const pendingDownloadWaiters = new Map<
+  number,
+  {
+    resolve: (state: "complete" | "interrupted" | "timeout") => void;
+    timeoutId: ReturnType<typeof setTimeout>;
+  }
 >();
 let downloadChangeListenerInstalled = false;
 
@@ -87,13 +95,35 @@ function maybeInstallDownloadChangeListener(): void {
   if (!addListener) return;
 
   addListener((delta) => {
-    if (!delta?.state?.current) return;
-    if (delta.state.current === "complete" || delta.state.current === "interrupted") {
-      cleanupTrackedBlobUrl(delta.id);
-    }
+    const state = delta?.state?.current;
+    if (!state) return;
+    if (state !== "complete" && state !== "interrupted") return;
+
+    cleanupTrackedBlobUrl(delta.id);
+
+    const pendingWaiter = pendingDownloadWaiters.get(delta.id);
+    if (!pendingWaiter) return;
+
+    globalThis.clearTimeout(pendingWaiter.timeoutId);
+    pendingDownloadWaiters.delete(delta.id);
+    pendingWaiter.resolve(state);
   });
 
   downloadChangeListenerInstalled = true;
+}
+
+function waitForDownloadTerminalState(
+  downloadId: number,
+  timeoutMs: number
+): Promise<"complete" | "interrupted" | "timeout"> {
+  return new Promise((resolve) => {
+    const timeoutId = globalThis.setTimeout(() => {
+      pendingDownloadWaiters.delete(downloadId);
+      resolve("timeout");
+    }, timeoutMs);
+
+    pendingDownloadWaiters.set(downloadId, { resolve, timeoutId });
+  });
 }
 
 maybeInstallDownloadChangeListener();
@@ -155,7 +185,24 @@ async function handleDownloadPatchMessage(
     });
 
     trackBlobUrl(downloadId, url);
-    return { ok: true, downloadId };
+
+    const terminalState = await waitForDownloadTerminalState(
+      downloadId,
+      DOWNLOAD_COMPLETION_TIMEOUT_MS
+    );
+
+    if (terminalState === "complete") {
+      return { ok: true, downloadId };
+    }
+
+    if (terminalState === "interrupted") {
+      return { ok: false, error: "Download was interrupted." };
+    }
+
+    return {
+      ok: false,
+      error: "Timed out waiting for download completion."
+    };
   } catch (error) {
     safeRevokeObjectUrl(url);
     return {

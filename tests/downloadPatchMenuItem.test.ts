@@ -163,4 +163,79 @@ describe("downloadPatchMenuItem shift-click", () => {
       handle.dispose();
     }
   });
+
+  it("clears clipboard only after download callback resolves", async () => {
+    document.body.innerHTML = `
+      <div role="menu">
+        <div role="menuitem" id="copy-item" aria-label="Copy patch"><span>Copy patch</span></div>
+      </div>
+    `;
+
+    const patchText = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
+    const originalPost = window.postMessage.bind(window);
+    vi.spyOn(window, "postMessage").mockImplementation((message, target) => {
+      const data = message as { source?: string; type?: string; id?: string };
+      if (data.source === "qqrm-clipboard-hook" && data.type === "begin" && data.id) {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              source: "qqrm-clipboard-hook",
+              type: "captured",
+              id: data.id,
+              text: patchText,
+              transport: "copy-event"
+            }
+          })
+        );
+      }
+      return typeof target === "string"
+        ? originalPost(message, target)
+        : originalPost(message, target);
+    });
+
+    const responders: Array<(response: { ok: true; downloadId: number }) => void> = [];
+    const sendMessageMock = vi.fn(
+      (_message: unknown, callback: (response: { ok: true; downloadId: number }) => void) => {
+        responders.push(callback);
+      }
+    );
+
+    (
+      globalThis as typeof globalThis & {
+        chrome?: { runtime?: { sendMessage?: typeof sendMessageMock; lastError?: Error } };
+      }
+    ).chrome = { runtime: { sendMessage: sendMessageMock } };
+
+    const writeTextMock = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: writeTextMock }
+    });
+
+    const handle = initDownloadPatchMenuItemFeature(
+      makeTestContext({
+        downloadGitPatchesWithShiftClick: true,
+        clearClipboardAfterShiftDownload: true
+      })
+    );
+
+    try {
+      (document.getElementById("copy-item") as HTMLElement).dispatchEvent(
+        new MouseEvent("click", { bubbles: true, shiftKey: true })
+      );
+      await flush();
+
+      expect(sendMessageMock).toHaveBeenCalledOnce();
+      expect(writeTextMock).not.toHaveBeenCalled();
+
+      expect(responders).toHaveLength(1);
+      responders[0]?.({ ok: true, downloadId: 1 });
+      await flush();
+
+      expect(writeTextMock).toHaveBeenCalledWith("");
+    } finally {
+      handle.dispose();
+    }
+  });
 });
