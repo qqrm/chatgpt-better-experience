@@ -1,16 +1,36 @@
-import { isDisabled } from "../lib/utils";
+import { isDisabled, isElementVisible } from "../lib/utils";
 
 export type ComposerInput = HTMLTextAreaElement | HTMLElement;
 
 const norm = (value: string | null | undefined) => (value || "").trim().toLowerCase();
 
-const isVisible = (el: HTMLElement) => el.offsetParent !== null;
+const isVisible = (el: HTMLElement) => isElementVisible(el);
+
+const MAIN_COMPOSER_MARKERS = [
+  "#thread-bottom",
+  "#thread-bottom-container",
+  ".composer-parent",
+  "footer",
+  '[data-testid*="composer" i]',
+  '[data-testid*="conversation-composer" i]'
+];
 
 const isMainComposer = (composer: ComposerInput) => {
-  if (composer instanceof HTMLElement) {
-    if (composer.id === "prompt-textarea") return true;
-    if (composer.getAttribute("data-testid") === "prompt-textarea") return true;
+  if (!(composer instanceof HTMLElement)) return false;
+
+  const id = composer.id;
+  const testId = composer.getAttribute("data-testid");
+  const looksLikePrompt = id === "prompt-textarea" || testId === "prompt-textarea";
+  if (!looksLikePrompt) return false;
+
+  for (const marker of MAIN_COMPOSER_MARKERS) {
+    try {
+      if (composer.closest(marker)) return true;
+    } catch {
+      // ignore invalid selectors in older UI variants
+    }
   }
+
   return false;
 };
 
@@ -104,4 +124,64 @@ export const findEditSubmitButton = (composer: ComposerInput): HTMLElement | nul
   });
 
   return byTestId ?? null;
+};
+
+const findVisibleComposerInputs = (root: ParentNode): ComposerInput[] => {
+  const out: ComposerInput[] = [];
+
+  const push = (el: Element) => {
+    if (!(el instanceof HTMLElement)) return;
+    if (!isVisible(el)) return;
+    if (el instanceof HTMLTextAreaElement) out.push(el);
+    else if (el.getAttribute("contenteditable") === "true") out.push(el);
+  };
+
+  const textareas = Array.from(root.querySelectorAll("textarea"));
+  for (const el of textareas) push(el);
+
+  const ces = Array.from(root.querySelectorAll('[contenteditable="true"]'));
+  for (const el of ces) push(el);
+
+  return out;
+};
+
+export const findAnyEditSubmitButton = (): HTMLElement | null => {
+  const active = document.activeElement;
+
+  const candidateRoots: Element[] = [];
+
+  const userMsgs = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-message-author-role='user']")
+  );
+  for (let i = userMsgs.length - 1; i >= 0; i -= 1) {
+    const msg = userMsgs[i];
+    const scope = (msg.closest("article") ?? msg) as Element;
+    if (scope && !candidateRoots.includes(scope)) candidateRoots.push(scope);
+  }
+
+  const dialogs = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]')
+  );
+  for (const dialog of dialogs) {
+    if (!isVisible(dialog)) continue;
+    candidateRoots.push(dialog);
+  }
+
+  const rootsOrdered = (() => {
+    if (!(active instanceof HTMLElement)) return candidateRoots;
+    const activeRoot = candidateRoots.find((root) => root.contains(active)) ?? null;
+    if (!activeRoot) return candidateRoots;
+    return [activeRoot, ...candidateRoots.filter((root) => root !== activeRoot)];
+  })();
+
+  for (const root of rootsOrdered) {
+    const inputs = findVisibleComposerInputs(root);
+    for (const input of inputs) {
+      if (isMainComposer(input)) continue;
+      const button = findEditSubmitButton(input);
+      if (button) return button;
+    }
+  }
+
+  return null;
 };

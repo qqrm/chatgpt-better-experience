@@ -1,5 +1,5 @@
 import { FeatureContext, FeatureHandle } from "../application/featureContext";
-import { findEditSubmitButton, ComposerInput } from "./chatgptEditor";
+import { findAnyEditSubmitButton, findEditSubmitButton, ComposerInput } from "./chatgptEditor";
 import { routeKeyCombos } from "./keyCombos";
 import { isDisabled } from "../lib/utils";
 
@@ -451,6 +451,13 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
           click(editBtn, "apply-edit");
           return;
         }
+      }
+
+      const anyEditBtn = findAnyEditSubmitButton();
+      if (anyEditBtn && !isDisabled(anyEditBtn)) {
+        ctx.logger.debug("KEY", "CTRL+ENTER apply edit (global)");
+        click(anyEditBtn, "apply-edit-global");
+        return;
       }
 
       const baseline = composer ? readInputValue(composer) : "";
