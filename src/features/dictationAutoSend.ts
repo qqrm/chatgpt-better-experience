@@ -797,37 +797,13 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     }
   };
 
-  const injectPageTranscribeHook = () => {
-    const runtime =
-      (
-        globalThis as typeof globalThis & {
-          chrome?: { runtime?: { getURL?: (p: string) => string } };
-        }
-      ).chrome?.runtime ??
-      (
-        globalThis as typeof globalThis & {
-          browser?: { runtime?: { getURL?: (p: string) => string } };
-        }
-      ).browser?.runtime;
-
-    if (!runtime?.getURL) {
-      tmLog("TRANSCRIBE", "runtime.getURL not available");
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.setAttribute("data-tm-transcribe-hook", "1");
-    script.dataset.source = TRANSCRIBE_HOOK_SOURCE;
-    script.src = runtime.getURL("pageTranscribeHook.js");
-    script.onload = () => script.remove();
-    document.documentElement.appendChild(script);
-  };
-
   const installTranscribeHook = () => {
     if (transcribeHookInstalled) return;
     transcribeHookInstalled = true;
 
-    injectPageTranscribeHook();
+    // ChatGPT enforces a strict CSP that blocks page-level injected scripts.
+    // Keep dictation feature working without injection; rely on DOM/UI state.
+    tmLog("TRANSCRIBE", "page hook disabled (CSP) - using DOM/UI only");
 
     window.addEventListener("message", handleTranscribeMessage);
   };
