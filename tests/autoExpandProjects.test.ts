@@ -183,6 +183,34 @@ describe("autoExpandProjects", () => {
     handle.dispose();
   });
 
+  it("expands Projects section when only 'autoExpandProjectItems' is enabled", () => {
+    const { section, header } = mountProjectsNav("false");
+    let headerClicks = 0;
+    header.addEventListener("click", () => {
+      headerClicks += 1;
+      // Simulate ChatGPT updating state on click.
+      header.setAttribute("aria-expanded", "true");
+    });
+
+    addProjectRow(section, "audit", { expanded: false });
+
+    const ctx = makeTestContext({
+      autoExpandProjects: false,
+      autoExpandProjectItems: true
+    });
+    const handle = initAutoExpandProjectsFeature(ctx);
+    const t = handle.__test as unknown as AutoExpandProjectsTestApi;
+
+    const result = t.runOnce(ctx, "test");
+
+    expect(headerClicks).toBe(1);
+    // The feature intentionally does not mark the section as expanded until a later run.
+    expect(result.stats.projectsExpanded).toBe(false);
+    expect(result.done).toBe(false);
+
+    handle.dispose();
+  });
+
   it("skips New project row and clicks the matching folder toggle for the actual project row", () => {
     const { section } = mountProjectsNav("true");
 
