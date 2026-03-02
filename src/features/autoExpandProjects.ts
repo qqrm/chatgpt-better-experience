@@ -185,13 +185,6 @@ function dispatchHumanClick(el: HTMLElement): void {
     }
     if (el.contains(target)) {
       event.preventDefault();
-      event.stopPropagation();
-      if (
-        "stopImmediatePropagation" in event &&
-        typeof event.stopImmediatePropagation === "function"
-      ) {
-        event.stopImmediatePropagation();
-      }
     }
   };
 
