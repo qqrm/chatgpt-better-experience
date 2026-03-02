@@ -410,9 +410,14 @@ function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; don
     };
   }
 
+  // "Auto-expand each project" logically requires the Projects section to be expanded.
+  // Users often enable only the per-project toggle and expect it to work without also
+  // enabling "Auto-expand projects list".
+  const needSectionExpanded = wantProjects || wantItems;
+
   let expanded = !isSectionCollapsed(section);
   let sectionClicked = false;
-  if (wantProjects && !expanded) {
+  if (needSectionExpanded && !expanded) {
     const res = expandSectionIfNeeded(ctx, section);
     expanded = res.expanded;
     sectionClicked = res.clicked;
