@@ -267,7 +267,52 @@ function isInsideOverflowHidden(el: HTMLElement): boolean {
 }
 
 function isTrailingMenuEl(el: HTMLElement): boolean {
-  return el.hasAttribute("data-trailing-button") || el.getAttribute("aria-haspopup") === "menu";
+  // ChatGPT sidebar rows often contain a trailing "..." menu button which also has data-state/
+  // aria-expanded. Treat it as non-toggle to avoid clicking it when trying to expand project folders.
+  if (el.hasAttribute("data-trailing-button")) return true;
+  if (el.getAttribute("aria-haspopup") === "menu") return true;
+
+  const cls = String(el.className || "");
+  if (cls.includes("__menu-item-trailing-btn")) return true;
+  if (el.closest(".trailing") !== null) return true;
+
+  const ariaLabel = norm(el.getAttribute("aria-label"));
+  const title = norm(el.getAttribute("title"));
+  // Some builds use a non-standard `aria` attribute instead of aria-label.
+  const ariaLoose = norm(el.getAttribute("aria"));
+  const hint = `${ariaLabel} ${title} ${ariaLoose}`;
+  if (
+    hint.includes("open conversation options") ||
+    hint.includes("conversation options") ||
+    hint.includes("options") ||
+    hint.includes("archive") ||
+    hint.includes("pin")
+  )
+    return true;
+
+  return false;
+}
+
+function pickLeftmost(els: HTMLElement[]): HTMLElement | null {
+  let best: { el: HTMLElement; x: number; y: number; w: number; h: number } | null = null;
+  for (const el of els) {
+    if (!isElementVisible(el)) continue;
+    const r = el.getBoundingClientRect();
+    const x = r.left;
+    const y = r.top;
+    const w = r.width;
+    const h = r.height;
+    if (w <= 0 || h <= 0) continue;
+    if (!best) {
+      best = { el, x, y, w, h };
+      continue;
+    }
+    // Prefer smaller X (leftmost). Tie-break with smaller Y.
+    if (x < best.x - 1 || (Math.abs(x - best.x) <= 1 && y < best.y - 1)) {
+      best = { el, x, y, w, h };
+    }
+  }
+  return best?.el ?? null;
 }
 
 function isProjectExpanded(
@@ -297,6 +342,17 @@ function isProjectExpanded(
 }
 
 function findFolderToggleEl(rowScope: HTMLElement): HTMLElement | null {
+  // Fast-path: in the current sidebar DOM the folder toggle is usually a left icon button
+  // (`button.icon`) with `data-state=open|closed`. There is also a trailing options button
+  // that matches generic selectors; we must avoid that.
+  const iconToggles = Array.from(
+    rowScope.querySelectorAll<HTMLElement>(
+      'button.icon[data-state="open"], button.icon[data-state="closed"], button.icon[aria-expanded="true"], button.icon[aria-expanded="false"]'
+    )
+  ).filter((el) => !isTrailingMenuEl(el) && !isInsideOverflowHidden(el));
+  const leftIconToggle = pickLeftmost(iconToggles);
+  if (leftIconToggle) return leftIconToggle;
+
   const candidates = Array.from(
     rowScope.querySelectorAll<HTMLElement>('button, [role="button"], [data-state], [aria-expanded]')
   ).filter((el) => !isTrailingMenuEl(el) && !isInsideOverflowHidden(el));
@@ -314,11 +370,13 @@ function findFolderToggleEl(rowScope: HTMLElement): HTMLElement | null {
       return el;
   }
 
-  const byStateful = rowScope.querySelector<HTMLElement>(
-    '[data-state="open"], [data-state="closed"], [aria-expanded="true"], [aria-expanded="false"]'
-  );
-  if (byStateful && !isTrailingMenuEl(byStateful) && !isInsideOverflowHidden(byStateful))
-    return byStateful;
+  const byStatefulAll = Array.from(
+    rowScope.querySelectorAll<HTMLElement>(
+      '[data-state="open"], [data-state="closed"], [aria-expanded="true"], [aria-expanded="false"]'
+    )
+  ).filter((el) => !isTrailingMenuEl(el) && !isInsideOverflowHidden(el));
+  const byStateful = pickLeftmost(byStatefulAll);
+  if (byStateful) return byStateful;
 
   const byIcon = rowScope.querySelector<HTMLElement>(
     ".icon:not([data-trailing-button]):not([aria-haspopup])"
