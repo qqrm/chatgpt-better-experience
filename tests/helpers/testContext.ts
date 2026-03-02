@@ -33,6 +33,7 @@ export function makeTestContext(settings: Partial<Settings> = {}): FeatureContex
     trimChatDomKeep: 10,
     hideShareButton: false,
     macroRecorderEnabled: false,
+    debugAutoExpandProjects: false,
     ...settings
   };
 
