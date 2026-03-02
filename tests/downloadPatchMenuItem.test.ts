@@ -11,13 +11,11 @@ describe("downloadPatchMenuItem shift-click", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
     history.pushState({}, "", "/codex/tasks/task_e_test");
-    document.documentElement.setAttribute("data-qqrm-clipboard-hook-installed", "1");
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
-    document.documentElement.removeAttribute("data-qqrm-clipboard-hook-installed");
     delete (globalThis as typeof globalThis & { chrome?: unknown }).chrome;
   });
 
@@ -83,27 +81,10 @@ describe("downloadPatchMenuItem shift-click", () => {
     `;
 
     const patchText = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
-    const originalPost = window.postMessage.bind(window);
-    const postSpy = vi.spyOn(window, "postMessage").mockImplementation((message, target) => {
-      const data = message as { source?: string; type?: string; id?: string; mode?: string };
-      if (data.source === "qqrm-clipboard-hook" && data.type === "begin" && data.id) {
-        expect(data.mode).toBe("passthrough");
-        window.dispatchEvent(
-          new MessageEvent("message", {
-            source: window,
-            data: {
-              source: "qqrm-clipboard-hook",
-              type: "captured",
-              id: data.id,
-              text: patchText,
-              transport: "copy-event"
-            }
-          })
-        );
-      }
-      return typeof target === "string"
-        ? originalPost(message, target)
-        : originalPost(message, target);
+    const readTextMock = vi.fn(async () => patchText);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { readText: readTextMock }
     });
 
     const sendMessageMock = vi.fn(
@@ -129,7 +110,7 @@ describe("downloadPatchMenuItem shift-click", () => {
       await flush();
 
       expect(copySpy).toHaveBeenCalledOnce();
-      expect(postSpy).toHaveBeenCalled();
+      expect(readTextMock).toHaveBeenCalled();
       expect(sendMessageMock).toHaveBeenCalledTimes(2);
 
       const filenames = sendMessageMock.mock.calls.map(
@@ -222,27 +203,7 @@ describe("downloadPatchMenuItem shift-click", () => {
     `;
 
     const patchText = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
-    const originalPost = window.postMessage.bind(window);
-    vi.spyOn(window, "postMessage").mockImplementation((message, target) => {
-      const data = message as { source?: string; type?: string; id?: string };
-      if (data.source === "qqrm-clipboard-hook" && data.type === "begin" && data.id) {
-        window.dispatchEvent(
-          new MessageEvent("message", {
-            source: window,
-            data: {
-              source: "qqrm-clipboard-hook",
-              type: "captured",
-              id: data.id,
-              text: patchText,
-              transport: "copy-event"
-            }
-          })
-        );
-      }
-      return typeof target === "string"
-        ? originalPost(message, target)
-        : originalPost(message, target);
-    });
+    const readTextMock = vi.fn(async () => patchText);
 
     const responders: Array<(response: { ok: true; downloadId: number }) => void> = [];
     const sendMessageMock = vi.fn(
@@ -260,7 +221,7 @@ describe("downloadPatchMenuItem shift-click", () => {
     const writeTextMock = vi.fn(async () => undefined);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
-      value: { writeText: writeTextMock }
+      value: { readText: readTextMock, writeText: writeTextMock }
     });
 
     const handle = initDownloadPatchMenuItemFeature(

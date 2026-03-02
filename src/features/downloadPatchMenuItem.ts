@@ -1,15 +1,9 @@
 import { FeatureContext, FeatureHandle } from "../application/featureContext";
 
 const TASK_PATH_PREFIX = "/codex/tasks/";
-const GIT_ACTION_TRIGGER_SELECTOR = 'button[aria-label="Open git action menu"]';
 const MENU_ITEM_SELECTOR = '[role="menuitem"]';
-const CLIPBOARD_HOOK_SOURCE = "qqrm-clipboard-hook";
-const CLIPBOARD_HOOK_READY_ATTR = "data-qqrm-clipboard-hook-installed";
-const CLIPBOARD_HOOK_READY_TIMEOUT_MS = 1500;
-const CAPTURE_TIMEOUT_MS = 5000;
 const CLIPBOARD_READ_RETRY_DELAY_MS = 120;
 const CLIPBOARD_READ_ATTEMPTS = 4;
-const CAPTURE_WAIT_BEFORE_CLIPBOARD_MS = 350;
 const MESSAGE_TIMEOUT_MS = 30000;
 const PATCH_DOWNLOAD_SAVE_AS = false;
 
@@ -30,146 +24,17 @@ type BrowserRuntime = {
   sendMessage?: (message: unknown) => Promise<DownloadPatchResponse>;
 };
 
-type PendingCapture = {
-  resolve: (value: { text: string | null; transport?: string }) => void;
-  timeoutId: number;
-};
-
 export function initDownloadPatchMenuItemFeature(ctx: FeatureContext): FeatureHandle {
   let disposed = false;
-  let hookInjected = false;
-  let hookReady = document.documentElement?.getAttribute(CLIPBOARD_HOOK_READY_ATTR) === "1";
-  let warmupPromise: Promise<boolean> | null = null;
   let activeOperationId: string | null = null;
-
-  const pendingCaptures = new Map<string, PendingCapture>();
-
-  const injectPageClipboardHookOnce = () => {
-    if (hookInjected) return;
-    hookInjected = true;
-
-    const runtime =
-      (
-        globalThis as typeof globalThis & {
-          chrome?: { runtime?: { getURL?: (path: string) => string } };
-        }
-      ).chrome?.runtime ??
-      (
-        globalThis as typeof globalThis & {
-          browser?: { runtime?: { getURL?: (path: string) => string } };
-        }
-      ).browser?.runtime;
-
-    if (!runtime?.getURL) return;
-    if (document.querySelector('script[data-qqrm-clipboard-hook="1"]')) return;
-
-    const script = document.createElement("script");
-    script.setAttribute("data-qqrm-clipboard-hook", "1");
-    script.dataset.source = CLIPBOARD_HOOK_SOURCE;
-    script.src = runtime.getURL("pageClipboardHook.js");
-    script.onload = () => script.remove();
-    document.documentElement.appendChild(script);
-  };
-
-  const waitForHookReady = (timeoutMs: number): Promise<boolean> => {
-    if (hookReady || document.documentElement?.getAttribute(CLIPBOARD_HOOK_READY_ATTR) === "1") {
-      hookReady = true;
-      return Promise.resolve(true);
-    }
-
-    return new Promise<boolean>((resolve) => {
-      let settled = false;
-      const onMessage = (event: MessageEvent) => {
-        if (event.source !== window) return;
-        const data = event.data as { source?: string; type?: string };
-        if (!data || data.source !== CLIPBOARD_HOOK_SOURCE || data.type !== "ready") return;
-
-        hookReady = true;
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeoutId);
-        window.removeEventListener("message", onMessage);
-        resolve(true);
-      };
-
-      const timeoutId = window.setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        window.removeEventListener("message", onMessage);
-        resolve(false);
-      }, timeoutMs);
-
-      window.addEventListener("message", onMessage);
-    });
-  };
-
-  const prewarmClipboardHook = () => {
-    injectPageClipboardHookOnce();
-    if (hookReady || warmupPromise) return;
-    warmupPromise = waitForHookReady(CLIPBOARD_HOOK_READY_TIMEOUT_MS)
-      .catch(() => false)
-      .finally(() => {
-        warmupPromise = null;
-      });
-  };
-
-  const beginCapturePassthrough = () => {
-    const id = `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
-
-    const resultPromise = new Promise<{ text: string | null; transport?: string }>((resolve) => {
-      const timeoutId = window.setTimeout(() => {
-        pendingCaptures.delete(id);
-        resolve({ text: null });
-      }, CAPTURE_TIMEOUT_MS);
-
-      pendingCaptures.set(id, { resolve, timeoutId });
-    });
-
-    if (hookReady || document.documentElement?.getAttribute(CLIPBOARD_HOOK_READY_ATTR) === "1") {
-      hookReady = true;
-      window.postMessage(
-        { source: CLIPBOARD_HOOK_SOURCE, type: "begin", id, mode: "passthrough" },
-        "*"
-      );
-    }
-
-    return { id, resultPromise };
-  };
-
-  const handleClipboardMessage = (event: MessageEvent) => {
-    if (event.source !== window) return;
-    const data = event.data as {
-      source?: string;
-      type?: string;
-      id?: string;
-      text?: string;
-      transport?: string;
-    };
-
-    if (!data || data.source !== CLIPBOARD_HOOK_SOURCE) return;
-    if (data.type === "ready") {
-      hookReady = true;
-      return;
-    }
-
-    if (data.type !== "captured" || !data.id) return;
-    const pending = pendingCaptures.get(data.id);
-    if (!pending) return;
-
-    window.clearTimeout(pending.timeoutId);
-    pendingCaptures.delete(data.id);
-    pending.resolve({ text: data.text ?? null, transport: data.transport });
-  };
 
   const handleClickCapture = (event: MouseEvent) => {
     if (!window.location.pathname.startsWith(TASK_PATH_PREFIX)) return;
     const target = event.target;
     if (!(target instanceof Element)) return;
 
-    if (target.closest(GIT_ACTION_TRIGGER_SELECTOR)) {
-      prewarmClipboardHook();
-      return;
-    }
+    // No page-level clipboard hook: ChatGPT CSP blocks injected scripts.
+    // Keep feature working via clipboard (best effort) + DOM extraction.
 
     if (!ctx.settings.downloadGitPatchesWithShiftClick) return;
     if (!event.shiftKey) return;
@@ -181,30 +46,16 @@ export function initDownloadPatchMenuItemFeature(ctx: FeatureContext): FeatureHa
     const traceId = `t_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     activeOperationId = traceId;
 
-    const capture = beginCapturePassthrough();
-
     window.setTimeout(() => {
       if (disposed) return;
-      void processShiftDownload(capture.resultPromise, traceId);
+      void processShiftDownload(traceId);
     }, 0);
   };
 
-  const processShiftDownload = async (
-    capturePromise: Promise<{ text: string | null; transport?: string }>,
-    traceId: string
-  ) => {
+  const processShiftDownload = async (traceId: string) => {
     try {
-      const captured = await withTimeout(capturePromise, CAPTURE_WAIT_BEFORE_CLIPBOARD_MS, {
-        text: null,
-        transport: undefined
-      });
       const clipboardPatch = await readPatchFromClipboard();
-      const normalizedCaptured = normalizePatchText(captured.text ?? "");
       let patch = clipboardPatch;
-
-      if (!patch) {
-        patch = looksLikePatch(normalizedCaptured) ? normalizedCaptured : null;
-      }
 
       if (!patch) {
         patch = tryExtractFullPatchFromDom();
@@ -242,32 +93,14 @@ export function initDownloadPatchMenuItemFeature(ctx: FeatureContext): FeatureHa
     }
   };
 
-  window.addEventListener("message", handleClipboardMessage);
   document.addEventListener("click", handleClickCapture, true);
-
-  if (window.location.pathname.startsWith(TASK_PATH_PREFIX)) {
-    prewarmClipboardHook();
-  }
 
   return {
     name: "downloadPatchMenuItem",
-    onSettingsChange: (nextSettings) => {
-      if (
-        nextSettings.downloadGitPatchesWithShiftClick &&
-        window.location.pathname.startsWith(TASK_PATH_PREFIX)
-      ) {
-        prewarmClipboardHook();
-      }
-    },
+    onSettingsChange: () => {},
     dispose: () => {
       disposed = true;
       document.removeEventListener("click", handleClickCapture, true);
-      window.removeEventListener("message", handleClipboardMessage);
-      for (const [id, pending] of pendingCaptures.entries()) {
-        window.clearTimeout(pending.timeoutId);
-        pending.resolve({ text: null });
-        pendingCaptures.delete(id);
-      }
     },
     getStatus: () => ({ active: true })
   };
