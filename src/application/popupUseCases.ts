@@ -36,6 +36,7 @@ export interface PopupSettingsInput {
   trimChatDomKeep: number;
   hideShareButton: boolean;
   macroRecorderEnabled: boolean;
+  debugAutoExpandProjects: boolean;
 }
 
 export async function savePopupSettings(
@@ -44,7 +45,6 @@ export async function savePopupSettings(
 ) {
   await storagePort.set({
     ...input,
-    tempChatEnabled: input.autoTempChat,
-    macroRecorderEnabled: input.macroRecorderEnabled
+    tempChatEnabled: input.autoTempChat
   });
 }

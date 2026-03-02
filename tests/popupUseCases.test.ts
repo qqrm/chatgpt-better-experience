@@ -15,7 +15,7 @@ function makeMemoryStorage(initial: Record<string, unknown> = {}): StoragePort {
   };
 }
 
-describe("popup use cases macroRecorderEnabled", () => {
+describe("popup use cases macroRecorderEnabled + debugAutoExpandProjects", () => {
   it("saves and loads macroRecorderEnabled via popup settings flow", async () => {
     const storagePort = makeMemoryStorage();
 
@@ -38,11 +38,13 @@ describe("popup use cases macroRecorderEnabled", () => {
         trimChatDom: false,
         trimChatDomKeep: 10,
         hideShareButton: false,
-        macroRecorderEnabled: true
+        macroRecorderEnabled: true,
+        debugAutoExpandProjects: true
       }
     );
 
     const { settings } = await loadPopupSettings({ storagePort });
     expect(settings.macroRecorderEnabled).toBe(true);
+    expect(settings.debugAutoExpandProjects).toBe(true);
   });
 });

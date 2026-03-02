@@ -39,6 +39,7 @@ const themeToggleEl = mustGetElement<HTMLButtonElement>("qqrm-theme-toggle");
 const macroRecorderEnabledEl = mustGetElement<HTMLInputElement>("macroRecorderEnabled");
 const macroRecorderStatusEl = mustGetElement<HTMLElement>("macroRecorderStatus");
 const macroRecorderMetaEl = mustGetElement<HTMLElement>("macroRecorderMeta");
+const debugAutoExpandProjectsEl = mustGetElement<HTMLInputElement>("debugAutoExpandProjects");
 
 type ExtensionLike = {
   runtime?: { lastError?: unknown };
@@ -119,7 +120,7 @@ const setTrimChatKeepVisible = (visible: boolean) => {
 
 type MacroRecorderRuntimeStatus = "off" | "armed" | "recording" | "ready";
 
-function renderMacroRecorderStatus(status: unknown, lastExportAt: unknown) {
+function renderMacroRecorderStatus(status: unknown, _lastExportAt: unknown) {
   const value: MacroRecorderRuntimeStatus =
     status === "armed" || status === "recording" || status === "ready" ? status : "off";
 
@@ -131,15 +132,7 @@ function renderMacroRecorderStatus(status: unknown, lastExportAt: unknown) {
         : value === "ready"
           ? "Ready"
           : "Off";
-
-  const ts =
-    typeof lastExportAt === "number" && Number.isFinite(lastExportAt) && lastExportAt > 0
-      ? new Date(lastExportAt).toLocaleTimeString()
-      : "";
-
-  macroRecorderMetaEl.textContent = ts
-    ? `Ctrl/Cmd+Shift+F8 toggle (last: ${ts})`
-    : "Ctrl/Cmd+Shift+F8 toggle";
+  macroRecorderMetaEl.textContent = "Ctrl/Cmd+Shift+F8 toggle";
 }
 
 async function load() {
@@ -170,6 +163,7 @@ async function load() {
   wideChatWidthValueEl.textContent = `${settings.wideChatWidth}%`;
 
   macroRecorderEnabledEl.checked = !!settings.macroRecorderEnabled;
+  debugAutoExpandProjectsEl.checked = !!settings.debugAutoExpandProjects;
   renderMacroRecorderStatus(macroData.macroRecorderStatus, macroData.macroRecorderLastExportAt);
 
   applyThemeMode(normalizeThemeMode(themeData.popupThemeMode));
@@ -196,7 +190,8 @@ async function save() {
     trimChatDomKeep,
     hideShareButton: !!hideShareButtonEl.checked,
     wideChatWidth,
-    macroRecorderEnabled: !!macroRecorderEnabledEl.checked
+    macroRecorderEnabled: !!macroRecorderEnabledEl.checked,
+    debugAutoExpandProjects: !!debugAutoExpandProjectsEl.checked
   };
 
   await savePopupSettings(popupDeps, input);
@@ -225,6 +220,7 @@ hideShareButtonEl.addEventListener("change", () => void save().catch(() => {}));
 wideChatWidthEl.addEventListener("input", () => void save().catch(() => {}));
 themeToggleEl.addEventListener("click", () => void cycleThemeMode().catch(() => {}));
 macroRecorderEnabledEl.addEventListener("change", () => void save().catch(() => {}));
+debugAutoExpandProjectsEl.addEventListener("change", () => void save().catch(() => {}));
 
 storagePort.onChanged?.((changes) => {
   if ("macroRecorderStatus" in changes || "macroRecorderLastExportAt" in changes) {
@@ -243,6 +239,13 @@ storagePort.onChanged?.((changes) => {
       if (!next) {
         renderMacroRecorderStatus("off", undefined);
       }
+    }
+  }
+
+  if ("debugAutoExpandProjects" in changes) {
+    const next = changes.debugAutoExpandProjects?.newValue;
+    if (typeof next === "boolean") {
+      debugAutoExpandProjectsEl.checked = next;
     }
   }
 });

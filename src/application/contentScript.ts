@@ -106,7 +106,8 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
           "trimChatDom" in changes ||
           "trimChatDomKeep" in changes ||
           "hideShareButton" in changes ||
-          "macroRecorderEnabled" in changes
+          "macroRecorderEnabled" in changes ||
+          "debugAutoExpandProjects" in changes
         )
       ) {
         return;

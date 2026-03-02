@@ -146,7 +146,12 @@ export function normalizeSettings(data: Record<string, unknown>): Settings {
     macroRecorderEnabled:
       typeof (data as { macroRecorderEnabled?: unknown }).macroRecorderEnabled === "boolean"
         ? ((data as { macroRecorderEnabled?: unknown }).macroRecorderEnabled as boolean)
-        : base.macroRecorderEnabled
+        : base.macroRecorderEnabled,
+
+    debugAutoExpandProjects:
+      typeof (data as { debugAutoExpandProjects?: unknown }).debugAutoExpandProjects === "boolean"
+        ? ((data as { debugAutoExpandProjects?: unknown }).debugAutoExpandProjects as boolean)
+        : base.debugAutoExpandProjects
   };
 }
 
