@@ -154,6 +154,7 @@ describe("autoExpandProjects", () => {
   });
 
   afterEach(() => {
+    vi.clearAllTimers();
     vi.useRealTimers();
   });
 
@@ -284,7 +285,7 @@ describe("autoExpandProjects", () => {
     handle.dispose();
   });
 
-  it("rearms after goal reached when the bottom project row changes (virtualized/lazy load)", async () => {
+  it("one-shot: does not rearm after goal reached when the bottom project row changes (virtualized/lazy load)", async () => {
     const ctx = makeDomBusCtx({ autoExpandProjects: true, autoExpandProjectItems: true });
     const { section } = mountProjectsNav("true");
 
@@ -329,7 +330,47 @@ describe("autoExpandProjects", () => {
     await vi.advanceTimersByTimeAsync(2000);
     await vi.advanceTimersByTimeAsync(400);
 
-    expect(vpnClicks).toBe(1);
+    expect(vpnClicks).toBe(0);
+
+    handle.dispose();
+  });
+
+  it("one-shot: does not re-expand after goal reached on roots/visibility rebind", async () => {
+    const ctx = makeDomBusCtx({ autoExpandProjects: true, autoExpandProjectItems: true });
+    const { section } = mountProjectsNav("true");
+
+    let auditClicks = 0;
+    const auditRow = addProjectRow(section, "audit", {
+      expanded: false,
+      onFolderClick: () => {
+        auditClicks += 1;
+      }
+    });
+
+    const handle = initAutoExpandProjectsFeature(ctx);
+
+    // Let the feature click once and settle.
+    await vi.advanceTimersByTimeAsync(7000);
+
+    expect(auditClicks).toBe(1);
+    expect(auditRow.folderBtn.dataset.state).toBe("open");
+
+    // User collapses manually.
+    auditRow.folderBtn.dataset.state = "closed";
+
+    // Simulate tab switch / visibility rebind causing domBus roots + nav deltas.
+    ctx.emitRoots({
+      main: null,
+      nav: document.querySelector('nav[aria-label="Chat history"]'),
+      reason: "rebind"
+    });
+    ctx.emitNavDelta();
+
+    await vi.advanceTimersByTimeAsync(7000);
+
+    // One-shot behavior: no further auto clicks.
+    expect(auditClicks).toBe(1);
+    expect(auditRow.folderBtn.dataset.state).toBe("closed");
 
     handle.dispose();
   });

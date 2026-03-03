@@ -169,6 +169,42 @@ describe("autoExpandChats", () => {
     handle.dispose();
   });
 
+  it("one-shot: does not re-expand after goal reached on roots/mutations", async () => {
+    const ctx = makeDomBusCtx();
+    const sidebar = mountSidebarShell(true);
+
+    let clicks = 0;
+    const toggle = mountYourChatsToggle(sidebar, "false");
+    toggle.addEventListener("click", () => {
+      clicks += 1;
+      toggle.setAttribute("aria-expanded", "true");
+    });
+
+    const handle = initAutoExpandChatsFeature(ctx);
+
+    ctx.emitNavDelta();
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(clicks).toBe(1);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    // Simulate user collapsing again. One-shot behavior means we should not fight this.
+    toggle.setAttribute("aria-expanded", "false");
+
+    ctx.emitRoots({
+      main: null,
+      nav: document.querySelector('nav[aria-label="Chat history"]'),
+      reason: "route"
+    });
+    ctx.emitNavDelta();
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(clicks).toBe(1);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    handle.dispose();
+  });
+
   it("mutation-driven retry succeeds after initial miss", async () => {
     const ctx = makeDomBusCtx();
     const sidebar = mountSidebarShell(true);
