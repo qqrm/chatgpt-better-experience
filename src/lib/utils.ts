@@ -151,7 +151,13 @@ export function normalizeSettings(data: Record<string, unknown>): Settings {
     debugAutoExpandProjects:
       typeof (data as { debugAutoExpandProjects?: unknown }).debugAutoExpandProjects === "boolean"
         ? ((data as { debugAutoExpandProjects?: unknown }).debugAutoExpandProjects as boolean)
-        : base.debugAutoExpandProjects
+        : base.debugAutoExpandProjects,
+
+    debugTraceTarget: (() => {
+      const raw = (data as { debugTraceTarget?: unknown }).debugTraceTarget;
+      if (raw === "projects" || raw === "editMessage") return raw;
+      return base.debugTraceTarget;
+    })()
   };
 }
 

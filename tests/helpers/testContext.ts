@@ -34,6 +34,7 @@ export function makeTestContext(settings: Partial<Settings> = {}): FeatureContex
     hideShareButton: false,
     macroRecorderEnabled: false,
     debugAutoExpandProjects: false,
+    debugTraceTarget: "projects",
     ...settings
   };
 

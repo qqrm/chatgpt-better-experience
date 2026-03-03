@@ -10,6 +10,17 @@ interface InputReadResult {
 }
 
 export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
+  const DBG_PREFIX = "[TM][edit]";
+
+  const isEditDebugEnabled = () =>
+    !!ctx.settings.debugAutoExpandProjects && ctx.settings.debugTraceTarget === "editMessage";
+
+  const dbg = (msg: string, data?: Record<string, unknown>) => {
+    if (!isEditDebugEnabled()) return;
+    if (data) console.log(`${DBG_PREFIX} ${msg}`, data);
+    else console.log(`${DBG_PREFIX} ${msg}`);
+  };
+
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const qsa = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
@@ -288,6 +299,27 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
     selection.addRange(range);
   };
 
+  const scrollEditInputToEnd = (input: HTMLElement | HTMLTextAreaElement) => {
+    try {
+      if (input instanceof HTMLTextAreaElement) {
+        input.scrollTop = input.scrollHeight;
+        return;
+      }
+      const last = input.lastElementChild ?? input;
+      last.scrollIntoView({ block: "end", inline: "nearest" });
+    } catch (_) {}
+  };
+
+  const focusEditInputAtEnd = (input: HTMLElement | HTMLTextAreaElement) => {
+    try {
+      input.focus();
+    } catch (_) {}
+    placeCursorAtEnd(input);
+
+    // Ensure the caret area is visible for long messages/editors.
+    requestAnimationFrame(() => scrollEditInputToEnd(input));
+  };
+
   const waitForEditInput = async (message: HTMLElement, timeoutMs = 2000) => {
     const t0 = performance.now();
     while (performance.now() - t0 < timeoutMs) {
@@ -327,9 +359,15 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
     const input = await waitForEditInput(searchRoot, 2000);
     if (!input) return false;
 
-    input.focus();
-    placeCursorAtEnd(input);
+    focusEditInputAtEnd(input);
     message.scrollIntoView({ block: "center" });
+
+    dbg("edit activated", {
+      inputKind: input instanceof HTMLTextAreaElement ? "textarea" : "contenteditable",
+      inputLen:
+        input instanceof HTMLTextAreaElement ? input.value.length : (input.textContent || "").length
+    });
+
     return true;
   };
 

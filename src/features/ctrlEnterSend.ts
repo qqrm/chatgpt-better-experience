@@ -7,6 +7,30 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
   const norm = (value: string | null | undefined) => (value || "").trim().toLowerCase();
   const isVisible = (btn: HTMLElement) => btn.offsetParent !== null;
 
+  const DBG_PREFIX = "[TM][edit]";
+  const isEditTraceEnabled = () =>
+    !!ctx.settings.debugAutoExpandProjects && ctx.settings.debugTraceTarget === "editMessage";
+
+  const dbg = (msg: string, data?: Record<string, unknown>) => {
+    if (!isEditTraceEnabled()) return;
+    if (data) console.log(`${DBG_PREFIX} ${msg}`, data);
+    else console.log(`${DBG_PREFIX} ${msg}`);
+  };
+
+  const describeBtn = (el: HTMLElement | null) => {
+    if (!el) return "null";
+    const tag = el.tagName ? el.tagName.toLowerCase() : "el";
+    const id = (el as HTMLElement).id ? `#${(el as HTMLElement).id}` : "";
+    const dt = (el.getAttribute("data-testid") || "").trim();
+    const aria = (el.getAttribute("aria-label") || "").trim();
+    const text = (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80);
+    const bits: string[] = [`${tag}${id}`];
+    if (dt) bits.push(`data-testid=${dt}`);
+    if (aria) bits.push(`aria="${aria.slice(0, 80)}"`);
+    if (text) bits.push(`text="${text}"`);
+    return bits.join(" ");
+  };
+
   const click = (el: HTMLElement | null, why: string) => {
     const ok = ctx.helpers.humanClick(el, why);
     if (!ok && el) {
@@ -448,6 +472,7 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
         const editBtn = findEditSubmitButton(composer);
         if (editBtn && !isDisabled(editBtn)) {
           ctx.logger.debug("KEY", "CTRL+ENTER apply edit");
+          dbg("CTRL+ENTER apply edit", { btn: describeBtn(editBtn) });
           click(editBtn, "apply-edit");
           return;
         }
@@ -456,6 +481,7 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       const anyEditBtn = findAnyEditSubmitButton();
       if (anyEditBtn && !isDisabled(anyEditBtn)) {
         ctx.logger.debug("KEY", "CTRL+ENTER apply edit (global)");
+        dbg("CTRL+ENTER apply edit (global)", { btn: describeBtn(anyEditBtn) });
         click(anyEditBtn, "apply-edit-global");
         return;
       }
@@ -499,6 +525,7 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       const sendBtn = findSendButton(composer ?? undefined);
       if (sendBtn && !isDisabled(sendBtn)) {
         ctx.logger.debug("KEY", "CTRL+ENTER send");
+        dbg("CTRL+ENTER send (fallback)", { btn: describeBtn(sendBtn) });
         click(sendBtn, "send");
       } else {
         ctx.logger.debug("KEY", "send button not found");
@@ -508,12 +535,16 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (!ctx.settings.ctrlEnterSends) return;
-    if (e.defaultPrevented) return;
     if (!e.isTrusted) return;
     if (e.isComposing && !(e.ctrlKey || e.metaKey)) return;
     if (e.key !== "Enter") return;
 
     const shouldSend = e.ctrlKey || e.metaKey;
+
+    // ChatGPT sometimes prevents default on Ctrl/Cmd+Enter before our capture handler runs.
+    // We still want to click the correct "apply edit" action instead of falling back to normal send.
+    if (!shouldSend && e.defaultPrevented) return;
+
     const target = findActiveEditableTarget();
     const hasDictationControls = shouldHandleCtrlEnterOutsideComposer();
     const canSendFromOutside = shouldSend && !!findSendButton(target ?? undefined);
@@ -546,7 +577,6 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
 
   const handleBeforeInput = (e: InputEvent) => {
     if (!ctx.settings.ctrlEnterSends) return;
-    if (e.defaultPrevented) return;
     if (!e.isTrusted) return;
     if (e.inputType !== "insertParagraph") return;
     if (!isComposerEventTarget(e)) return;
