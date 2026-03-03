@@ -73,4 +73,26 @@ describe("featureContext wait helpers", () => {
     const stillPresent = await ctx.helpers.waitGone(".target", root, 30);
     expect(stillPresent).toBe(false);
   });
+  it("humanClick emits click events with detail=1", () => {
+    document.body.innerHTML = `<div id="root"><button id="b">ok</button></div>`;
+    const ctx = createFeatureContext({
+      settings: SETTINGS_DEFAULTS,
+      storagePort,
+      debugEnabled: false
+    });
+
+    const btn = document.getElementById("b") as HTMLButtonElement;
+    let clickDetail: number | undefined;
+    const origDispatch = btn.dispatchEvent.bind(btn);
+    // Intercept the actual event object passed into dispatchEvent.
+    // jsdom event dispatch can vary, but we still want to assert our intent.
+    (btn as unknown as { dispatchEvent: (e: Event) => boolean }).dispatchEvent = (e: Event) => {
+      if (e.type === "click") clickDetail = (e as MouseEvent).detail;
+      return origDispatch(e);
+    };
+
+    const ok = ctx.helpers.humanClick(btn, "test");
+    expect(ok).toBe(true);
+    expect(clickDetail).toBe(1);
+  });
 });
