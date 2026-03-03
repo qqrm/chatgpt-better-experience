@@ -37,6 +37,7 @@ export interface PopupSettingsInput {
   hideShareButton: boolean;
   macroRecorderEnabled: boolean;
   debugAutoExpandProjects: boolean;
+  debugTraceTarget: "projects" | "editMessage";
 }
 
 export async function savePopupSettings(

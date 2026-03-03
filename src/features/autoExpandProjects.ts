@@ -40,7 +40,7 @@ function isFeatureEnabled(ctx: FeatureContext): boolean {
 }
 
 function isProjectsDebugEnabled(ctx: FeatureContext): boolean {
-  return !!ctx.settings.debugAutoExpandProjects;
+  return !!ctx.settings.debugAutoExpandProjects && ctx.settings.debugTraceTarget === "projects";
 }
 
 function short(value: string, n: number): string {

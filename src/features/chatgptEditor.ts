@@ -10,9 +10,7 @@ const MAIN_COMPOSER_MARKERS = [
   "#thread-bottom",
   "#thread-bottom-container",
   ".composer-parent",
-  "footer",
-  '[data-testid*="composer" i]',
-  '[data-testid*="conversation-composer" i]'
+  "footer"
 ];
 
 const isMainComposer = (composer: ComposerInput) => {
@@ -72,8 +70,52 @@ const isPositiveAction = (btn: HTMLElement) => {
   return POSITIVE.some((x) => hay.includes(x));
 };
 
+const isCancelAction = (btn: HTMLElement) => {
+  if (isDisabled(btn)) return false;
+  if (!isVisible(btn)) return false;
+  const hay = getHay(btn);
+  if (!hay) return false;
+  return NEGATIVE.some((x) => hay.includes(x));
+};
+
+const findClosestEditPanel = (composer: ComposerInput): Element | null => {
+  if (!(composer instanceof HTMLElement)) return null;
+
+  let p: HTMLElement | null = composer;
+  for (let i = 0; i < 14 && p; i += 1) {
+    // Skip the main composer containers; edit panels are not in footer/thread-bottom.
+    if (isMainComposer(p as unknown as ComposerInput)) return null;
+
+    const buttons = Array.from(p.querySelectorAll("button, [role='button']")).filter(
+      (b): b is HTMLElement => b instanceof HTMLElement
+    );
+
+    const hasCancel = buttons.some((b) => isCancelAction(b));
+    if (!hasCancel) {
+      p = p.parentElement;
+      continue;
+    }
+
+    const positives = buttons.filter((b) => isPositiveAction(b));
+    if (positives.length > 0) return p;
+
+    p = p.parentElement;
+  }
+
+  return null;
+};
+
 export const findEditSubmitButton = (composer: ComposerInput): HTMLElement | null => {
   if (isMainComposer(composer)) return null;
+
+  const panel = findClosestEditPanel(composer);
+  if (panel) {
+    const panelButtons = Array.from(panel.querySelectorAll("button, [role='button']")).filter(
+      (btn): btn is HTMLElement => btn instanceof HTMLElement
+    );
+    const byText = panelButtons.find((btn) => isPositiveAction(btn));
+    if (byText) return byText;
+  }
 
   const closestForm = composer.closest("form");
   if (closestForm) {

@@ -1,3 +1,5 @@
+export type DebugTraceTarget = "projects" | "editMessage";
+
 export interface Settings {
   autoSend: boolean;
   allowAutoSendInCodex: boolean;
@@ -17,7 +19,12 @@ export interface Settings {
   trimChatDomKeep: number;
   hideShareButton: boolean;
   macroRecorderEnabled: boolean;
+
+  /** Enables debug console logs; use debugTraceTarget to choose the traced subsystem. */
   debugAutoExpandProjects: boolean;
+
+  /** Chooses which subsystem writes debug logs when debugAutoExpandProjects=true. */
+  debugTraceTarget: DebugTraceTarget;
 }
 
 export type SettingsRecord = Settings & Record<string, unknown>;
@@ -41,5 +48,6 @@ export const SETTINGS_DEFAULTS: SettingsRecord = {
   trimChatDomKeep: 10,
   hideShareButton: false,
   macroRecorderEnabled: false,
-  debugAutoExpandProjects: false
+  debugAutoExpandProjects: false,
+  debugTraceTarget: "projects"
 };

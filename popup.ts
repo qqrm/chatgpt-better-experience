@@ -40,6 +40,7 @@ const macroRecorderEnabledEl = mustGetElement<HTMLInputElement>("macroRecorderEn
 const macroRecorderStatusEl = mustGetElement<HTMLElement>("macroRecorderStatus");
 const macroRecorderMetaEl = mustGetElement<HTMLElement>("macroRecorderMeta");
 const debugAutoExpandProjectsEl = mustGetElement<HTMLInputElement>("debugAutoExpandProjects");
+const debugTraceTargetEl = mustGetElement<HTMLSelectElement>("debugTraceTarget");
 
 type ExtensionLike = {
   runtime?: { lastError?: unknown };
@@ -164,6 +165,7 @@ async function load() {
 
   macroRecorderEnabledEl.checked = !!settings.macroRecorderEnabled;
   debugAutoExpandProjectsEl.checked = !!settings.debugAutoExpandProjects;
+  debugTraceTargetEl.value = settings.debugTraceTarget;
   renderMacroRecorderStatus(macroData.macroRecorderStatus, macroData.macroRecorderLastExportAt);
 
   applyThemeMode(normalizeThemeMode(themeData.popupThemeMode));
@@ -172,6 +174,9 @@ async function load() {
 async function save() {
   const wideChatWidth = Math.min(100, Math.max(0, Number(wideChatWidthEl.value) || 0));
   const trimChatDomKeep = Math.min(50, Math.max(5, Number(trimChatDomKeepEl.value) || 0));
+
+  const debugTraceTarget: "projects" | "editMessage" =
+    debugTraceTargetEl.value === "editMessage" ? "editMessage" : "projects";
 
   const input = {
     autoSend: !!autoSendEl.checked,
@@ -191,7 +196,8 @@ async function save() {
     hideShareButton: !!hideShareButtonEl.checked,
     wideChatWidth,
     macroRecorderEnabled: !!macroRecorderEnabledEl.checked,
-    debugAutoExpandProjects: !!debugAutoExpandProjectsEl.checked
+    debugAutoExpandProjects: !!debugAutoExpandProjectsEl.checked,
+    debugTraceTarget
   };
 
   await savePopupSettings(popupDeps, input);
@@ -221,6 +227,7 @@ wideChatWidthEl.addEventListener("input", () => void save().catch(() => {}));
 themeToggleEl.addEventListener("click", () => void cycleThemeMode().catch(() => {}));
 macroRecorderEnabledEl.addEventListener("change", () => void save().catch(() => {}));
 debugAutoExpandProjectsEl.addEventListener("change", () => void save().catch(() => {}));
+debugTraceTargetEl.addEventListener("change", () => void save().catch(() => {}));
 
 storagePort.onChanged?.((changes) => {
   if ("macroRecorderStatus" in changes || "macroRecorderLastExportAt" in changes) {
@@ -246,6 +253,13 @@ storagePort.onChanged?.((changes) => {
     const next = changes.debugAutoExpandProjects?.newValue;
     if (typeof next === "boolean") {
       debugAutoExpandProjectsEl.checked = next;
+    }
+  }
+
+  if ("debugTraceTarget" in changes) {
+    const next = changes.debugTraceTarget?.newValue;
+    if (next === "projects" || next === "editMessage") {
+      debugTraceTargetEl.value = next;
     }
   }
 });

@@ -375,6 +375,23 @@
         font-weight: 600;
       }
 
+      .miniSelect {
+        width: 100%;
+        margin-top: 6px;
+        padding: 6px 8px;
+        border-radius: 10px;
+        border: 1px solid var(--control-border);
+        background: var(--control-bg);
+        color: var(--control-fg);
+        font-size: 12px;
+        line-height: 1.2;
+      }
+
+      .miniSelect:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--focus);
+      }
+
       .tinySwitch {
         position: relative;
         display: inline-flex;
@@ -654,14 +671,18 @@
       </div>
     </div>
 
-    <div class="miniControl" aria-label="Debug Projects Expand">
+    <div class="miniControl" aria-label="Debug Traces">
       <div class="miniControlRow">
-        <div class="miniControlLabel">Debug: Projects</div>
-        <label class="tinySwitch" aria-label="Enable debug logs for Projects expand">
+        <div class="miniControlLabel">Debug traces</div>
+        <label class="tinySwitch" aria-label="Enable debug logs">
           <input id="debugAutoExpandProjects" type="checkbox" />
           <span class="tinySwitchTrack" aria-hidden="true"></span>
         </label>
       </div>
+      <select id="debugTraceTarget" class="miniSelect" aria-label="Choose debug trace target">
+        <option value="projects">Projects auto-expand</option>
+        <option value="editMessage">Message edit</option>
+      </select>
     </div>
 
     <script src="dist/popup.js"></script>

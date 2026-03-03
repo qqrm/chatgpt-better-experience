@@ -3,6 +3,7 @@
 Specs (normative):
 
 - [AutoSend + CtrlEnterSend](./auto-send-spec.md)
+- [Message edit UX](./edit-message-spec.md)
 
 Behavior notes (informative):
 
