@@ -102,26 +102,40 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     cfg.allowAutoSendInCodex = ctx.settings.allowAutoSendInCodex;
   };
 
-  const findTextbox = () => {
-    const active = document.activeElement;
-    if (active instanceof HTMLElement) {
-      const ce = active.getAttribute("contenteditable");
-      if (ce === "true") return active;
-    }
+  const findComposerRoot = (): Element | null => {
+    const footer = document.querySelector('[data-testid="composer-footer-actions"]');
+    if (footer)
+      return footer.closest("form") ?? footer.closest('[data-testid="composer"]') ?? footer;
 
     const byId = document.getElementById("prompt-textarea");
-    if (byId instanceof HTMLElement && byId.getAttribute("contenteditable") === "true") {
-      return byId;
+    if (byId) return byId.closest("form") ?? byId.closest('[data-testid="composer"]');
+
+    return (
+      document.querySelector('form[data-testid="composer"]') ??
+      document.querySelector('[data-testid="composer"]') ??
+      null
+    );
+  };
+
+  const findTextbox = () => {
+    // Prefer the composer input, not arbitrary focused contenteditable elsewhere on the page.
+    // ChatGPT can have other contenteditables (edit message, etc.) that would break AutoSend.
+    const primary = findComposerInput();
+    if (primary) return primary;
+
+    const root = findComposerRoot();
+    const active = document.activeElement;
+    if (root && active instanceof HTMLElement) {
+      const ce = active.getAttribute("contenteditable");
+      if (ce === "true" && root.contains(active)) return active;
     }
 
-    const byTestId = document.querySelector('[data-testid="prompt-textarea"]');
-    if (byTestId instanceof HTMLElement) return byTestId;
-
-    const textarea = document.querySelector("textarea");
-    if (textarea instanceof HTMLTextAreaElement) return textarea;
-
-    const anyCe = document.querySelector('[contenteditable="true"]');
-    if (anyCe instanceof HTMLElement) return anyCe;
+    if (root) {
+      const anyCe = root.querySelector('[contenteditable="true"]');
+      if (anyCe instanceof HTMLElement) return anyCe;
+      const textarea = root.querySelector("textarea");
+      if (textarea instanceof HTMLTextAreaElement) return textarea;
+    }
 
     return null;
   };
@@ -148,7 +162,9 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   const readTextboxText = (el: HTMLTextAreaElement | HTMLElement | null) => {
     if (!el) return "";
     if (el instanceof HTMLTextAreaElement) return el.value || "";
-    return String(el.innerText || el.textContent || "").replace(/\u00A0/g, " ");
+    const tc = String(el.textContent || "");
+    const it = String((el as HTMLElement).innerText || "");
+    return String(tc.trim().length ? tc : it).replace(/\u00A0/g, " ");
   };
 
   const readInputText = (): InputReadResult => {
@@ -228,7 +244,6 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     if (btn instanceof HTMLButtonElement) {
       const type = norm(btn.getAttribute("type"));
       if (type === "submit") return true;
-      if (btn.closest("form")) return true;
     }
     const dt = norm(btn.getAttribute("data-testid"));
     const aria = norm(btn.getAttribute("aria-label"));
@@ -683,7 +698,24 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       return false;
     }
 
-    ctx.helpers.humanClick(btn, "send");
+    // Prefer form submission when available. Some sites ignore synthetic click events.
+    let submitted = false;
+    const form =
+      btn.closest("form") ||
+      (document.querySelector('form[data-testid="composer"]') as HTMLFormElement | null);
+    if (
+      form &&
+      typeof (form as unknown as { requestSubmit?: unknown }).requestSubmit === "function"
+    ) {
+      try {
+        (form as HTMLFormElement).requestSubmit(btn as unknown as HTMLButtonElement);
+        submitted = true;
+        tmLog("SEND", "requestSubmit", { btn: describeEl(btn) });
+      } catch {
+        // fall back to synthetic click
+      }
+    }
+    if (!submitted) ctx.helpers.humanClick(btn, "send");
 
     const t0 = performance.now();
     while (performance.now() - t0 <= cfg.sendAckTimeoutMs) {

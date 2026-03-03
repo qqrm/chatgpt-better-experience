@@ -139,10 +139,7 @@ describe("dictationAutoSend", () => {
     handle.dispose();
   });
 
-  it("auto-send flow clicks Send after final text stabilizes", async () => {
-    vi.useFakeTimers();
-    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => Date.now());
-
+  it("detects Submit dictation even when it is inside the composer form", () => {
     document.body.innerHTML = `
       <main role="main">
         <form data-testid="composer">
@@ -164,40 +161,20 @@ describe("dictationAutoSend", () => {
       </main>
     `;
 
-    const humanClickCalls: string[] = [];
-    const ctx = makeTestContext({ autoSend: true, allowAutoSendInCodex: true });
-    ctx.helpers.humanClick = (_el, why) => {
-      humanClickCalls.push(why);
-      if (why === "send") {
-        const input = document.getElementById("prompt-textarea") as HTMLElement | null;
-        if (input) {
-          input.textContent = "";
-          input.innerText = "";
-        }
-      }
-      return true;
-    };
-
-    const handle = initDictationAutoSendFeature(ctx);
+    const handle = initDictationAutoSendFeature(
+      makeTestContext({ autoSend: true, allowAutoSendInCodex: true })
+    );
     const testApi = handle.__test as DictationTestApi;
-    expect(testApi.runAutoSendFlow).toBeTypeOf("function");
 
-    const flow = testApi.runAutoSendFlow?.("", false);
-
-    const input = document.getElementById("prompt-textarea") as HTMLElement;
-    input.textContent = "Привет";
-    input.innerText = "Привет";
-
-    await vi.advanceTimersByTimeAsync(500);
-    await Promise.resolve(flow);
-
-    expect(humanClickCalls).toContain("send");
+    const submitBtn = testApi.findSubmitDictationButton();
+    expect(submitBtn).not.toBeNull();
+    expect(submitBtn?.getAttribute("aria-label")).toBe("Submit dictation");
+    expect(testApi.getDictationUiState()).toBe("SUBMIT");
 
     handle.dispose();
-    nowSpy.mockRestore();
   });
 
-  it("auto-send flow does not click Send when Shift cancels the in-flight submit", async () => {
+  it("auto-send flow submits composer after final text stabilizes", async () => {
     vi.useFakeTimers();
     const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => Date.now());
 
@@ -206,9 +183,13 @@ describe("dictationAutoSend", () => {
         <form data-testid="composer">
           <div id="prompt-textarea" contenteditable="true"></div>
           <div data-testid="composer-footer-actions">
-            <button type="button" aria-label="Dictate button">🎙️</button>
-            <button type="button" aria-label="Submit dictation" title="Submit dictation">Done</button>
-            <button id="composer-submit-button" data-testid="send-button" aria-label="Send" type="submit">
+            <button
+              id="composer-submit-button"
+              data-testid="send-button"
+              aria-label="Send"
+              title="Send message"
+              type="submit"
+            >
               Send
             </button>
           </div>
@@ -216,8 +197,8 @@ describe("dictationAutoSend", () => {
       </main>
     `;
 
-    const humanClickCalls: string[] = [];
     const ctx = makeTestContext({ autoSend: true, allowAutoSendInCodex: true });
+    const humanClickCalls: string[] = [];
     ctx.helpers.humanClick = (_el, why) => {
       humanClickCalls.push(why);
       return true;
@@ -227,18 +208,132 @@ describe("dictationAutoSend", () => {
     const testApi = handle.__test as DictationTestApi;
     expect(testApi.runAutoSendFlow).toBeTypeOf("function");
 
+    const form = document.querySelector('form[data-testid="composer"]') as HTMLFormElement;
+    const input = document.getElementById("prompt-textarea") as HTMLElement;
+    const requestSubmit = vi.fn(() => {
+      input.textContent = "";
+      input.innerText = "";
+    });
+    (form as unknown as { requestSubmit: unknown }).requestSubmit = requestSubmit;
+
     const flow = testApi.runAutoSendFlow?.("", false);
 
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", bubbles: true }));
+    input.textContent = "Привет";
+    input.innerText = "Привет";
 
-    const input = document.getElementById("prompt-textarea") as HTMLElement;
-    input.textContent = "Текст после диктовки";
-    input.innerText = "Текст после диктовки";
-
-    await vi.advanceTimersByTimeAsync(700);
+    await vi.advanceTimersByTimeAsync(800);
     await Promise.resolve(flow);
 
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
     expect(humanClickCalls).not.toContain("send");
+
+    handle.dispose();
+    nowSpy.mockRestore();
+  });
+
+  it("auto-send flow reads composer input even if another contenteditable is focused", async () => {
+    vi.useFakeTimers();
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => Date.now());
+
+    document.body.innerHTML = `
+      <main role="main">
+        <div id="other" contenteditable="true"></div>
+        <form data-testid="composer">
+          <div id="prompt-textarea" contenteditable="true"></div>
+          <div data-testid="composer-footer-actions">
+            <button
+              id="composer-submit-button"
+              data-testid="send-button"
+              aria-label="Send"
+              title="Send message"
+              type="submit"
+            >
+              Send
+            </button>
+          </div>
+        </form>
+      </main>
+    `;
+
+    const other = document.getElementById("other") as HTMLElement;
+    other.focus();
+
+    const ctx = makeTestContext({ autoSend: true, allowAutoSendInCodex: true });
+    ctx.helpers.humanClick = () => true;
+
+    const handle = initDictationAutoSendFeature(ctx);
+    const testApi = handle.__test as DictationTestApi;
+    expect(testApi.runAutoSendFlow).toBeTypeOf("function");
+
+    const form = document.querySelector('form[data-testid="composer"]') as HTMLFormElement;
+    const input = document.getElementById("prompt-textarea") as HTMLElement;
+    const requestSubmit = vi.fn(() => {
+      input.textContent = "";
+      input.innerText = "";
+    });
+    (form as unknown as { requestSubmit: unknown }).requestSubmit = requestSubmit;
+
+    const flow = testApi.runAutoSendFlow?.("", false);
+    input.textContent = "Текст";
+    input.innerText = "Текст";
+
+    await vi.advanceTimersByTimeAsync(26000);
+    await Promise.resolve(flow);
+
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
+
+    handle.dispose();
+    nowSpy.mockRestore();
+  });
+
+  it("auto-send flow does not submit when Shift cancels in-flight send", async () => {
+    vi.useFakeTimers();
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => Date.now());
+
+    document.body.innerHTML = `
+      <main role="main">
+        <form data-testid="composer">
+          <div id="prompt-textarea" contenteditable="true"></div>
+          <div data-testid="composer-footer-actions">
+            <button
+              id="composer-submit-button"
+              data-testid="send-button"
+              aria-label="Send"
+              title="Send message"
+              type="submit"
+            >
+              Send
+            </button>
+          </div>
+        </form>
+      </main>
+    `;
+
+    const ctx = makeTestContext({ autoSend: true, allowAutoSendInCodex: true });
+    ctx.helpers.humanClick = () => true;
+
+    const handle = initDictationAutoSendFeature(ctx);
+    const testApi = handle.__test as DictationTestApi;
+    expect(testApi.runAutoSendFlow).toBeTypeOf("function");
+
+    const form = document.querySelector('form[data-testid="composer"]') as HTMLFormElement;
+    const input = document.getElementById("prompt-textarea") as HTMLElement;
+    const requestSubmit = vi.fn(() => {
+      input.textContent = "";
+      input.innerText = "";
+    });
+    (form as unknown as { requestSubmit: unknown }).requestSubmit = requestSubmit;
+
+    const flow = testApi.runAutoSendFlow?.("", false);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", bubbles: true }));
+
+    input.textContent = "Текст";
+    input.innerText = "Текст";
+
+    await vi.advanceTimersByTimeAsync(26000);
+    await Promise.resolve(flow);
+
+    expect(requestSubmit).toHaveBeenCalledTimes(0);
 
     handle.dispose();
     nowSpy.mockRestore();

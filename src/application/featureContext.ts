@@ -234,19 +234,30 @@ export function createFeatureContext({
     const rect = el.getBoundingClientRect();
     const cx = Math.max(1, Math.floor(rect.left + rect.width / 2));
     const cy = Math.max(1, Math.floor(rect.top + rect.height / 2));
-    const common = {
+    const base = {
       bubbles: true,
       cancelable: true,
-      view: window,
       clientX: cx,
       clientY: cy,
-      button: 0
+      button: 0,
+      // Some UI handlers treat detail==0 as keyboard/programmatic activation.
+      // Emit a single-click detail to better match real user interaction.
+      detail: 1
+    };
+
+    const pointerDownCommon = {
+      ...base,
+      buttons: 1
+    };
+    const pointerUpCommon = {
+      ...base,
+      buttons: 0
     };
 
     try {
       el.dispatchEvent(
         new PointerEvent("pointerdown", {
-          ...common,
+          ...pointerDownCommon,
           pointerId: 1,
           pointerType: "mouse",
           isPrimary: true
@@ -254,12 +265,12 @@ export function createFeatureContext({
       );
     } catch (_) {}
     try {
-      el.dispatchEvent(new MouseEvent("mousedown", common));
+      el.dispatchEvent(new MouseEvent("mousedown", base));
     } catch (_) {}
     try {
       el.dispatchEvent(
         new PointerEvent("pointerup", {
-          ...common,
+          ...pointerUpCommon,
           pointerId: 1,
           pointerType: "mouse",
           isPrimary: true
@@ -267,10 +278,10 @@ export function createFeatureContext({
       );
     } catch (_) {}
     try {
-      el.dispatchEvent(new MouseEvent("mouseup", common));
+      el.dispatchEvent(new MouseEvent("mouseup", base));
     } catch (_) {}
     try {
-      el.dispatchEvent(new MouseEvent("click", common));
+      el.dispatchEvent(new MouseEvent("click", base));
     } catch (_) {}
 
     logger.debug("UI", `humanClick ${why}`, { preview: describeEl(el) });
