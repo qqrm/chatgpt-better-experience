@@ -526,15 +526,6 @@ function expandCollapsedProjectFolders(
   };
 }
 
-function getBottomExpandableProjectHref(section: HTMLElement): string | null {
-  const projects = Array.from(section.querySelectorAll<HTMLAnchorElement>('a[href*="/project"]'));
-  for (let i = projects.length - 1; i >= 0; i -= 1) {
-    const link = projects[i]!;
-    if (findFolderToggleElForProject(link)) return link.getAttribute("href") ?? null;
-  }
-  return null;
-}
-
 function ensureDebugObserver(ctx: FeatureContext, section: HTMLElement): void {
   if (!isProjectsDebugEnabled(ctx)) {
     dbgObserverDisconnect?.();
@@ -679,6 +670,9 @@ function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; don
 }
 
 export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandle {
+  lastClickedProjectHref = null;
+  lastClickedProjectAt = 0;
+
   let stopped = false;
   let debounceTimer: number | null = null;
   let navRetryTimeout: number | null = null;
@@ -692,8 +686,6 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   let navReadyTimer: number | null = null;
   let postClickTimer: number | null = null;
   let goalReached = false;
-  let rowsAtGoal = 0;
-  let bottomHrefAtGoal: string | null = null;
 
   const bindUserInteractionGuards = (nav: HTMLElement | null) => {
     cleanupUserListeners?.();
@@ -769,13 +761,9 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
 
       if (done) {
         if (isProjectsDebugEnabled(ctx))
-          console.log(`${DBG_PREFIX} goal reached; idle until route/settings change`);
+          console.log(`${DBG_PREFIX} goal reached; idle until reload or re-enable`);
         goalReached = true;
         attempts = 0;
-        rowsAtGoal = stats.projectRows;
-        const navNow = getChatHistoryNav(ctx);
-        const secNow = navNow ? findProjectsSection(navNow) : null;
-        bottomHrefAtGoal = secNow ? getBottomExpandableProjectHref(secNow) : null;
         if (postClickTimer !== null) window.clearTimeout(postClickTimer);
         postClickTimer = null;
       }
@@ -813,33 +801,15 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     ctx.domBus?.onRoots((roots) => {
       bindUserInteractionGuards((roots.nav as HTMLElement | null) ?? null);
       if (!isFeatureEnabled(ctx)) return;
-      goalReached = false;
+      if (goalReached) return;
       attempts = 0;
-      rowsAtGoal = 0;
-      bottomHrefAtGoal = null;
       schedule("route");
     }) ?? null;
 
   unsubNavDelta =
     ctx.domBus?.onDelta("nav", () => {
       if (!isFeatureEnabled(ctx)) return;
-
-      if (goalReached) {
-        const nav = getChatHistoryNav(ctx);
-        const section = nav ? findProjectsSection(nav) : null;
-        if (!section) return;
-        const rows = section.querySelectorAll('a[href*="/project"]').length;
-        const bottomHref = getBottomExpandableProjectHref(section);
-        if (rows !== rowsAtGoal || bottomHref !== bottomHrefAtGoal) {
-          goalReached = false;
-          attempts = 0;
-          rowsAtGoal = 0;
-          bottomHrefAtGoal = null;
-          schedule("mutation-rearm");
-        }
-        return;
-      }
-
+      if (goalReached) return;
       schedule("mutation");
     }) ?? null;
 
@@ -847,13 +817,27 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     name: "autoExpandProjects",
     dispose: () => stop(),
     onSettingsChange: (next, prev) => {
-      const prevEnabled = prev.autoExpandProjects || prev.autoExpandProjectItems;
-      const nextEnabled = next.autoExpandProjects || next.autoExpandProjectItems;
+      const prevMask = (prev.autoExpandProjects ? 1 : 0) | (prev.autoExpandProjectItems ? 2 : 0);
+      const nextMask = (next.autoExpandProjects ? 1 : 0) | (next.autoExpandProjectItems ? 2 : 0);
+      const prevEnabled = prevMask !== 0;
+      const nextEnabled = nextMask !== 0;
       const prevDbg = !!prev.debugAutoExpandProjects;
       const nextDbg = !!next.debugAutoExpandProjects;
 
       if (prevDbg !== nextDbg && nextDbg) console.info(`${DBG_PREFIX} debug enabled`);
       if (prevDbg !== nextDbg && !nextDbg) console.info(`${DBG_PREFIX} debug disabled`);
+
+      if (prevDbg && !nextDbg) {
+        dbgObserverDisconnect?.();
+        dbgObserverDisconnect = null;
+        dbgObservedRoot = null;
+      }
+
+      if (!prevDbg && nextDbg) {
+        const navNow = getChatHistoryNav(ctx);
+        const secNow = navNow ? findProjectsSection(navNow) : null;
+        if (secNow) ensureDebugObserver(ctx, secNow);
+      }
 
       if (!nextEnabled) {
         goalReached = true;
@@ -867,17 +851,13 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
         return;
       }
 
-      const goalChanged =
-        prev.autoExpandProjects !== next.autoExpandProjects ||
-        prev.autoExpandProjectItems !== next.autoExpandProjectItems;
+      const addedCapabilities = prevEnabled && nextEnabled && (nextMask & ~prevMask) !== 0;
 
-      if (!prevEnabled || goalChanged || prevDbg !== nextDbg) {
+      if (!prevEnabled || addedCapabilities) {
         goalReached = false;
         attempts = 0;
-        rowsAtGoal = 0;
-        bottomHrefAtGoal = null;
         refreshNavBindings();
-        schedule("settings");
+        schedule(!prevEnabled ? "settings-enable" : "settings-enable-added");
       }
     },
     getStatus: () => ({ active: isFeatureEnabled(ctx) }),

@@ -258,6 +258,7 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
 
   unsubRoots =
     ctx.domBus?.onRoots(() => {
+      if (goalReached) return;
       reset();
       schedule("route");
     }) ?? null;
