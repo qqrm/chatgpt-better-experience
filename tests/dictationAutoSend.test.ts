@@ -5,6 +5,7 @@ import { makeTestContext } from "./helpers/testContext";
 type DictationTestApi = {
   getDictationUiState: () => "NONE" | "STOP" | "SUBMIT";
   findSubmitDictationButton: () => HTMLElement | null;
+  runAutoSendFlow?: (snapshotOverride?: string, initialShiftHeld?: boolean) => Promise<void> | void;
 };
 
 describe("dictationAutoSend", () => {
@@ -136,5 +137,110 @@ describe("dictationAutoSend", () => {
     expect(testApi.getDictationUiState()).toBe("SUBMIT");
 
     handle.dispose();
+  });
+
+  it("auto-send flow clicks Send after final text stabilizes", async () => {
+    vi.useFakeTimers();
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => Date.now());
+
+    document.body.innerHTML = `
+      <main role="main">
+        <form data-testid="composer">
+          <div id="prompt-textarea" contenteditable="true"></div>
+          <div data-testid="composer-footer-actions">
+            <button type="button" aria-label="Dictate button">🎙️</button>
+            <button type="button" aria-label="Submit dictation" title="Submit dictation">Done</button>
+            <button
+              id="composer-submit-button"
+              data-testid="send-button"
+              aria-label="Send"
+              title="Send message"
+              type="submit"
+            >
+              Send
+            </button>
+          </div>
+        </form>
+      </main>
+    `;
+
+    const humanClickCalls: string[] = [];
+    const ctx = makeTestContext({ autoSend: true, allowAutoSendInCodex: true });
+    ctx.helpers.humanClick = (_el, why) => {
+      humanClickCalls.push(why);
+      if (why === "send") {
+        const input = document.getElementById("prompt-textarea") as HTMLElement | null;
+        if (input) {
+          input.textContent = "";
+          input.innerText = "";
+        }
+      }
+      return true;
+    };
+
+    const handle = initDictationAutoSendFeature(ctx);
+    const testApi = handle.__test as DictationTestApi;
+    expect(testApi.runAutoSendFlow).toBeTypeOf("function");
+
+    const flow = testApi.runAutoSendFlow?.("", false);
+
+    const input = document.getElementById("prompt-textarea") as HTMLElement;
+    input.textContent = "Привет";
+    input.innerText = "Привет";
+
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve(flow);
+
+    expect(humanClickCalls).toContain("send");
+
+    handle.dispose();
+    nowSpy.mockRestore();
+  });
+
+  it("auto-send flow does not click Send when Shift cancels the in-flight submit", async () => {
+    vi.useFakeTimers();
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => Date.now());
+
+    document.body.innerHTML = `
+      <main role="main">
+        <form data-testid="composer">
+          <div id="prompt-textarea" contenteditable="true"></div>
+          <div data-testid="composer-footer-actions">
+            <button type="button" aria-label="Dictate button">🎙️</button>
+            <button type="button" aria-label="Submit dictation" title="Submit dictation">Done</button>
+            <button id="composer-submit-button" data-testid="send-button" aria-label="Send" type="submit">
+              Send
+            </button>
+          </div>
+        </form>
+      </main>
+    `;
+
+    const humanClickCalls: string[] = [];
+    const ctx = makeTestContext({ autoSend: true, allowAutoSendInCodex: true });
+    ctx.helpers.humanClick = (_el, why) => {
+      humanClickCalls.push(why);
+      return true;
+    };
+
+    const handle = initDictationAutoSendFeature(ctx);
+    const testApi = handle.__test as DictationTestApi;
+    expect(testApi.runAutoSendFlow).toBeTypeOf("function");
+
+    const flow = testApi.runAutoSendFlow?.("", false);
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", bubbles: true }));
+
+    const input = document.getElementById("prompt-textarea") as HTMLElement;
+    input.textContent = "Текст после диктовки";
+    input.innerText = "Текст после диктовки";
+
+    await vi.advanceTimersByTimeAsync(700);
+    await Promise.resolve(flow);
+
+    expect(humanClickCalls).not.toContain("send");
+
+    handle.dispose();
+    nowSpy.mockRestore();
   });
 });

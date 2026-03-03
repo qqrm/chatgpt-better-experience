@@ -147,3 +147,9 @@ Dictation UI presence does not override edit mode priority.
 - `src/features/ctrlEnterSend.ts`: Ctrl+Enter / Cmd+Enter behavior, including dictation finishing.
 - `src/features/editLastMessage.ts`: ArrowUp edit UX (scroll, focus, caret at end).
 - `src/features/chatgptEditor.ts`: Edit apply button detection.
+
+## 7) Testing strategy
+
+- Prefer deterministic unit/integration tests (Vitest + jsdom) for AutoSend state and DOM behavior.
+- Avoid Playwright E2E against ChatGPT: it is commonly blocked by anti-automation measures and is
+  not a reliable regression signal for this project.
