@@ -24,6 +24,7 @@ export interface PopupSettingsInput {
   downloadGitPatchesWithShiftClick: boolean;
   clearClipboardAfterShiftDownload: boolean;
   editLastMessageOnArrowUp: boolean;
+  renameChatOnF2: boolean;
   autoExpandChats: boolean;
   autoExpandProjects: boolean;
   autoExpandProjectItems: boolean;

@@ -6,6 +6,7 @@ export interface Settings {
   downloadGitPatchesWithShiftClick: boolean;
   clearClipboardAfterShiftDownload: boolean;
   editLastMessageOnArrowUp: boolean;
+  renameChatOnF2: boolean;
   autoExpandChats: boolean;
   autoExpandProjects: boolean;
   autoExpandProjectItems: boolean;
@@ -35,6 +36,7 @@ export const SETTINGS_DEFAULTS: SettingsRecord = {
   downloadGitPatchesWithShiftClick: true,
   clearClipboardAfterShiftDownload: false,
   editLastMessageOnArrowUp: true,
+  renameChatOnF2: true,
   autoExpandChats: true,
   autoExpandProjects: true,
   autoExpandProjectItems: false,

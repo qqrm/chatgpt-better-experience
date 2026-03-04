@@ -20,6 +20,7 @@ export function makeTestContext(settings: Partial<Settings> = {}): FeatureContex
     downloadGitPatchesWithShiftClick: false,
     clearClipboardAfterShiftDownload: false,
     editLastMessageOnArrowUp: false,
+    renameChatOnF2: false,
     autoExpandChats: false,
     autoExpandProjects: false,
     autoExpandProjectItems: false,

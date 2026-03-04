@@ -77,6 +77,11 @@ export function normalizeSettings(data: Record<string, unknown>): Settings {
         ? ((data as { editLastMessageOnArrowUp?: unknown }).editLastMessageOnArrowUp as boolean)
         : base.editLastMessageOnArrowUp,
 
+    renameChatOnF2:
+      typeof (data as { renameChatOnF2?: unknown }).renameChatOnF2 === "boolean"
+        ? ((data as { renameChatOnF2?: unknown }).renameChatOnF2 as boolean)
+        : base.renameChatOnF2,
+
     autoExpandChats:
       typeof (data as { autoExpandChats?: unknown }).autoExpandChats === "boolean"
         ? ((data as { autoExpandChats?: unknown }).autoExpandChats as boolean)

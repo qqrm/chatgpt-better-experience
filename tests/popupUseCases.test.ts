@@ -27,6 +27,7 @@ describe("popup use cases macroRecorderEnabled + debug traces", () => {
         downloadGitPatchesWithShiftClick: true,
         clearClipboardAfterShiftDownload: false,
         editLastMessageOnArrowUp: true,
+        renameChatOnF2: false,
         autoExpandChats: true,
         autoExpandProjects: true,
         autoExpandProjectItems: false,
@@ -45,6 +46,7 @@ describe("popup use cases macroRecorderEnabled + debug traces", () => {
     );
 
     const { settings } = await loadPopupSettings({ storagePort });
+    expect(settings.renameChatOnF2).toBe(false);
     expect(settings.macroRecorderEnabled).toBe(true);
     expect(settings.debugAutoExpandProjects).toBe(true);
     expect(settings.debugTraceTarget).toBe("projects");
