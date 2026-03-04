@@ -254,11 +254,63 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     ensureCountdownStyle();
 
     const sendBtn = findSendButton();
+    const isCountdownContainerSafe = (el: HTMLElement | null) => {
+      if (!el) return false;
+      if (!document.contains(el)) return false;
+
+      let current: HTMLElement | null = el;
+      while (current && current !== document.body) {
+        const styles = getComputedStyle(current);
+        if (styles.display === "none") return false;
+        if (styles.visibility === "hidden") return false;
+        if (styles.opacity === "0") return false;
+
+        const hidesOverflow =
+          styles.overflow === "hidden" ||
+          styles.overflowX === "hidden" ||
+          styles.overflowY === "hidden" ||
+          styles.overflow === "clip" ||
+          styles.overflowX === "clip" ||
+          styles.overflowY === "clip";
+        const rect = current.getBoundingClientRect();
+        if (hidesOverflow && rect.width > 0 && rect.width < 36) return false;
+        if (hidesOverflow && rect.height > 0 && rect.height < 36) return false;
+
+        current = current.parentElement;
+      }
+
+      return true;
+    };
+
+    const composerInput = findComposerInput();
+    const composerSelectors = [
+      '[data-testid="composer-footer-actions"]',
+      '[data-testid="composer-action-buttons"]',
+      '[data-testid="composer"]',
+      '[data-testid="composer-form"]',
+      "form"
+    ];
+    const candidates: HTMLElement[] = [];
+    const pushCandidate = (candidate: HTMLElement | null) => {
+      if (!candidate || candidates.includes(candidate)) return;
+      candidates.push(candidate);
+    };
+
+    pushCandidate(sendBtn?.parentElement ?? null);
+    for (const selector of composerSelectors) {
+      pushCandidate(sendBtn?.closest<HTMLElement>(selector) ?? null);
+    }
+
+    pushCandidate(document.querySelector<HTMLElement>('[data-testid="composer-footer-actions"]'));
+    pushCandidate(document.querySelector<HTMLElement>('[data-testid="composer-action-buttons"]'));
+
+    for (const selector of composerSelectors) {
+      pushCandidate(composerInput?.closest<HTMLElement>(selector) ?? null);
+    }
+    pushCandidate(composerInput?.parentElement ?? null);
+
+    const container = candidates.find((candidate) => isCountdownContainerSafe(candidate)) ?? null;
     const preferredContainer = sendBtn?.parentElement;
-    const fallbackContainer = document.querySelector<HTMLElement>(
-      '[data-testid="composer-footer-actions"]'
-    );
-    const container = preferredContainer ?? fallbackContainer;
     if (!container) return null;
 
     const existing = document.getElementById("tm-autosend-countdown") as HTMLElement | null;
@@ -280,7 +332,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       <div class="tm-autosend-digit">3</div>
     `;
 
-    if (preferredContainer) {
+    if (preferredContainer && container === preferredContainer) {
       container.insertBefore(root, container.firstChild);
     } else {
       container.appendChild(root);
@@ -1357,7 +1409,8 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       runAutoSendFlow: (snapshotOverride?: string, initialShiftHeld?: boolean) =>
         runFlowAfterSubmitClick("test submit dictation", snapshotOverride, !!initialShiftHeld),
       getDictationUiState: () => getDictationUiState(),
-      findSubmitDictationButton: () => findSubmitDictationButton()
+      findSubmitDictationButton: () => findSubmitDictationButton(),
+      ensureCountdownUi: () => ensureCountdownUi()
     },
     onSettingsChange: () => {
       applySettings();
