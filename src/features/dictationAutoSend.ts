@@ -64,7 +64,19 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   let lastDictationSubmitViaMouseAt = 0;
 
   const tmLog = (scope: string, msg: string, fields?: LogFields) => {
-    ctx.logger.debug(scope, msg, fields);
+    const isDebugEnabled =
+      !!ctx.settings.debugAutoExpandProjects && ctx.settings.debugTraceTarget === "autoSend";
+    if (!isDebugEnabled) return;
+
+    const details =
+      fields && typeof fields === "object"
+        ? Object.entries(fields)
+            .filter(([, value]) => value !== undefined)
+            .map(([key, value]) => `${key}=${String(value)}`)
+            .join(" ")
+        : "";
+    const suffix = details ? ` | ${details}` : "";
+    console.log(`[TM DictationAutoSend] ${scope}: ${msg}${suffix}`);
   };
 
   const qs = <T extends Element = Element>(sel: string, root: Document | Element = document) =>

@@ -1,4 +1,4 @@
-export type DebugTraceTarget = "projects" | "editMessage";
+export type DebugTraceTarget = "projects" | "editMessage" | "autoSend";
 
 export interface Settings {
   autoSend: boolean;
