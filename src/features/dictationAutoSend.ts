@@ -2,6 +2,13 @@ import { DictationInputKind } from "../domain/dictation";
 import { FeatureContext, FeatureHandle, LogFields } from "../application/featureContext";
 import type { Unsubscribe } from "../application/domEventBus";
 import { isDisabled, isElementVisible, isVisible, norm } from "../lib/utils";
+import {
+  Command as AutoSendCommand,
+  Event as AutoSendEvent,
+  initialState as autoSendInitialState,
+  isTerminalState as isAutoSendTerminalState,
+  reducer as autoSendReducer
+} from "./dictationAutoSend.machine";
 
 interface DictationConfig {
   autoSendEnabled: boolean;
@@ -382,31 +389,6 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     countdownRoot = null;
     countdownRing = null;
     countdownDigit = null;
-  };
-
-  const runCountdown = async (totalMs: number, isCanceled: () => boolean) => {
-    if (totalMs <= 0) return !isCanceled();
-    showCountdown();
-    const startedAt = performance.now();
-    const tickMs = 80;
-
-    while (true) {
-      if (isCanceled()) {
-        hideCountdown();
-        return false;
-      }
-
-      const elapsed = performance.now() - startedAt;
-      const remainingMs = Math.max(0, totalMs - elapsed);
-      updateCountdown(remainingMs, totalMs);
-
-      if (remainingMs <= 0) {
-        hideCountdown();
-        return true;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, tickMs));
-    }
   };
 
   const isSubmitDictationButton = (btn: Element | null) => {
@@ -909,7 +891,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       tick();
     });
 
-  const clickSendWithAck = async () => {
+  const clickSendWithAck = async (ackTimeoutMs: number) => {
     const before = readInputText().text;
 
     const btn = findSendButton();
@@ -942,7 +924,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     if (!submitted) ctx.helpers.humanClick(btn, "send");
 
     const t0 = performance.now();
-    while (performance.now() - t0 <= cfg.sendAckTimeoutMs) {
+    while (performance.now() - t0 <= ackTimeoutMs) {
       const cur = readInputText().text;
       const cleared = cur.trim().length === 0;
       const stopGen = findStopGeneratingButton();
@@ -980,15 +962,148 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       tmLog("FLOW", "skip: inFlight already true");
       return;
     }
+
     inFlight = true;
-    let cancelByShift = initialShiftHeld;
-    const handleShiftKey = (event: KeyboardEvent) => {
-      if (event.key === "Shift") {
-        cancelByShift = true;
-        tmLog("FLOW", "shift cancel received");
+    let machineState = autoSendInitialState;
+    const commandQueue: AutoSendCommand[] = [];
+    let shiftListenerInstalled = false;
+
+    const machineConfig = {
+      autoSendDelayMs: cfg.autoSendDelayMs,
+      finalTextTimeoutMs: cfg.finalTextTimeoutMs,
+      finalTextQuietMs: cfg.finalTextQuietMs,
+      sendAckTimeoutMs: cfg.sendAckTimeoutMs
+    };
+
+    const step = (event: AutoSendEvent): AutoSendCommand[] => {
+      const result = autoSendReducer(machineState, event, machineConfig);
+      machineState = result.state;
+      return result.commands;
+    };
+
+    const enqueue = (commands: AutoSendCommand[]) => {
+      if (commands.length) commandQueue.push(...commands);
+    };
+
+    const enqueueWithInlineCountdownUi = (commands: AutoSendCommand[]) => {
+      for (const command of commands) {
+        if (command.type === "UpdateCountdown") {
+          updateCountdown(command.remainingMs, command.totalMs);
+          continue;
+        }
+
+        commandQueue.push(command);
       }
     };
-    window.addEventListener("keydown", handleShiftKey, true);
+
+    const enqueueWithInlineHideCountdown = (commands: AutoSendCommand[]) => {
+      for (const command of commands) {
+        if (command.type === "HideCountdown") {
+          hideCountdown();
+          continue;
+        }
+
+        commandQueue.push(command);
+      }
+    };
+
+    const shiftHandler = (event: KeyboardEvent) => {
+      if (event.key !== "Shift") return;
+      tmLog("FLOW", "shift cancel received");
+      enqueueWithInlineHideCountdown(step({ type: "ShiftPressed" }));
+    };
+
+    const runCountdownEffect = async (durationMs: number) => {
+      if (durationMs <= 0) {
+        enqueueWithInlineHideCountdown(
+          step({ type: "CountdownFinished", nowMs: performance.now() })
+        );
+        return;
+      }
+
+      showCountdown();
+      const tickMs = 80;
+      while (machineState.kind === "Countdown") {
+        const nowMs = performance.now();
+        enqueueWithInlineCountdownUi(step({ type: "CountdownTick", nowMs }));
+        if (machineState.kind !== "Countdown") break;
+
+        const elapsed = nowMs - machineState.startedAtMs;
+        if (elapsed >= durationMs) {
+          enqueueWithInlineHideCountdown(step({ type: "CountdownFinished", nowMs }));
+          break;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, tickMs));
+      }
+    };
+
+    const executeCommand = async (command: AutoSendCommand) => {
+      switch (command.type) {
+        case "InstallShiftListener": {
+          if (!shiftListenerInstalled) {
+            window.addEventListener("keydown", shiftHandler, true);
+            shiftListenerInstalled = true;
+          }
+          return;
+        }
+        case "RemoveShiftListener": {
+          if (shiftListenerInstalled) {
+            window.removeEventListener("keydown", shiftHandler, true);
+            shiftListenerInstalled = false;
+          }
+          return;
+        }
+        case "WaitForFinalText": {
+          const finalRes = await waitForFinalText({
+            snapshot: command.snapshot,
+            timeoutMs: command.timeoutMs,
+            quietMs: command.quietMs
+          });
+
+          if (!finalRes.ok) {
+            enqueue(step({ type: "FinalTextFailed", reason: "timeout" }));
+            return;
+          }
+
+          enqueue(
+            step({
+              type: "FinalTextStable",
+              text: finalRes.text,
+              inputKind: finalRes.kind,
+              nowMs: performance.now()
+            })
+          );
+          return;
+        }
+        case "ShowCountdown": {
+          await runCountdownEffect(command.durationMs);
+          return;
+        }
+        case "UpdateCountdown": {
+          updateCountdown(command.remainingMs, command.totalMs);
+          return;
+        }
+        case "HideCountdown": {
+          hideCountdown();
+          return;
+        }
+        case "StopGeneratingIfPossible": {
+          const ok = await stopGeneratingIfPossible(command.timeoutMs);
+          enqueue(step({ type: ok ? "StopGeneratingOk" : "StopGeneratingFailed" }));
+          return;
+        }
+        case "ClickSendWithAck": {
+          const ok = await clickSendWithAck(command.ackTimeoutMs);
+          enqueue(step({ type: ok ? "SendAckOk" : "SendAckTimeout" }));
+          return;
+        }
+        case "Log": {
+          tmLog(command.scope, command.msg, command.fields);
+          return;
+        }
+      }
+    };
 
     try {
       if (!cfg.autoSendEnabled) {
@@ -998,6 +1113,13 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
       const snap = readInputText();
       const snapshot = snapshotOverride ?? snap.text;
+      const event: AutoSendEvent = {
+        type: "SubmitClicked",
+        shiftKey: initialShiftHeld,
+        isCodexPath: isCodexPath(location.pathname),
+        allowInCodex: cfg.allowAutoSendInCodex,
+        snapshot
+      };
 
       tmLog("FLOW", "submit click flow start", {
         btn: submitBtnDesc,
@@ -1008,53 +1130,29 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         initialShiftHeld
       });
 
-      const finalRes = await waitForFinalText({
-        snapshot,
-        timeoutMs: cfg.finalTextTimeoutMs,
-        quietMs: cfg.finalTextQuietMs
-      });
+      enqueue(step(event));
 
-      if (!finalRes.ok) {
-        tmLog("FLOW", "no stable final text, abort");
-        return;
+      while (commandQueue.length > 0) {
+        const command = commandQueue.shift();
+        if (!command) continue;
+        await executeCommand(command);
       }
 
-      if ((finalRes.text || "").trim().length === 0) {
-        tmLog("FLOW", "final text empty, abort");
-        return;
+      if (isAutoSendTerminalState(machineState)) {
+        tmLog("FLOW", "send result", {
+          ok: machineState.kind === "Done",
+          state: machineState.kind
+        });
       }
-
-      if (cancelByShift) {
-        tmLog("FLOW", "send skipped by shift");
-        return;
-      }
-
-      const countdownOk = await runCountdown(cfg.autoSendDelayMs, () => cancelByShift);
-      if (!countdownOk) {
-        tmLog("FLOW", "send skipped by shift during countdown");
-        return;
-      }
-
-      const okGen = await stopGeneratingIfPossible(20000);
-      if (!okGen) {
-        tmLog("FLOW", "abort: still generating");
-        return;
-      }
-
-      if (cancelByShift) {
-        tmLog("FLOW", "send skipped by shift");
-        return;
-      }
-
-      const ok1 = await clickSendWithAck();
-      tmLog("FLOW", "send result", { ok: ok1 });
     } catch (e) {
       tmLog("ERR", "flow exception", {
         preview: String((e && (e as Error).stack) || (e as Error).message || e)
       });
     } finally {
       hideCountdown();
-      window.removeEventListener("keydown", handleShiftKey, true);
+      if (shiftListenerInstalled) {
+        window.removeEventListener("keydown", shiftHandler, true);
+      }
       inFlight = false;
       tmLog("FLOW", "submit click flow end");
     }
