@@ -39,8 +39,11 @@ const themeToggleEl = mustGetElement<HTMLButtonElement>("qqrm-theme-toggle");
 const macroRecorderEnabledEl = mustGetElement<HTMLInputElement>("macroRecorderEnabled");
 const macroRecorderStatusEl = mustGetElement<HTMLElement>("macroRecorderStatus");
 const macroRecorderMetaEl = mustGetElement<HTMLElement>("macroRecorderMeta");
+const macroRecorderControlEl = mustGetElement<HTMLElement>("macroRecorderControl");
 const debugAutoExpandProjectsEl = mustGetElement<HTMLInputElement>("debugAutoExpandProjects");
 const debugTraceTargetEl = mustGetElement<HTMLSelectElement>("debugTraceTarget");
+const debugTracesControlEl = mustGetElement<HTMLElement>("debugTracesControl");
+const devPanelEnabledEl = mustGetElement<HTMLInputElement>("devPanelEnabled");
 
 type ExtensionLike = {
   runtime?: { lastError?: unknown };
@@ -136,11 +139,31 @@ function renderMacroRecorderStatus(status: unknown, _lastExportAt: unknown) {
   macroRecorderMetaEl.textContent = "Ctrl/Cmd+Shift+F8 toggle";
 }
 
+const setDebugTraceTargetVisible = (visible: boolean) => {
+  debugTraceTargetEl.style.display = visible ? "" : "none";
+};
+
+const updateDeveloperControlsVisibility = () => {
+  const isDeveloperMode = !!devPanelEnabledEl.checked;
+  macroRecorderControlEl.style.display = isDeveloperMode ? "" : "none";
+  debugTracesControlEl.style.display = isDeveloperMode ? "" : "none";
+  setDebugTraceTargetVisible(isDeveloperMode && !!debugAutoExpandProjectsEl.checked);
+};
+
+const forceDisableHiddenDevFeatures = async () => {
+  macroRecorderEnabledEl.checked = false;
+  debugAutoExpandProjectsEl.checked = false;
+  renderMacroRecorderStatus("off", undefined);
+  setDebugTraceTargetVisible(false);
+  await storagePort.set({ macroRecorderEnabled: false, debugAutoExpandProjects: false });
+};
+
 async function load() {
-  const [{ settings }, themeData, macroData] = await Promise.all([
+  const [{ settings }, themeData, macroData, devData] = await Promise.all([
     loadPopupSettings(popupDeps),
     storagePort.get({ popupThemeMode: "auto" as ThemeMode }),
-    storagePort.get({ macroRecorderStatus: "off", macroRecorderLastExportAt: 0 })
+    storagePort.get({ macroRecorderStatus: "off", macroRecorderLastExportAt: 0 }),
+    storagePort.get({ popupDevPanelEnabled: false })
   ]);
 
   autoSendEl.checked = settings.autoSend;
@@ -166,6 +189,13 @@ async function load() {
   macroRecorderEnabledEl.checked = !!settings.macroRecorderEnabled;
   debugAutoExpandProjectsEl.checked = !!settings.debugAutoExpandProjects;
   debugTraceTargetEl.value = settings.debugTraceTarget;
+  devPanelEnabledEl.checked = !!devData.popupDevPanelEnabled;
+
+  if (!devPanelEnabledEl.checked) {
+    await forceDisableHiddenDevFeatures();
+  }
+
+  updateDeveloperControlsVisibility();
   renderMacroRecorderStatus(macroData.macroRecorderStatus, macroData.macroRecorderLastExportAt);
 
   applyThemeMode(normalizeThemeMode(themeData.popupThemeMode));
@@ -195,8 +225,8 @@ async function save() {
     trimChatDomKeep,
     hideShareButton: !!hideShareButtonEl.checked,
     wideChatWidth,
-    macroRecorderEnabled: !!macroRecorderEnabledEl.checked,
-    debugAutoExpandProjects: !!debugAutoExpandProjectsEl.checked,
+    macroRecorderEnabled: !!devPanelEnabledEl.checked && !!macroRecorderEnabledEl.checked,
+    debugAutoExpandProjects: !!devPanelEnabledEl.checked && !!debugAutoExpandProjectsEl.checked,
     debugTraceTarget
   };
 
@@ -226,8 +256,19 @@ hideShareButtonEl.addEventListener("change", () => void save().catch(() => {}));
 wideChatWidthEl.addEventListener("input", () => void save().catch(() => {}));
 themeToggleEl.addEventListener("click", () => void cycleThemeMode().catch(() => {}));
 macroRecorderEnabledEl.addEventListener("change", () => void save().catch(() => {}));
-debugAutoExpandProjectsEl.addEventListener("change", () => void save().catch(() => {}));
+debugAutoExpandProjectsEl.addEventListener("change", () => {
+  updateDeveloperControlsVisibility();
+  void save().catch(() => {});
+});
 debugTraceTargetEl.addEventListener("change", () => void save().catch(() => {}));
+devPanelEnabledEl.addEventListener("change", () => {
+  const isDeveloperMode = !!devPanelEnabledEl.checked;
+  updateDeveloperControlsVisibility();
+  void storagePort.set({ popupDevPanelEnabled: isDeveloperMode }).catch(() => {});
+  if (!isDeveloperMode) {
+    void forceDisableHiddenDevFeatures().catch(() => {});
+  }
+});
 
 storagePort.onChanged?.((changes) => {
   if ("macroRecorderStatus" in changes || "macroRecorderLastExportAt" in changes) {
@@ -242,6 +283,10 @@ storagePort.onChanged?.((changes) => {
   if ("macroRecorderEnabled" in changes) {
     const next = changes.macroRecorderEnabled?.newValue;
     if (typeof next === "boolean") {
+      if (!devPanelEnabledEl.checked && next) {
+        void forceDisableHiddenDevFeatures().catch(() => {});
+        return;
+      }
       macroRecorderEnabledEl.checked = next;
       if (!next) {
         renderMacroRecorderStatus("off", undefined);
@@ -252,7 +297,12 @@ storagePort.onChanged?.((changes) => {
   if ("debugAutoExpandProjects" in changes) {
     const next = changes.debugAutoExpandProjects?.newValue;
     if (typeof next === "boolean") {
+      if (!devPanelEnabledEl.checked && next) {
+        void forceDisableHiddenDevFeatures().catch(() => {});
+        return;
+      }
       debugAutoExpandProjectsEl.checked = next;
+      updateDeveloperControlsVisibility();
     }
   }
 
@@ -260,6 +310,17 @@ storagePort.onChanged?.((changes) => {
     const next = changes.debugTraceTarget?.newValue;
     if (next === "projects" || next === "editMessage") {
       debugTraceTargetEl.value = next;
+    }
+  }
+
+  if ("popupDevPanelEnabled" in changes) {
+    const next = changes.popupDevPanelEnabled?.newValue;
+    if (typeof next === "boolean") {
+      devPanelEnabledEl.checked = next;
+      updateDeveloperControlsVisibility();
+      if (!next) {
+        void forceDisableHiddenDevFeatures().catch(() => {});
+      }
     }
   }
 });

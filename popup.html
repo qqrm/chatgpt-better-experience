@@ -655,7 +655,7 @@
 
     <div class="hint">Press F2 to rename current chat</div>
 
-    <div class="miniControl" aria-label="Macro Recorder">
+    <div id="macroRecorderControl" class="miniControl" aria-label="Macro Recorder">
       <div class="miniControlRow">
         <div class="miniControlLabel">Macro recorder</div>
         <div style="display: flex; align-items: center; gap: 8px">
@@ -671,7 +671,7 @@
       </div>
     </div>
 
-    <div class="miniControl" aria-label="Debug Traces">
+    <div id="debugTracesControl" class="miniControl" aria-label="Debug Traces">
       <div class="miniControlRow">
         <div class="miniControlLabel">Debug traces</div>
         <label class="tinySwitch" aria-label="Enable debug logs">
@@ -679,10 +679,25 @@
           <span class="tinySwitchTrack" aria-hidden="true"></span>
         </label>
       </div>
-      <select id="debugTraceTarget" class="miniSelect" aria-label="Choose debug trace target">
+      <select
+        id="debugTraceTarget"
+        class="miniSelect"
+        aria-label="Choose debug trace target"
+        style="display: none"
+      >
         <option value="projects">Projects auto-expand</option>
         <option value="editMessage">Message edit</option>
       </select>
+    </div>
+
+    <div id="developerControl" class="miniControl" aria-label="Developer Controls">
+      <div class="miniControlRow">
+        <div class="miniControlLabel">Developer</div>
+        <label class="tinySwitch" aria-label="Enable developer controls">
+          <input id="devPanelEnabled" type="checkbox" />
+          <span class="tinySwitchTrack" aria-hidden="true"></span>
+        </label>
+      </div>
     </div>
 
     <script src="dist/popup.js"></script>
