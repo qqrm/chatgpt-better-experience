@@ -417,7 +417,9 @@
         border: 1px solid var(--control-border);
         background: color-mix(in srgb, var(--muted) 18%, transparent);
         position: relative;
-        transition: background 140ms ease;
+        transition:
+          background 140ms ease,
+          border-color 140ms ease;
       }
 
       .tinySwitchTrack::after {
@@ -430,15 +432,19 @@
         border-radius: 50%;
         background: var(--surface);
         border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
-        transition: transform 140ms ease;
+        transition:
+          transform 140ms ease,
+          border-color 140ms ease;
       }
 
       .tinySwitch input:checked + .tinySwitchTrack {
-        background: color-mix(in srgb, var(--muted) 30%, transparent);
+        background: var(--accent);
+        border-color: var(--accent);
       }
 
       .tinySwitch input:checked + .tinySwitchTrack::after {
         transform: translateX(12px);
+        border-color: var(--accent);
       }
 
       .tinySwitch input:focus-visible + .tinySwitchTrack {
