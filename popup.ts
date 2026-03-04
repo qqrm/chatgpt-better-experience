@@ -9,6 +9,7 @@ function mustGetElement<T extends HTMLElement>(id: string) {
 }
 
 type ThemeMode = "auto" | "dark" | "light";
+type PopupTab = "automation" | "input" | "sidebar" | "performance" | "codex" | "dev";
 
 const autoSendEl = mustGetElement<HTMLInputElement>("autoSend");
 const allowCodexEl = mustGetElement<HTMLInputElement>("allowAutoSendInCodex");
@@ -46,6 +47,24 @@ const debugTraceTargetEl = mustGetElement<HTMLSelectElement>("debugTraceTarget")
 const debugTracesControlEl = mustGetElement<HTMLElement>("debugTracesControl");
 const devPanelEnabledEl = mustGetElement<HTMLInputElement>("devPanelEnabled");
 
+const popupTabs: PopupTab[] = ["automation", "input", "sidebar", "performance", "codex", "dev"];
+const tabButtonEls: Record<PopupTab, HTMLButtonElement> = {
+  automation: mustGetElement<HTMLButtonElement>("tab-automation"),
+  input: mustGetElement<HTMLButtonElement>("tab-input"),
+  sidebar: mustGetElement<HTMLButtonElement>("tab-sidebar"),
+  performance: mustGetElement<HTMLButtonElement>("tab-performance"),
+  codex: mustGetElement<HTMLButtonElement>("tab-codex"),
+  dev: mustGetElement<HTMLButtonElement>("tab-dev")
+};
+const tabPanelEls: Record<PopupTab, HTMLElement> = {
+  automation: mustGetElement<HTMLElement>("panel-automation"),
+  input: mustGetElement<HTMLElement>("panel-input"),
+  sidebar: mustGetElement<HTMLElement>("panel-sidebar"),
+  performance: mustGetElement<HTMLElement>("panel-performance"),
+  codex: mustGetElement<HTMLElement>("panel-codex"),
+  dev: mustGetElement<HTMLElement>("panel-dev")
+};
+
 type ExtensionLike = {
   runtime?: { lastError?: unknown };
   storage?: StorageApi;
@@ -70,8 +89,29 @@ let themeMediaListener: ((event: MediaQueryListEvent) => void) | null = null;
 const normalizeThemeMode = (value: unknown): ThemeMode =>
   value === "dark" || value === "light" || value === "auto" ? value : "auto";
 
+const normalizePopupTab = (value: unknown): PopupTab =>
+  popupTabs.includes(value as PopupTab) ? (value as PopupTab) : "automation";
+
 const setThemeToggleState = (mode: ThemeMode) => {
   themeToggleEl.dataset.mode = mode;
+};
+
+const setActiveTab = async (tab: PopupTab, persist = true) => {
+  for (const popupTab of popupTabs) {
+    const isActive = popupTab === tab;
+    const button = tabButtonEls[popupTab];
+    const panel = tabPanelEls[popupTab];
+
+    button.setAttribute("aria-selected", isActive ? "true" : "false");
+    button.tabIndex = isActive ? 0 : -1;
+    panel.classList.toggle("isActive", isActive);
+    panel.style.display = isActive ? "" : "none";
+    panel.setAttribute("aria-hidden", isActive ? "false" : "true");
+  }
+
+  if (persist) {
+    await storagePort.set({ popupActiveTab: tab });
+  }
 };
 
 const attachThemeMediaListener = () => {
@@ -160,11 +200,12 @@ const forceDisableHiddenDevFeatures = async () => {
 };
 
 async function load() {
-  const [{ settings }, themeData, macroData, devData] = await Promise.all([
+  const [{ settings }, themeData, macroData, devData, tabData] = await Promise.all([
     loadPopupSettings(popupDeps),
     storagePort.get({ popupThemeMode: "auto" as ThemeMode }),
     storagePort.get({ macroRecorderStatus: "off", macroRecorderLastExportAt: 0 }),
-    storagePort.get({ popupDevPanelEnabled: false })
+    storagePort.get({ popupDevPanelEnabled: false }),
+    storagePort.get({ popupActiveTab: "automation" as PopupTab })
   ]);
 
   autoSendEl.checked = settings.autoSend;
@@ -199,8 +240,8 @@ async function load() {
 
   updateDeveloperControlsVisibility();
   renderMacroRecorderStatus(macroData.macroRecorderStatus, macroData.macroRecorderLastExportAt);
-
   applyThemeMode(normalizeThemeMode(themeData.popupThemeMode));
+  await setActiveTab(normalizePopupTab(tabData.popupActiveTab), false);
 }
 
 async function save() {
@@ -240,6 +281,12 @@ async function save() {
   await savePopupSettings(popupDeps, input);
   trimChatDomKeepValueEl.textContent = String(trimChatDomKeep);
   wideChatWidthValueEl.textContent = `${wideChatWidth}%`;
+}
+
+for (const tab of popupTabs) {
+  tabButtonEls[tab].addEventListener("click", () => {
+    void setActiveTab(tab).catch(() => {});
+  });
 }
 
 autoSendEl.addEventListener("change", () => void save().catch(() => {}));
@@ -330,6 +377,11 @@ storagePort.onChanged?.((changes) => {
         void forceDisableHiddenDevFeatures().catch(() => {});
       }
     }
+  }
+
+  if ("popupActiveTab" in changes) {
+    const next = normalizePopupTab(changes.popupActiveTab?.newValue);
+    void setActiveTab(next, false).catch(() => {});
   }
 });
 
