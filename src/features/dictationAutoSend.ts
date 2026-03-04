@@ -1127,9 +1127,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     const dictationState = getDictationUiState();
     const submitBtn = dictationState === "SUBMIT" ? findSubmitDictationButton() : null;
     const isSubmitClick =
-      dictationState === "SUBMIT" &&
-      btn instanceof HTMLElement &&
-      (btn === submitBtn || isSubmitDictationButton(btn));
+      btn instanceof HTMLElement && (isSubmitDictationButton(btn) || btn === submitBtn);
 
     if (isSubmitClick) {
       // Автосенд только для настоящего клика мышью по галочке
@@ -1153,7 +1151,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   applySettings();
 
   window.addEventListener("keydown", handleKeyDown, true);
-  document.addEventListener("click", handleClick, true);
+  window.addEventListener("click", handleClick, true);
 
   installTranscribeHook();
 
@@ -1182,7 +1180,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     name: "dictationAutoSend",
     dispose: () => {
       window.removeEventListener("keydown", handleKeyDown, true);
-      document.removeEventListener("click", handleClick, true);
+      window.removeEventListener("click", handleClick, true);
       window.removeEventListener("message", handleTranscribeMessage);
       setPathWatcherEnabled(false);
       disconnectDictationObserver();

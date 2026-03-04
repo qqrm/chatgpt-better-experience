@@ -117,6 +117,25 @@ describe("dictationAutoSend", () => {
     handle.dispose();
   });
 
+  it("installs click handler on window capture (not document)", () => {
+    const winAdd = vi.spyOn(window, "addEventListener");
+    const docAdd = vi.spyOn(document, "addEventListener");
+
+    const handle = initDictationAutoSendFeature(
+      makeTestContext({ autoSend: true, allowAutoSendInCodex: true })
+    );
+
+    const windowHasClickCapture = winAdd.mock.calls.some((c) => c[0] === "click" && c[2] === true);
+    const documentHasClick = docAdd.mock.calls.some((c) => c[0] === "click");
+
+    expect(windowHasClickCapture).toBe(true);
+    expect(documentHasClick).toBe(false);
+
+    handle.dispose();
+    winAdd.mockRestore();
+    docAdd.mockRestore();
+  });
+
   it("still detects explicit dictation submit markers", () => {
     document.body.innerHTML = `
       <main role="main">
