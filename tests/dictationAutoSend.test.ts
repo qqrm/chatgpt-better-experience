@@ -5,12 +5,14 @@ import { makeTestContext } from "./helpers/testContext";
 type DictationTestApi = {
   getDictationUiState: () => "NONE" | "STOP" | "SUBMIT";
   findSubmitDictationButton: () => HTMLElement | null;
+  ensureCountdownUi?: () => HTMLElement | null;
   runAutoSendFlow?: (snapshotOverride?: string, initialShiftHeld?: boolean) => Promise<void> | void;
 };
 
 describe("dictationAutoSend", () => {
   afterEach(() => {
     vi.useRealTimers();
+    window.history.replaceState({}, "", "/");
     document.body.innerHTML = "";
   });
 
@@ -189,6 +191,69 @@ describe("dictationAutoSend", () => {
     expect(submitBtn).not.toBeNull();
     expect(submitBtn?.getAttribute("aria-label")).toBe("Submit dictation");
     expect(testApi.getDictationUiState()).toBe("SUBMIT");
+
+    handle.dispose();
+  });
+
+  it("mounts countdown into send button parent for ChatGPT composer footer", () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <form data-testid="composer">
+          <div id="prompt-textarea" contenteditable="true"></div>
+          <div data-testid="composer-footer-actions" id="footer-actions">
+            <button
+              id="composer-submit-button"
+              data-testid="send-button"
+              aria-label="Send"
+              title="Send message"
+              type="submit"
+            >
+              Send
+            </button>
+          </div>
+        </form>
+      </main>
+    `;
+
+    const handle = initDictationAutoSendFeature(
+      makeTestContext({ autoSend: true, allowAutoSendInCodex: true })
+    );
+    const testApi = handle.__test as DictationTestApi;
+
+    const countdown = testApi.ensureCountdownUi?.();
+    expect(countdown).not.toBeNull();
+    expect(countdown?.parentElement?.id).toBe("footer-actions");
+
+    handle.dispose();
+  });
+
+  it("falls back to composer root when send parent is hidden (Codex-like DOM)", () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <div data-testid="composer" id="codex-composer">
+          <div class="send-wrapper" style="display:none">
+            <button
+              id="composer-submit-button"
+              data-testid="send-button"
+              aria-label="Send"
+              type="submit"
+            >
+              Send
+            </button>
+          </div>
+          <div id="prompt-textarea" contenteditable="true"></div>
+        </div>
+      </main>
+    `;
+
+    const handle = initDictationAutoSendFeature(
+      makeTestContext({ autoSend: true, allowAutoSendInCodex: true })
+    );
+    const testApi = handle.__test as DictationTestApi;
+
+    const countdown = testApi.ensureCountdownUi?.();
+    expect(countdown).not.toBeNull();
+    expect(countdown?.parentElement?.id).toBe("codex-composer");
 
     handle.dispose();
   });

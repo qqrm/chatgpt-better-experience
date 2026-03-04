@@ -6,7 +6,8 @@ This document specifies the intended behavior for the AutoSend and CtrlEnterSend
 ChatGPT/Codex extension.
 
 - **AutoSend**: When enabled, automatically clicks **Send** after a user **mouse-clicks** the
-  “Submit dictation” checkmark and the final dictation text stabilizes.
+  “Submit dictation” checkmark, the final dictation text stabilizes, and a short grace countdown
+  completes (default: 3s). During the countdown, Shift cancels the send for the in-flight submit.
 - **CtrlEnterSend**: When enabled, uses **Ctrl+Enter / Cmd+Enter** to send in normal mode, finish
   dictation before sending when dictation UI is visible, and apply edits in edit mode.
 
@@ -49,8 +50,12 @@ When the extension does not intercept, the site baseline behavior is assumed to 
   dictation finishing or new send.
 - **I7. Shift cancels AutoSend**: AutoSend is canceled for the **current submit click** when
   Shift is held at click time or Shift is pressed after the click while AutoSend is waiting for
-  the final transcript or preparing to send. This “grace window” lasts until the flow ends and
-  applies only to the in-flight submit action (no global disable).
+  the final transcript, during the grace countdown, or while preparing to send. This “grace window”
+  lasts until the flow ends and applies only to the in-flight submit action (no global disable).
+- **I8. Countdown indicator**: When AutoSend is enabled and an in-flight submit click reaches the
+  grace countdown, the extension shows a small, non-interactive countdown indicator near the composer
+  controls (next to mic/send). It must not steal focus or accept pointer input, and it must be
+  hidden when not in the countdown state.
 
 ## 5) Behavior matrix (baseline vs extension overrides)
 
@@ -95,8 +100,11 @@ The matrix below describes behavior by mode, dictation state, settings, and user
 - AutoSend OFF → **baseline** (confirm dictation only)
 - AutoSend ON → **extension override**:
   1. if Shift was held at click time, or Shift is pressed after the click while AutoSend waits for
-     the final text and before Send → confirm dictation only (do not send) for this submit click
-  2. otherwise wait for final dictation text and click Send
+     the final text, during the countdown, and before Send → confirm dictation only (do not send)
+     for this submit click
+  2. otherwise wait for final dictation text to stabilize
+  3. start a grace countdown (default: 3 seconds) and show a countdown indicator near mic/send
+  4. when the countdown completes, click Send
 
 **Keyboard activation of Submit dictation** (`MouseEvent.detail == 0`)
 
