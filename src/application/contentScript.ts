@@ -97,6 +97,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
           "downloadGitPatchesWithShiftClick" in changes ||
           "clearClipboardAfterShiftDownload" in changes ||
           "editLastMessageOnArrowUp" in changes ||
+          "renameChatOnF2" in changes ||
           "autoTempChat" in changes ||
           "oneClickDelete" in changes ||
           "startDictation" in changes ||

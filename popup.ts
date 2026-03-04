@@ -19,6 +19,7 @@ const clearClipboardAfterShiftDownloadEl = mustGetElement<HTMLInputElement>(
   "clearClipboardAfterShiftDownload"
 );
 const editLastMessageEl = mustGetElement<HTMLInputElement>("editLastMessageOnArrowUp");
+const renameChatOnF2El = mustGetElement<HTMLInputElement>("renameChatOnF2");
 const autoExpandEl = mustGetElement<HTMLInputElement>("autoExpandChats");
 const autoExpandProjectsEl = mustGetElement<HTMLInputElement>("autoExpandProjects");
 const autoExpandProjectItemsEl = mustGetElement<HTMLInputElement>("autoExpandProjectItems");
@@ -171,6 +172,7 @@ async function load() {
   downloadGitPatchesWithShiftClickEl.checked = settings.downloadGitPatchesWithShiftClick;
   clearClipboardAfterShiftDownloadEl.checked = settings.clearClipboardAfterShiftDownload;
   editLastMessageEl.checked = settings.editLastMessageOnArrowUp;
+  renameChatOnF2El.checked = settings.renameChatOnF2;
   autoExpandEl.checked = settings.autoExpandChats;
   autoExpandProjectsEl.checked = settings.autoExpandProjects;
   autoExpandProjectItemsEl.checked = settings.autoExpandProjectItems;
@@ -214,6 +216,7 @@ async function save() {
     downloadGitPatchesWithShiftClick: !!downloadGitPatchesWithShiftClickEl.checked,
     clearClipboardAfterShiftDownload: !!clearClipboardAfterShiftDownloadEl.checked,
     editLastMessageOnArrowUp: !!editLastMessageEl.checked,
+    renameChatOnF2: !!renameChatOnF2El.checked,
     autoExpandChats: !!autoExpandEl.checked,
     autoExpandProjects: !!autoExpandProjectsEl.checked,
     autoExpandProjectItems: !!autoExpandProjectItemsEl.checked,
@@ -240,6 +243,7 @@ allowCodexEl.addEventListener("change", () => void save().catch(() => {}));
 downloadGitPatchesWithShiftClickEl.addEventListener("change", () => void save().catch(() => {}));
 clearClipboardAfterShiftDownloadEl.addEventListener("change", () => void save().catch(() => {}));
 editLastMessageEl.addEventListener("change", () => void save().catch(() => {}));
+renameChatOnF2El.addEventListener("change", () => void save().catch(() => {}));
 autoExpandEl.addEventListener("change", () => void save().catch(() => {}));
 autoExpandProjectsEl.addEventListener("change", () => void save().catch(() => {}));
 autoExpandProjectItemsEl.addEventListener("change", () => void save().catch(() => {}));

@@ -372,7 +372,7 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "F2" && !e.repeat) {
+    if (ctx.settings.renameChatOnF2 && e.key === "F2" && !e.repeat) {
       const activeChat = findActiveChat();
       if (activeChat) {
         e.preventDefault();
