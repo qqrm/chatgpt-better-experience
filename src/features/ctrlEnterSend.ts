@@ -541,10 +541,6 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
 
     const shouldSend = e.ctrlKey || e.metaKey;
 
-    // ChatGPT sometimes prevents default on Ctrl/Cmd+Enter before our capture handler runs.
-    // We still want to click the correct "apply edit" action instead of falling back to normal send.
-    if (!shouldSend && e.defaultPrevented) return;
-
     const target = findActiveEditableTarget();
     const hasDictationControls = shouldHandleCtrlEnterOutsideComposer();
     const canSendFromOutside = shouldSend && !!findSendButton(target ?? undefined);
