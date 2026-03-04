@@ -90,12 +90,32 @@
         position: relative;
       }
 
+      .popupRoot {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .panelContainer {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        padding-right: 2px;
+      }
+
+      .tabPanel {
+        display: none;
+      }
+
+      .tabPanel.isActive {
+        display: block;
+      }
+
       .cbeHeader {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        margin-bottom: 12px;
+        margin-bottom: 2px;
       }
 
       .cbeHeaderTitle {
@@ -125,29 +145,6 @@
         border-top: none;
       }
 
-      .grid2 {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 12px;
-      }
-
-      @media (max-width: 420px) {
-        .grid2 {
-          grid-template-columns: 1fr;
-        }
-      }
-
-      .col {
-        display: flex;
-        flex-direction: column;
-      }
-
-      .col .row:first-child {
-        margin-top: 0;
-        padding-top: 0;
-        border-top: none;
-      }
-
       .sectionTitle {
         margin-top: 10px;
         font-size: 12px;
@@ -158,7 +155,7 @@
         user-select: none;
       }
 
-      .col .sectionTitle:first-child {
+      .sectionTitle:first-child {
         margin-top: 0;
       }
 
@@ -362,6 +359,12 @@
         border-top: 1px solid var(--border);
       }
 
+      .miniControl:first-child {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
+      }
+
       .miniControlRow {
         display: flex;
         align-items: center;
@@ -461,6 +464,7 @@
       .tinySwitch input:disabled + .tinySwitchTrack::after {
         cursor: not-allowed;
       }
+
       .statusChip {
         display: inline-flex;
         align-items: center;
@@ -470,260 +474,348 @@
         font-size: 10px;
         color: var(--muted);
       }
+
+      .tabBar {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 4px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+        background: var(--bg);
+        position: sticky;
+        bottom: 0;
+      }
+
+      .tabButton {
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--muted);
+        font: inherit;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 6px 4px;
+        cursor: pointer;
+      }
+
+      .tabButton:hover {
+        background: var(--control-hover);
+      }
+
+      .tabButton[aria-selected="true"] {
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+      }
+
+      .tabButton:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--focus);
+      }
     </style>
   </head>
 
   <body>
-    <div class="cbeHeader">
-      <div class="cbeHeaderTitle">ChatGPT Better Experience</div>
-      <button
-        id="qqrm-theme-toggle"
-        class="cbeThemeToggle"
-        type="button"
-        aria-label="Toggle theme"
-        data-mode="auto"
-      >
-        <svg
-          class="theme-icon theme-icon--auto"
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-          fill="currentColor"
+    <div class="popupRoot">
+      <div class="cbeHeader">
+        <div class="cbeHeaderTitle">ChatGPT Better Experience</div>
+        <button
+          id="qqrm-theme-toggle"
+          class="cbeThemeToggle"
+          type="button"
+          aria-label="Toggle theme"
+          data-mode="auto"
         >
-          <path d="M12 3.25a8.75 8.75 0 1 0 8.75 8.75c0-.3-.02-.6-.05-.9a7 7 0 0 1-8.7-7.85Z" />
-          <circle cx="18.5" cy="5.5" r="1.5" />
-        </svg>
-        <svg
-          class="theme-icon theme-icon--dark"
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-          fill="currentColor"
+          <svg
+            class="theme-icon theme-icon--auto"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            fill="currentColor"
+          >
+            <path d="M12 3.25a8.75 8.75 0 1 0 8.75 8.75c0-.3-.02-.6-.05-.9a7 7 0 0 1-8.7-7.85Z" />
+            <circle cx="18.5" cy="5.5" r="1.5" />
+          </svg>
+          <svg
+            class="theme-icon theme-icon--dark"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            fill="currentColor"
+          >
+            <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 0 0 11.5 11.5Z" />
+          </svg>
+          <svg
+            class="theme-icon theme-icon--light"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            fill="currentColor"
+          >
+            <path
+              d="M12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0-4a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1Zm0 16a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1Zm9-7a1 1 0 0 1-1 1h-2a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1ZM6 12a1 1 0 0 1-1 1H3a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1Zm12.95-6.95a1 1 0 0 1 0 1.41l-1.42 1.42a1 1 0 1 1-1.41-1.41l1.42-1.42a1 1 0 0 1 1.41 0ZM7.88 16.12a1 1 0 0 1 0 1.41l-1.42 1.42a1 1 0 1 1-1.41-1.41l1.42-1.42a1 1 0 0 1 1.41 0Zm10.66 1.41a1 1 0 0 1-1.41 0l-1.42-1.42a1 1 0 1 1 1.41-1.41l1.42 1.42a1 1 0 0 1 0 1.41ZM7.88 7.88a1 1 0 0 1-1.41 0L5.05 6.46a1 1 0 1 1 1.41-1.41l1.42 1.42a1 1 0 0 1 0 1.41Z"
+            />
+          </svg>
+        </button>
+      </div>
+
+      <div class="panelContainer">
+        <section
+          id="panel-automation"
+          class="tabPanel"
+          role="tabpanel"
+          aria-labelledby="tab-automation"
         >
-          <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 0 0 11.5 11.5Z" />
-        </svg>
-        <svg
-          class="theme-icon theme-icon--light"
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-          fill="currentColor"
+          <div class="sectionTitle">Automation</div>
+          <div class="row">
+            <div class="check">
+              <input id="autoSend" type="checkbox" checked />
+              <label for="autoSend">
+                <span>Auto-send</span>
+                <span class="note">Hold Shift while accepting dictation to skip auto-send</span>
+              </label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="check">
+              <input id="autoTempChat" type="checkbox" />
+              <label for="autoTempChat">Auto-enable Temporary Chat</label>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-input" class="tabPanel" role="tabpanel" aria-labelledby="tab-input">
+          <div class="sectionTitle">Input</div>
+          <div class="row">
+            <div class="check">
+              <input id="startDictation" type="checkbox" />
+              <label for="startDictation">
+                <span>Ctrl+Space toggle voice dictation</span>
+              </label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="check">
+              <input id="ctrlEnterSends" type="checkbox" checked />
+              <label for="ctrlEnterSends">
+                <span>Ctrl+Enter sends</span>
+                <span class="note">Enter inserts newline, Ctrl+Enter sends</span>
+              </label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="check">
+              <input id="editLastMessageOnArrowUp" type="checkbox" checked />
+              <label for="editLastMessageOnArrowUp">Arrow up edits last message</label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="check">
+              <input id="renameChatOnF2" type="checkbox" checked />
+              <label for="renameChatOnF2">
+                <span>F2 renames current chat</span>
+                <span class="note">Press F2 to rename current chat</span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-sidebar" class="tabPanel" role="tabpanel" aria-labelledby="tab-sidebar">
+          <div class="sectionTitle">Sidebar</div>
+          <div class="row">
+            <div class="check">
+              <input id="autoExpandChats" type="checkbox" />
+              <label for="autoExpandChats">Auto-expand chat list</label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="check">
+              <input id="autoExpandProjects" type="checkbox" />
+              <label for="autoExpandProjects">Auto-expand projects list</label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="check">
+              <input id="autoExpandProjectItems" type="checkbox" />
+              <label for="autoExpandProjectItems">Auto-expand each project</label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="check">
+              <input id="oneClickDelete" type="checkbox" checked />
+              <label for="oneClickDelete">Quick Buttons</label>
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="panel-performance"
+          class="tabPanel"
+          role="tabpanel"
+          aria-labelledby="tab-performance"
         >
-          <path
-            d="M12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0-4a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1Zm0 16a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1Zm9-7a1 1 0 0 1-1 1h-2a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1ZM6 12a1 1 0 0 1-1 1H3a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1Zm12.95-6.95a1 1 0 0 1 0 1.41l-1.42 1.42a1 1 0 1 1-1.41-1.41l1.42-1.42a1 1 0 0 1 1.41 0ZM7.88 16.12a1 1 0 0 1 0 1.41l-1.42 1.42a1 1 0 1 1-1.41-1.41l1.42-1.42a1 1 0 0 1 1.41 0Zm10.66 1.41a1 1 0 0 1-1.41 0l-1.42-1.42a1 1 0 1 1 1.41-1.41l1.42 1.42a1 1 0 0 1 0 1.41ZM7.88 7.88a1 1 0 0 1-1.41 0L5.05 6.46a1 1 0 1 1 1.41-1.41l1.42 1.42a1 1 0 0 1 0 1.41Z"
-          />
-        </svg>
-      </button>
-    </div>
-
-    <div class="grid2">
-      <div class="col">
-        <div class="sectionTitle">Automation</div>
-
-        <div class="row">
-          <div class="check">
-            <input id="autoSend" type="checkbox" checked />
-            <label for="autoSend">
-              <span>Auto-send</span>
-              <span class="note">Hold Shift while accepting dictation to skip auto-send</span>
-            </label>
+          <div class="sectionTitle">Performance &amp; UI</div>
+          <div class="row">
+            <div class="check">
+              <input id="trimChatDom" type="checkbox" />
+              <label for="trimChatDom">
+                <span>Trim chat DOM</span>
+                <span class="note">Keeps only last N messages in the page DOM</span>
+              </label>
+            </div>
           </div>
-        </div>
-
-        <div class="row">
-          <div class="check">
-            <input id="autoTempChat" type="checkbox" />
-            <label for="autoTempChat">Auto-enable Temporary Chat</label>
+          <div class="row" id="trimChatDomKeepRowLabel" style="display: none">
+            <label for="trimChatDomKeep">Keep messages</label>
+            <span id="trimChatDomKeepValue">10</span>
           </div>
-        </div>
-
-        <div class="sectionTitle">Input</div>
-
-        <div class="row">
-          <div class="check">
-            <input id="startDictation" type="checkbox" />
-            <label for="startDictation">
-              <span>Ctrl+Space toggle voice dictation</span>
-            </label>
+          <div class="row" id="trimChatDomKeepRowRange" style="display: none">
+            <input id="trimChatDomKeep" type="range" min="5" max="50" step="1" />
           </div>
-        </div>
-
-        <div class="row">
-          <div class="check">
-            <input id="ctrlEnterSends" type="checkbox" checked />
-            <label for="ctrlEnterSends">
-              <span>Ctrl+Enter sends</span>
-              <span class="note">Enter inserts newline, Ctrl+Enter sends</span>
-            </label>
+          <div class="hint" id="trimChatDomHint" style="display: none">
+            Older messages are hidden in-page; use the restore buttons shown in the chat.
           </div>
-        </div>
-
-        <div class="row">
-          <div class="check">
-            <input id="editLastMessageOnArrowUp" type="checkbox" checked />
-            <label for="editLastMessageOnArrowUp">Arrow up edits last message</label>
+          <div class="row">
+            <div class="check">
+              <input id="hideShareButton" type="checkbox" />
+              <label for="hideShareButton">Hide Share button</label>
+            </div>
           </div>
-        </div>
-
-        <div class="row">
-          <div class="check">
-            <input id="renameChatOnF2" type="checkbox" checked />
-            <label for="renameChatOnF2">
-              <span>F2 renames current chat</span>
-              <span class="note">Press F2 to rename current chat</span>
-            </label>
+          <div class="row">
+            <label for="wideChatWidth">Chat width</label>
+            <span id="wideChatWidthValue">0%</span>
           </div>
-        </div>
+          <div class="row">
+            <input id="wideChatWidth" type="range" min="0" max="100" step="1" />
+          </div>
+          <div class="hint">0 = base width · 100 = 95% of the viewport</div>
+        </section>
+
+        <section id="panel-codex" class="tabPanel" role="tabpanel" aria-labelledby="tab-codex">
+          <div class="sectionTitle">Codex</div>
+          <div class="row">
+            <div class="check">
+              <input id="allowAutoSendInCodex" type="checkbox" />
+              <label for="allowAutoSendInCodex">Allow auto-send in Codex</label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="check">
+              <input id="downloadGitPatchesWithShiftClick" type="checkbox" checked />
+              <label for="downloadGitPatchesWithShiftClick">
+                <span>Download Git patches with Shift-click</span>
+                <span class="note"
+                  >Hold Shift on “Copy patch” / “Copy git apply” to also save a .patch file</span
+                >
+              </label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="check">
+              <input id="clearClipboardAfterShiftDownload" type="checkbox" />
+              <label for="clearClipboardAfterShiftDownload">
+                <span>Clear clipboard after Shift-download</span>
+                <span class="note">Attempts to wipe clipboard after saving the patch</span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-dev" class="tabPanel" role="tabpanel" aria-labelledby="tab-dev">
+          <div id="developerControl" class="miniControl" aria-label="Developer Controls">
+            <div class="miniControlRow">
+              <div class="miniControlLabel">Developer</div>
+              <label class="tinySwitch" aria-label="Enable developer controls">
+                <input id="devPanelEnabled" type="checkbox" />
+                <span class="tinySwitchTrack" aria-hidden="true"></span>
+              </label>
+            </div>
+          </div>
+
+          <div id="macroRecorderControl" class="miniControl" aria-label="Macro Recorder">
+            <div class="miniControlRow">
+              <div class="miniControlLabel">Macro recorder</div>
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span id="macroRecorderStatus" class="statusChip">Off</span>
+                <label class="tinySwitch" aria-label="Enable macro recorder">
+                  <input id="macroRecorderEnabled" type="checkbox" />
+                  <span class="tinySwitchTrack" aria-hidden="true"></span>
+                </label>
+              </div>
+            </div>
+            <div class="hint" id="macroRecorderMeta" style="margin-top: 4px">
+              Ctrl/Cmd+Shift+F8 toggle
+            </div>
+          </div>
+
+          <div id="debugTracesControl" class="miniControl" aria-label="Debug Traces">
+            <div class="miniControlRow">
+              <div class="miniControlLabel">Debug traces</div>
+              <label class="tinySwitch" aria-label="Enable debug logs">
+                <input id="debugAutoExpandProjects" type="checkbox" />
+                <span class="tinySwitchTrack" aria-hidden="true"></span>
+              </label>
+            </div>
+            <select
+              id="debugTraceTarget"
+              class="miniSelect"
+              aria-label="Choose debug trace target"
+              style="display: none"
+            >
+              <option value="projects">Projects auto-expand</option>
+              <option value="editMessage">Message edit</option>
+              <option value="autoSend">Auto-send (dictation)</option>
+            </select>
+          </div>
+        </section>
       </div>
 
-      <div class="col">
-        <div class="sectionTitle">Sidebar</div>
-
-        <div class="row">
-          <div class="check">
-            <input id="autoExpandChats" type="checkbox" />
-            <label for="autoExpandChats">Auto-expand chat list</label>
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="check">
-            <input id="autoExpandProjects" type="checkbox" />
-            <label for="autoExpandProjects">Auto-expand projects list</label>
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="check">
-            <input id="autoExpandProjectItems" type="checkbox" />
-            <label for="autoExpandProjectItems">Auto-expand each project</label>
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="check">
-            <input id="oneClickDelete" type="checkbox" checked />
-            <label for="oneClickDelete">Quick Buttons</label>
-          </div>
-        </div>
-
-        <div class="sectionTitle">Performance & UI</div>
-
-        <div class="row">
-          <div class="check">
-            <input id="trimChatDom" type="checkbox" />
-            <label for="trimChatDom">
-              <span>Trim chat DOM</span>
-              <span class="note">Keeps only last N messages in the page DOM</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="row" id="trimChatDomKeepRowLabel" style="display: none">
-          <label for="trimChatDomKeep">Keep messages</label>
-          <span id="trimChatDomKeepValue">10</span>
-        </div>
-
-        <div class="row" id="trimChatDomKeepRowRange" style="display: none">
-          <input id="trimChatDomKeep" type="range" min="5" max="50" step="1" />
-        </div>
-
-        <div class="hint" id="trimChatDomHint" style="display: none">
-          Older messages are hidden in-page; use the restore buttons shown in the chat.
-        </div>
-
-        <div class="row">
-          <div class="check">
-            <input id="hideShareButton" type="checkbox" />
-            <label for="hideShareButton">Hide Share button</label>
-          </div>
-        </div>
-
-        <div class="row">
-          <label for="wideChatWidth">Chat width</label>
-          <span id="wideChatWidthValue">0%</span>
-        </div>
-
-        <div class="row">
-          <input id="wideChatWidth" type="range" min="0" max="100" step="1" />
-        </div>
-
-        <div class="hint">0 = base width · 100 = 95% of the viewport</div>
-
-        <div class="sectionTitle">Codex</div>
-
-        <div class="row">
-          <div class="check">
-            <input id="allowAutoSendInCodex" type="checkbox" />
-            <label for="allowAutoSendInCodex">Allow auto-send in Codex</label>
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="check">
-            <input id="downloadGitPatchesWithShiftClick" type="checkbox" checked />
-            <label for="downloadGitPatchesWithShiftClick">
-              <span>Download Git patches with Shift-click</span>
-              <span class="note"
-                >Hold Shift on “Copy patch” / “Copy git apply” to also save a .patch file</span
-              >
-            </label>
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="check">
-            <input id="clearClipboardAfterShiftDownload" type="checkbox" />
-            <label for="clearClipboardAfterShiftDownload">
-              <span>Clear clipboard after Shift-download</span>
-              <span class="note">Attempts to wipe clipboard after saving the patch</span>
-            </label>
-          </div>
-        </div>
+      <div class="tabBar" role="tablist" aria-label="Settings sections">
+        <button
+          id="tab-automation"
+          class="tabButton"
+          type="button"
+          role="tab"
+          aria-controls="panel-automation"
+        >
+          Automation
+        </button>
+        <button
+          id="tab-input"
+          class="tabButton"
+          type="button"
+          role="tab"
+          aria-controls="panel-input"
+        >
+          Input
+        </button>
+        <button
+          id="tab-sidebar"
+          class="tabButton"
+          type="button"
+          role="tab"
+          aria-controls="panel-sidebar"
+        >
+          Sidebar
+        </button>
+        <button
+          id="tab-performance"
+          class="tabButton"
+          type="button"
+          role="tab"
+          aria-controls="panel-performance"
+        >
+          Performance
+        </button>
+        <button
+          id="tab-codex"
+          class="tabButton"
+          type="button"
+          role="tab"
+          aria-controls="panel-codex"
+        >
+          Codex
+        </button>
+        <button id="tab-dev" class="tabButton" type="button" role="tab" aria-controls="panel-dev">
+          Dev
+        </button>
       </div>
-    </div>
-
-    <div id="developerControl" class="miniControl" aria-label="Developer Controls">
-      <div class="miniControlRow">
-        <div class="miniControlLabel">Developer</div>
-        <label class="tinySwitch" aria-label="Enable developer controls">
-          <input id="devPanelEnabled" type="checkbox" />
-          <span class="tinySwitchTrack" aria-hidden="true"></span>
-        </label>
-      </div>
-    </div>
-
-    <div id="macroRecorderControl" class="miniControl" aria-label="Macro Recorder">
-      <div class="miniControlRow">
-        <div class="miniControlLabel">Macro recorder</div>
-        <div style="display: flex; align-items: center; gap: 8px">
-          <span id="macroRecorderStatus" class="statusChip">Off</span>
-          <label class="tinySwitch" aria-label="Enable macro recorder">
-            <input id="macroRecorderEnabled" type="checkbox" />
-            <span class="tinySwitchTrack" aria-hidden="true"></span>
-          </label>
-        </div>
-      </div>
-      <div class="hint" id="macroRecorderMeta" style="margin-top: 4px">
-        Ctrl/Cmd+Shift+F8 toggle
-      </div>
-    </div>
-
-    <div id="debugTracesControl" class="miniControl" aria-label="Debug Traces">
-      <div class="miniControlRow">
-        <div class="miniControlLabel">Debug traces</div>
-        <label class="tinySwitch" aria-label="Enable debug logs">
-          <input id="debugAutoExpandProjects" type="checkbox" />
-          <span class="tinySwitchTrack" aria-hidden="true"></span>
-        </label>
-      </div>
-      <select
-        id="debugTraceTarget"
-        class="miniSelect"
-        aria-label="Choose debug trace target"
-        style="display: none"
-      >
-        <option value="projects">Projects auto-expand</option>
-        <option value="editMessage">Message edit</option>
-        <option value="autoSend">Auto-send (dictation)</option>
-      </select>
     </div>
 
     <script src="dist/popup.js"></script>
