@@ -597,6 +597,10 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("beforeinput", handleBeforeInput, true);
     },
+    __test: {
+      handleKeyDown: (e: KeyboardEvent) => handleKeyDown(e),
+      handleBeforeInput: (e: InputEvent) => handleBeforeInput(e)
+    },
     getStatus: () => ({ active: ctx.settings.ctrlEnterSends })
   };
 }
