@@ -6,6 +6,7 @@ import { isDisabled, isElementVisible, isVisible, norm } from "../lib/utils";
 interface DictationConfig {
   autoSendEnabled: boolean;
   allowAutoSendInCodex: boolean;
+  autoSendDelayMs: number;
   finalTextTimeoutMs: number;
   finalTextQuietMs: number;
   sendAckTimeoutMs: number;
@@ -36,6 +37,7 @@ const TRANSCRIBE_HOOK_SOURCE = "tm-dictation-transcribe";
 const DEFAULT_CONFIG: DictationConfig = {
   autoSendEnabled: true,
   allowAutoSendInCodex: true,
+  autoSendDelayMs: 3000,
   finalTextTimeoutMs: 25000,
   finalTextQuietMs: 320,
   sendAckTimeoutMs: 4500,
@@ -196,6 +198,164 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     qs<HTMLElement>('[role="button"][aria-label*="Send"]') ||
     qs<HTMLElement>('button[aria-label*="Отправ"]') ||
     null;
+
+  let countdownRoot: HTMLElement | null = null;
+  let countdownRing: SVGCircleElement | null = null;
+  let countdownDigit: HTMLElement | null = null;
+
+  const ensureCountdownStyle = () => {
+    if (document.getElementById("tm-autosend-style")) return;
+    const style = document.createElement("style");
+    style.id = "tm-autosend-style";
+    style.textContent = `
+      #tm-autosend-countdown {
+        width: 36px;
+        height: 36px;
+        position: relative;
+        display: none;
+        pointer-events: none;
+        color: var(--text-secondary, var(--text-color-secondary, #9ca3af));
+        opacity: 0.95;
+        flex: 0 0 36px;
+      }
+      #tm-autosend-countdown .tm-autosend-svg {
+        width: 36px;
+        height: 36px;
+        transform: rotate(-90deg);
+      }
+      #tm-autosend-countdown .tm-autosend-track {
+        fill: none;
+        stroke: color-mix(in srgb, currentColor 28%, transparent);
+        stroke-width: 2;
+      }
+      #tm-autosend-countdown .tm-autosend-progress {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2.5;
+        stroke-linecap: round;
+        transition: stroke-dashoffset 80ms linear;
+      }
+      #tm-autosend-countdown .tm-autosend-digit {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        font-size: 12px;
+        font-weight: 600;
+        color: currentColor;
+      }
+    `;
+    document.head.appendChild(style);
+  };
+
+  const ensureCountdownUi = () => {
+    if (countdownRoot && document.contains(countdownRoot)) return countdownRoot;
+
+    ensureCountdownStyle();
+
+    const sendBtn = findSendButton();
+    const preferredContainer = sendBtn?.parentElement;
+    const fallbackContainer = document.querySelector<HTMLElement>(
+      '[data-testid="composer-footer-actions"]'
+    );
+    const container = preferredContainer ?? fallbackContainer;
+    if (!container) return null;
+
+    const existing = document.getElementById("tm-autosend-countdown") as HTMLElement | null;
+    if (existing) {
+      countdownRoot = existing;
+      countdownRing = existing.querySelector<SVGCircleElement>(".tm-autosend-progress");
+      countdownDigit = existing.querySelector<HTMLElement>(".tm-autosend-digit");
+      return countdownRoot;
+    }
+
+    const root = document.createElement("div");
+    root.id = "tm-autosend-countdown";
+    root.setAttribute("aria-hidden", "true");
+    root.innerHTML = `
+      <svg class="tm-autosend-svg" viewBox="0 0 36 36" aria-hidden="true" focusable="false">
+        <circle class="tm-autosend-track" cx="18" cy="18" r="15"></circle>
+        <circle class="tm-autosend-progress" cx="18" cy="18" r="15"></circle>
+      </svg>
+      <div class="tm-autosend-digit">3</div>
+    `;
+
+    if (preferredContainer) {
+      container.insertBefore(root, container.firstChild);
+    } else {
+      container.appendChild(root);
+    }
+
+    countdownRoot = root;
+    countdownRing = root.querySelector<SVGCircleElement>(".tm-autosend-progress");
+    countdownDigit = root.querySelector<HTMLElement>(".tm-autosend-digit");
+    return countdownRoot;
+  };
+
+  const showCountdown = () => {
+    const root = ensureCountdownUi();
+    if (!root) return;
+    root.style.display = "block";
+  };
+
+  const updateCountdown = (remainingMs: number, totalMs: number) => {
+    const root = ensureCountdownUi();
+    if (!root) return;
+
+    const ring = countdownRing;
+    const digit = countdownDigit;
+    const clampedRemaining = Math.max(0, Math.min(totalMs, remainingMs));
+    const progress = totalMs > 0 ? 1 - clampedRemaining / totalMs : 1;
+
+    if (ring) {
+      const radius = Number(ring.getAttribute("r") || "15");
+      const circumference = 2 * Math.PI * radius;
+      ring.style.strokeDasharray = String(circumference);
+      ring.style.strokeDashoffset = String(circumference * (1 - progress));
+    }
+
+    if (digit) {
+      const seconds = Math.max(1, Math.ceil(clampedRemaining / 1000));
+      digit.textContent = String(seconds);
+    }
+  };
+
+  const hideCountdown = () => {
+    if (!countdownRoot) return;
+    countdownRoot.style.display = "none";
+  };
+
+  const cleanupCountdownUi = () => {
+    if (countdownRoot) countdownRoot.remove();
+    countdownRoot = null;
+    countdownRing = null;
+    countdownDigit = null;
+  };
+
+  const runCountdown = async (totalMs: number, isCanceled: () => boolean) => {
+    if (totalMs <= 0) return !isCanceled();
+    showCountdown();
+    const startedAt = performance.now();
+    const tickMs = 80;
+
+    while (true) {
+      if (isCanceled()) {
+        hideCountdown();
+        return false;
+      }
+
+      const elapsed = performance.now() - startedAt;
+      const remainingMs = Math.max(0, totalMs - elapsed);
+      updateCountdown(remainingMs, totalMs);
+
+      if (remainingMs <= 0) {
+        hideCountdown();
+        return true;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, tickMs));
+    }
+  };
 
   const isSubmitDictationButton = (btn: Element | null) => {
     if (!btn) return false;
@@ -817,6 +977,12 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         return;
       }
 
+      const countdownOk = await runCountdown(cfg.autoSendDelayMs, () => cancelByShift);
+      if (!countdownOk) {
+        tmLog("FLOW", "send skipped by shift during countdown");
+        return;
+      }
+
       const okGen = await stopGeneratingIfPossible(20000);
       if (!okGen) {
         tmLog("FLOW", "abort: still generating");
@@ -835,6 +1001,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         preview: String((e && (e as Error).stack) || (e as Error).message || e)
       });
     } finally {
+      hideCountdown();
       window.removeEventListener("keydown", handleShiftKey, true);
       inFlight = false;
       tmLog("FLOW", "submit click flow end");
@@ -1184,6 +1351,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       window.removeEventListener("message", handleTranscribeMessage);
       setPathWatcherEnabled(false);
       disconnectDictationObserver();
+      cleanupCountdownUi();
     },
     __test: {
       runAutoSendFlow: (snapshotOverride?: string, initialShiftHeld?: boolean) =>

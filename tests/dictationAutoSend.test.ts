@@ -240,7 +240,10 @@ describe("dictationAutoSend", () => {
     input.textContent = "Привет";
     input.innerText = "Привет";
 
-    await vi.advanceTimersByTimeAsync(800);
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(requestSubmit).toHaveBeenCalledTimes(0);
+
+    await vi.advanceTimersByTimeAsync(1200);
     await Promise.resolve(flow);
 
     expect(requestSubmit).toHaveBeenCalledTimes(1);
@@ -305,7 +308,7 @@ describe("dictationAutoSend", () => {
     nowSpy.mockRestore();
   });
 
-  it("auto-send flow does not submit when Shift cancels in-flight send", async () => {
+  it("auto-send flow does not submit when Shift cancels during countdown", async () => {
     vi.useFakeTimers();
     const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => Date.now());
 
@@ -344,12 +347,13 @@ describe("dictationAutoSend", () => {
     (form as unknown as { requestSubmit: unknown }).requestSubmit = requestSubmit;
 
     const flow = testApi.runAutoSendFlow?.("", false);
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", bubbles: true }));
-
     input.textContent = "Текст";
     input.innerText = "Текст";
 
-    await vi.advanceTimersByTimeAsync(26000);
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(1500);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", bubbles: true }));
+    await vi.advanceTimersByTimeAsync(2600);
     await Promise.resolve(flow);
 
     expect(requestSubmit).toHaveBeenCalledTimes(0);
