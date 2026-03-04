@@ -397,6 +397,7 @@
         display: inline-flex;
         width: 26px;
         height: 14px;
+        cursor: pointer;
       }
 
       .tinySwitch input {
@@ -415,11 +416,12 @@
         height: 100%;
         border-radius: 999px;
         border: 1px solid var(--control-border);
-        background: color-mix(in srgb, var(--muted) 18%, transparent);
+        background: var(--toggle-bg);
         position: relative;
         transition:
           background 140ms ease,
-          border-color 140ms ease;
+          border-color 140ms ease,
+          box-shadow 140ms ease;
       }
 
       .tinySwitchTrack::after {
@@ -431,7 +433,7 @@
         height: 10px;
         border-radius: 50%;
         background: var(--surface);
-        border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+        border: 1px solid var(--control-border);
         transition:
           transform 140ms ease,
           border-color 140ms ease;
@@ -448,7 +450,16 @@
       }
 
       .tinySwitch input:focus-visible + .tinySwitchTrack {
-        box-shadow: 0 0 0 2px var(--focus);
+        box-shadow: 0 0 0 3px var(--focus);
+      }
+
+      .tinySwitch input:disabled + .tinySwitchTrack {
+        opacity: 0.6;
+      }
+
+      .tinySwitch input:disabled + .tinySwitchTrack,
+      .tinySwitch input:disabled + .tinySwitchTrack::after {
+        cursor: not-allowed;
       }
       .statusChip {
         display: inline-flex;
@@ -669,6 +680,16 @@
       </div>
     </div>
 
+    <div id="developerControl" class="miniControl" aria-label="Developer Controls">
+      <div class="miniControlRow">
+        <div class="miniControlLabel">Developer</div>
+        <label class="tinySwitch" aria-label="Enable developer controls">
+          <input id="devPanelEnabled" type="checkbox" />
+          <span class="tinySwitchTrack" aria-hidden="true"></span>
+        </label>
+      </div>
+    </div>
+
     <div id="macroRecorderControl" class="miniControl" aria-label="Macro Recorder">
       <div class="miniControlRow">
         <div class="miniControlLabel">Macro recorder</div>
@@ -703,16 +724,6 @@
         <option value="editMessage">Message edit</option>
         <option value="autoSend">Auto-send (dictation)</option>
       </select>
-    </div>
-
-    <div id="developerControl" class="miniControl" aria-label="Developer Controls">
-      <div class="miniControlRow">
-        <div class="miniControlLabel">Developer</div>
-        <label class="tinySwitch" aria-label="Enable developer controls">
-          <input id="devPanelEnabled" type="checkbox" />
-          <span class="tinySwitchTrack" aria-hidden="true"></span>
-        </label>
-      </div>
     </div>
 
     <script src="dist/popup.js"></script>
