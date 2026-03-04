@@ -26,3 +26,9 @@ describe("normalizeSettings renameChatOnF2", () => {
     expect(normalizeSettings({ renameChatOnF2: "false" }).renameChatOnF2).toBe(true);
   });
 });
+
+describe("normalizeSettings debugTraceTarget", () => {
+  it("accepts autoSend target", () => {
+    expect(normalizeSettings({ debugTraceTarget: "autoSend" }).debugTraceTarget).toBe("autoSend");
+  });
+});
