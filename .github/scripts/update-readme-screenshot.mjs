@@ -19,6 +19,17 @@ const screenshotPath = resolve("docs/images/popup-dark.jpeg");
 const readmePath = resolve("README.md");
 const markerStart = "<!-- popup-screenshot:start -->";
 const markerEnd = "<!-- popup-screenshot:end -->";
+const tabIds = [
+  "tab-automation",
+  "tab-input",
+  "tab-sidebar",
+  "tab-performance",
+  "tab-codex",
+  "tab-dev"
+];
+const gridColumns = 3;
+const gridGapPx = 12;
+const gridPaddingPx = 12;
 const popupDefaults = {
   autoSend: true,
   allowAutoSendInCodex: true,
@@ -37,18 +48,18 @@ const popupDefaults = {
 const browser = await chromium.launch({ headless: true });
 
 try {
-  const page = await browser.newPage({
+  const popupPage = await browser.newPage({
     viewport: { width: 320, height: 900 },
     colorScheme: "dark"
   });
 
-  await page.goto(`file://${popupPath}`, { waitUntil: "load" });
-  await page.evaluate(() => {
+  await popupPage.goto(`file://${popupPath}`, { waitUntil: "load" });
+  await popupPage.evaluate(() => {
     document.documentElement.setAttribute("data-theme", "dark");
     const toggle = document.getElementById("qqrm-theme-toggle");
     if (toggle) toggle.setAttribute("data-mode", "dark");
   });
-  await page.waitForFunction(
+  await popupPage.waitForFunction(
     ({ expected }) => {
       return Object.entries(expected).every(([id, value]) => {
         const el = document.getElementById(id);
@@ -57,13 +68,98 @@ try {
     },
     { expected: popupDefaults }
   );
-  await page.waitForTimeout(150);
+  await popupPage.waitForTimeout(150);
 
-  await page.locator("body").screenshot({
-    path: screenshotPath,
-    type: "jpeg",
-    quality: 90
+  const popupSnapshots = [];
+  for (const tabId of tabIds) {
+    await popupPage.click(`#${tabId}`);
+    await popupPage.waitForFunction(
+      (id) => document.getElementById(id)?.getAttribute("aria-selected") === "true",
+      tabId
+    );
+    await popupPage.waitForTimeout(80);
+    popupSnapshots.push(await popupPage.locator("body").screenshot({ type: "png" }));
+  }
+
+  const reviewPage = await browser.newPage({
+    viewport: { width: 1920, height: 3000 },
+    colorScheme: "dark"
   });
+  const gridRows = Math.ceil(tabIds.length / gridColumns);
+  const imageDataUrls = popupSnapshots.map(
+    (snapshot) => `data:image/png;base64,${snapshot.toString("base64")}`
+  );
+
+  await reviewPage.setContent(
+    `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        background: #0f1115;
+      }
+      #grid {
+        display: grid;
+        grid-template-columns: repeat(${gridColumns}, max-content);
+        gap: ${gridGapPx}px;
+        padding: ${gridPaddingPx}px;
+        width: max-content;
+        background: #0f1115;
+      }
+      #grid img {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="grid"></div>
+    <script>
+      const data = ${JSON.stringify(imageDataUrls)};
+      const grid = document.getElementById("grid");
+      for (const src of data) {
+        const img = new Image();
+        img.src = src;
+        grid.appendChild(img);
+      }
+    </script>
+  </body>
+</html>`,
+    { waitUntil: "load" }
+  );
+  await reviewPage.waitForFunction(
+    ({ expected }) =>
+      document.images.length === expected &&
+      Array.from(document.images).every((img) => img.complete),
+    { expected: tabIds.length }
+  );
+  await reviewPage.waitForFunction(
+    ({ expectedRows, expectedColumns, gapPx, paddingPx }) => {
+      const grid = document.getElementById("grid");
+      if (!grid || document.images.length === 0) return false;
+      const firstImage = document.images[0];
+      const expectedWidth =
+        firstImage.naturalWidth * expectedColumns + gapPx * (expectedColumns - 1) + paddingPx * 2;
+      const expectedHeight =
+        firstImage.naturalHeight * expectedRows + gapPx * (expectedRows - 1) + paddingPx * 2;
+      return (
+        Math.abs(grid.clientWidth - expectedWidth) <= 1 &&
+        Math.abs(grid.clientHeight - expectedHeight) <= 1
+      );
+    },
+    {
+      expectedRows: gridRows,
+      expectedColumns: gridColumns,
+      gapPx: gridGapPx,
+      paddingPx: gridPaddingPx
+    }
+  );
+
+  await reviewPage.locator("#grid").screenshot({ path: screenshotPath, type: "jpeg", quality: 90 });
+  await reviewPage.close();
+  await popupPage.close();
 
   const readme = readFileSync(readmePath, "utf8");
   const replacement = [
