@@ -4,6 +4,12 @@
 - Never commit directly to `main`.
 - Never push directly to `main`.
 - Every change must be developed on a branch prefixed with `codex/` and merged via pull request.
+- The expected result for every completed task is an opened pull request from a dedicated `codex/*` branch; do not stop at "branch pushed".
+- Use `git worktree` for task isolation: each new user task must run in a dedicated worktree directory.
+- For each new user task, create a fresh `codex/*` branch and worktree before making any file changes.
+- Canonical task setup command: `git fetch origin && git worktree add <path> -b codex/<task-name> origin/main`.
+- Run edits, checks, commits, and pushes only from the task's dedicated worktree.
+- After task completion/merge, clean up with `git worktree remove <path>` (and delete the task branch when appropriate).
 - Before opening a pull request, run all existing checks (lint, format check, typecheck, tests, etc.) and fix any issues so the PR is green.
 - If any local check fails, fix the underlying issue in the same PR so all required checks are green before creating/updating the PR.
 - Before every PR, run the same checks used by CI (or a strict superset), not ad-hoc approximations.
