@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "chat-gpt-better-experience",
-  "version": "1.0.199",
+  "version": "1.0.200",
   "description": "Auto-sends ChatGPT dictation transcripts, with optional Temporary Chat auto-enable and chat list auto-expand.",
   "permissions": ["storage", "downloads"],
   "background": {
@@ -41,5 +41,5 @@
       "id": "chatgpt-dictation-autosend@qqrm-tools"
     }
   },
-  "homepage_url": "https://github.com/qqrm/ChatGPT-Dictation-Auto-Send"
+  "homepage_url": "https://github.com/qqrm/chatgpt-better-experience"
 }
