@@ -1,6 +1,9 @@
 # Agent Instructions
 
 - Do not manually bump the extension version in `manifest.json` during PR work; release automation in the Firefox AMO pipeline handles version bumps on `main`.
+- Never commit directly to `main`.
+- Never push directly to `main`.
+- Every change must be developed on a branch prefixed with `codex/` and merged via pull request.
 - Before opening a pull request, run all existing checks (lint, format check, typecheck, tests, etc.) and fix any issues so the PR is green.
 - If any local check fails, fix the underlying issue in the same PR so all required checks are green before creating/updating the PR.
 - Before every PR, run the same checks used by CI (or a strict superset), not ad-hoc approximations.
@@ -9,5 +12,6 @@
   - Run `npm run build`, `npm run lint:amo`, and `npm run build:amo` (or `npm run verify:ci`, which includes them) using the pinned web-ext toolchain.
   - Keep the pinned web-ext version in sync between `package.json` scripts and `.github/workflows/firefox-amo-sign.yml`.
   - Inspect generated `dist/manifest.json` for correct path normalization (no duplicated `dist/` prefixes, correct background/content script paths).
+- Prefer official or well-maintained community GitHub Actions for CI/CD tasks over custom scripts; add custom scripting only when no reliable action exists and document the reason in the PR notes.
 - Include the exact command list and outcomes in PR notes.
 - CI must confirm local validation; CI should not be the first place packaging/lint regressions are discovered.

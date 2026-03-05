@@ -1,0 +1,12 @@
+branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+if [ "$branch" = "main" ]; then
+  echo "ERROR: pushing from local 'main' is blocked. Push a feature branch (codex/*) and open a PR."
+  exit 1
+fi
+
+while read local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    echo "ERROR: direct pushes to 'main' are blocked. Use a PR from a feature branch."
+    exit 1
+  fi
+done
