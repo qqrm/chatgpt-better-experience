@@ -1,1 +1,7 @@
+branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+if [ "$branch" = "main" ]; then
+  echo "ERROR: direct commits to 'main' are blocked. Create a feature branch (codex/*) and open a PR."
+  exit 1
+fi
+
 npx lint-staged
