@@ -285,7 +285,7 @@ describe("autoExpandProjects", () => {
     handle.dispose();
   });
 
-  it("one-shot: does not rearm after goal reached when the bottom project row changes (virtualized/lazy load)", async () => {
+  it("rearms after goal reached when a new project row appears (virtualized/lazy load)", async () => {
     const ctx = makeDomBusCtx({ autoExpandProjects: true, autoExpandProjectItems: true });
     const { section } = mountProjectsNav("true");
 
@@ -330,7 +330,7 @@ describe("autoExpandProjects", () => {
     await vi.advanceTimersByTimeAsync(2000);
     await vi.advanceTimersByTimeAsync(400);
 
-    expect(vpnClicks).toBe(0);
+    expect(vpnClicks).toBe(1);
 
     handle.dispose();
   });

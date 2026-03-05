@@ -96,6 +96,49 @@ describe("dictationAutoSend", () => {
     handle.dispose();
   });
 
+  it("skips dictation UI scans for unrelated keydown events", () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <form data-testid="composer">
+          <div id="prompt-textarea" contenteditable="true"></div>
+          <div data-testid="composer-footer-actions">
+            <button type="button" aria-label="Dictate button">🎙️</button>
+          </div>
+        </form>
+      </main>
+    `;
+
+    const qsaSpy = vi.spyOn(document, "querySelectorAll");
+    const handle = initDictationAutoSendFeature(
+      makeTestContext({ autoSend: true, allowAutoSendInCodex: true })
+    );
+
+    qsaSpy.mockClear();
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA", bubbles: true }));
+
+    const scannedButtonsAfterLetter = qsaSpy.mock.calls.some(
+      ([selector]) => selector === "button, [role='button']"
+    );
+    expect(scannedButtonsAfterLetter).toBe(false);
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        code: "Enter",
+        ctrlKey: true,
+        bubbles: true
+      })
+    );
+
+    const scannedButtonsAfterCtrlEnter = qsaSpy.mock.calls.some(
+      ([selector]) => selector === "button, [role='button']"
+    );
+    expect(scannedButtonsAfterCtrlEnter).toBe(true);
+
+    handle.dispose();
+    qsaSpy.mockRestore();
+  });
   it("still detects dictation submit when Done is next to dictation controls", () => {
     document.body.innerHTML = `
       <main role="main">

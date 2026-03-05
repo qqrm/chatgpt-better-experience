@@ -10,6 +10,17 @@ const ONE_CLICK_DELETE_STYLE_ID = "cgptbe-silent-delete-style";
 const ONE_CLICK_DELETE_ROOT_FLAG = "data-cgptbe-silent-delete";
 const ONE_CLICK_DELETE_BUTTON_SELECTOR =
   'button.__menu-item-trailing-btn[data-trailing-button][data-testid^="history-item-"]';
+const ONE_CLICK_DELETE_NAV_RELEVANT_SELECTOR = [
+  ONE_CLICK_DELETE_BUTTON_SELECTOR,
+  "button[data-trailing-button]",
+  "button.__menu-item-trailing-btn",
+  "button[data-testid*='history-item' i]",
+  "[data-sidebar-item='true']",
+  ".group.__menu-item",
+  "a[href^='/c/']",
+  "a[href*='/c/']",
+  "nav[aria-label='Chat history']"
+].join(", ");
 
 const ONE_CLICK_DELETE_BTN_H = 36;
 const ONE_CLICK_DELETE_BTN_W = 150;
@@ -539,6 +550,28 @@ export const buildOneClickDeleteStyleText = () => `
     to{ opacity: 1; transform: translate(-50%, -50%) translateY(0); }
   }
 `;
+
+const matchesSelectorOrDescendant = (el: Element, selector: string) => {
+  try {
+    return el.matches(selector) || el.querySelector(selector) !== null;
+  } catch {
+    return false;
+  }
+};
+
+export const isOneClickDeleteRelevantNavDelta = (added: Element[], removed: Element[]) => {
+  // Keep synthetic empty deltas (used in tests and some mocked integrations) as relevant.
+  if (added.length === 0 && removed.length === 0) return true;
+
+  for (const el of added) {
+    if (matchesSelectorOrDescendant(el, ONE_CLICK_DELETE_NAV_RELEVANT_SELECTOR)) return true;
+  }
+  for (const el of removed) {
+    if (matchesSelectorOrDescendant(el, ONE_CLICK_DELETE_NAV_RELEVANT_SELECTOR)) return true;
+  }
+
+  return false;
+};
 
 export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   const qsa = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
@@ -1516,6 +1549,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       ctx.domBus?.onDelta("nav", (delta) => {
         state.stats.observerCalls += 1;
         state.stats.nodesProcessed += delta.added.length + delta.removed.length;
+        if (!isOneClickDeleteRelevantNavDelta(delta.added, delta.removed)) return;
         state.hookScanSchedule?.();
         if (state.recentlyDeleted.size > 0) state.deleteSweepSchedule?.();
       }) ?? null;

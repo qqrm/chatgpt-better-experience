@@ -4,6 +4,7 @@ import { isElementVisible, norm } from "../lib/utils";
 const AUTO_EXPAND_START_TIMEOUT_MS = 3500;
 const AUTO_EXPAND_NAV_TIMEOUT_MS = 1500;
 const AUTO_EXPAND_POST_CLICK_DELAY_MS = 1700;
+const AUTO_EXPAND_NOOP_RETRY_DELAY_MS = 1200;
 const AUTO_EXPAND_DEBOUNCE_MS = 250;
 const AUTO_EXPAND_USER_COOLDOWN_MS = 5000;
 const AUTO_EXPAND_MAX_ATTEMPTS = 120;
@@ -16,6 +17,14 @@ const DBG_MAX_TREE_DEPTH = 10;
 const DBG_MAX_TREE_LINES = 500;
 const DBG_MUTATION_SUMMARY_MAX_TARGETS = 5;
 const DBG_MUTATION_SUMMARY_MAX_ATTR_CHANGES = 12;
+const AUTO_EXPAND_PROJECTS_RELEVANT_SELECTOR = [
+  'nav[aria-label="Chat history"]',
+  'a[href*="/project"]',
+  '[class*="sidebar-expando-section"]',
+  "button[aria-expanded]",
+  '[data-state="open"]',
+  '[data-state="closed"]'
+].join(", ");
 
 let lastClickedProjectHref: string | null = null;
 let lastClickedProjectAt = 0;
@@ -34,6 +43,27 @@ type ExpandStats = {
 };
 
 type ExpandSectionResult = { expanded: boolean; clicked: boolean };
+const matchesSelectorOrDescendant = (el: Element, selector: string) => {
+  try {
+    return el.matches(selector) || el.querySelector(selector) !== null;
+  } catch {
+    return false;
+  }
+};
+
+export const isAutoExpandProjectsRelevantNavDelta = (added: Element[], removed: Element[]) => {
+  // Keep synthetic empty deltas (used in tests and some mocked integrations) as relevant.
+  if (added.length === 0 && removed.length === 0) return true;
+
+  for (const el of added) {
+    if (matchesSelectorOrDescendant(el, AUTO_EXPAND_PROJECTS_RELEVANT_SELECTOR)) return true;
+  }
+  for (const el of removed) {
+    if (matchesSelectorOrDescendant(el, AUTO_EXPAND_PROJECTS_RELEVANT_SELECTOR)) return true;
+  }
+
+  return false;
+};
 
 function isFeatureEnabled(ctx: FeatureContext): boolean {
   return ctx.settings.autoExpandProjects || ctx.settings.autoExpandProjectItems;
@@ -228,6 +258,28 @@ function findProjectsSection(nav: HTMLElement): HTMLElement | null {
     if (t.includes("projects") || t.includes("проекты")) return sec;
   }
   return null;
+}
+
+function normalizeProjectHref(href: string): string {
+  const raw = String(href || "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw, window.location.origin);
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return raw;
+  }
+}
+
+function collectProjectHrefs(section: HTMLElement): Set<string> {
+  const out = new Set<string>();
+  for (const link of Array.from(
+    section.querySelectorAll<HTMLAnchorElement>('a[href*="/project"]')
+  )) {
+    const href = normalizeProjectHref(link.getAttribute("href") ?? link.href ?? "");
+    if (href) out.add(href);
+  }
+  return out;
 }
 
 function isSectionCollapsed(section: HTMLElement): boolean {
@@ -686,6 +738,37 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   let navReadyTimer: number | null = null;
   let postClickTimer: number | null = null;
   let goalReached = false;
+  let goalSnapshotProjectHrefs = new Set<string>();
+
+  const refreshGoalSnapshot = (): void => {
+    const nav = getChatHistoryNav(ctx);
+    const section = nav ? findProjectsSection(nav) : null;
+    goalSnapshotProjectHrefs = section ? collectProjectHrefs(section) : new Set<string>();
+  };
+
+  const hasNewProjectRowsSinceGoal = (): boolean => {
+    if (!goalReached) return false;
+    const nav = getChatHistoryNav(ctx);
+    const section = nav ? findProjectsSection(nav) : null;
+    if (!section) return false;
+    const current = collectProjectHrefs(section);
+    if (current.size === 0) return false;
+    for (const href of current) {
+      if (!goalSnapshotProjectHrefs.has(href)) return true;
+    }
+    return false;
+  };
+
+  const tryRearmAfterGoal = (reason: string): boolean => {
+    if (!goalReached) return true;
+    if (!hasNewProjectRowsSinceGoal()) return false;
+    goalReached = false;
+    attempts = 0;
+    if (isProjectsDebugEnabled(ctx)) {
+      console.log(`${DBG_PREFIX} rearm after goal (${reason}) due to new project rows`);
+    }
+    return true;
+  };
 
   const bindUserInteractionGuards = (nav: HTMLElement | null) => {
     cleanupUserListeners?.();
@@ -757,11 +840,19 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
           postClickTimer = null;
           schedule("post-click");
         }, AUTO_EXPAND_POST_CLICK_DELAY_MS);
+      } else if (!done) {
+        // Keep probing while sidebar content is still settling, even when nav deltas are sparse.
+        if (postClickTimer !== null) window.clearTimeout(postClickTimer);
+        postClickTimer = window.setTimeout(() => {
+          postClickTimer = null;
+          schedule("noop-retry");
+        }, AUTO_EXPAND_NOOP_RETRY_DELAY_MS);
       }
 
       if (done) {
         if (isProjectsDebugEnabled(ctx))
           console.log(`${DBG_PREFIX} goal reached; idle until reload or re-enable`);
+        refreshGoalSnapshot();
         goalReached = true;
         attempts = 0;
         if (postClickTimer !== null) window.clearTimeout(postClickTimer);
@@ -801,15 +892,16 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     ctx.domBus?.onRoots((roots) => {
       bindUserInteractionGuards((roots.nav as HTMLElement | null) ?? null);
       if (!isFeatureEnabled(ctx)) return;
-      if (goalReached) return;
+      if (!tryRearmAfterGoal("route")) return;
       attempts = 0;
       schedule("route");
     }) ?? null;
 
   unsubNavDelta =
-    ctx.domBus?.onDelta("nav", () => {
+    ctx.domBus?.onDelta("nav", (delta) => {
       if (!isFeatureEnabled(ctx)) return;
-      if (goalReached) return;
+      if (!isAutoExpandProjectsRelevantNavDelta(delta.added, delta.removed)) return;
+      if (!tryRearmAfterGoal("mutation")) return;
       schedule("mutation");
     }) ?? null;
 
@@ -841,6 +933,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
 
       if (!nextEnabled) {
         goalReached = true;
+        goalSnapshotProjectHrefs = new Set<string>();
         attempts = 0;
         if (postClickTimer !== null) window.clearTimeout(postClickTimer);
         postClickTimer = null;
@@ -855,6 +948,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
 
       if (!prevEnabled || addedCapabilities) {
         goalReached = false;
+        goalSnapshotProjectHrefs = new Set<string>();
         attempts = 0;
         refreshNavBindings();
         schedule(!prevEnabled ? "settings-enable" : "settings-enable-added");
