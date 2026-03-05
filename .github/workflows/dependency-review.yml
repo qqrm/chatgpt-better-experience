@@ -15,5 +15,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
+      - name: Detect dependency graph support
+        id: detect
+        uses: actions/github-script@v8
+        with:
+          script: |
+            try {
+              await github.request("GET /repos/{owner}/{repo}/dependency-graph/sbom", {
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              });
+              core.setOutput("dependency_graph_supported", "true");
+            } catch (error) {
+              core.warning(
+                `Dependency graph is unavailable for this repository (${error.status ?? "unknown"}). Falling back to npm audit gate.`
+              );
+              core.setOutput("dependency_graph_supported", "false");
+            }
+
       - name: Dependency Review
+        if: steps.detect.outputs.dependency_graph_supported == 'true'
         uses: actions/dependency-review-action@v4
+
+      - name: Setup Node.js for fallback audit
+        if: steps.detect.outputs.dependency_graph_supported != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Fallback dependency gate (npm audit)
+        if: steps.detect.outputs.dependency_graph_supported != 'true'
+        run: npm audit --audit-level=high --omit=dev --package-lock-only
