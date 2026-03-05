@@ -1335,6 +1335,13 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       return;
     }
 
+    const handlesDictationHotkey = isDictationHotkey(e);
+    const mayAffectDictationUi =
+      e.code === "Space" || ((e.ctrlKey || e.metaKey) && e.key === "Enter");
+
+    // Most key presses are irrelevant for dictation controls; avoid full UI scans for them.
+    if (!handlesDictationHotkey && !mayAffectDictationUi) return;
+
     refreshDictationObserver();
 
     const submitDictationVisible = getDictationUiState() === "SUBMIT";
@@ -1373,7 +1380,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       return;
     }
 
-    if (isDictationHotkey(e)) {
+    if (handlesDictationHotkey) {
       tmLog("KEY", "dictation hotkey received");
       if (!ctx.settings.startDictation) return;
       if (!isSafeToTriggerDictation()) {
