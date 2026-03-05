@@ -34,20 +34,24 @@ jobs:
               - 'content.ts'
               - 'popup.ts'
               - 'popup.html'
-              - 'settings.ts'
+              - 'manifest.json'
+              - 'amo-metadata.json'
+              - 'icons/**'
+              - 'icons-src/**'
               - 'scripts/**'
               - 'package.json'
               - 'package-lock.json'
               - 'tsconfig*.json'
               - 'vitest.config.*'
               - 'eslint.config.*'
-              - '.github/actions/setup-node-npm/**'
+              - '.github/workflows/**'
+              - '.github/actions/**'
       - name: Skip heavy CI when not needed
         if: steps.changes.outputs.heavy != 'true'
         run: |
-          echo "No heavy changes detected (src/tests/tooling)."
+          echo "No heavy changes detected (src/tests/tooling/workflows/packaging)."
           echo "This job exists to satisfy required check context 'build' on protected main."
-          echo "Skipping npm verify:ci for manifest/docs/icons/workflow-only changes."
+          echo "Skipping npm verify:ci for docs-only changes."
 
       - name: Setup Node and install dependencies
         if: steps.changes.outputs.heavy == 'true'
