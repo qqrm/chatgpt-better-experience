@@ -46,6 +46,8 @@ const debugAutoExpandProjectsEl = mustGetElement<HTMLInputElement>("debugAutoExp
 const debugTraceTargetEl = mustGetElement<HTMLSelectElement>("debugTraceTarget");
 const debugTracesControlEl = mustGetElement<HTMLElement>("debugTracesControl");
 const devPanelEnabledEl = mustGetElement<HTMLInputElement>("devPanelEnabled");
+const panelContainerEl = mustGetElement<HTMLElement>("panelContainer");
+const tabBarEl = document.querySelector<HTMLElement>(".tabBar");
 
 const popupTabs: PopupTab[] = ["automation", "input", "sidebar", "performance", "codex", "dev"];
 const tabButtonEls: Record<PopupTab, HTMLButtonElement> = {
@@ -112,6 +114,42 @@ const setActiveTab = async (tab: PopupTab, persist = true) => {
   if (persist) {
     await storagePort.set({ popupActiveTab: tab });
   }
+};
+
+const measureMaxPanelHeightAndLock = () => {
+  const panelContainerWidth = panelContainerEl.clientWidth;
+  let maxHeight = 0;
+
+  for (const panel of Object.values(tabPanelEls)) {
+    const prevDisplay = panel.style.display;
+    const prevPosition = panel.style.position;
+    const prevVisibility = panel.style.visibility;
+    const prevPointerEvents = panel.style.pointerEvents;
+    const prevLeft = panel.style.left;
+    const prevTop = panel.style.top;
+    const prevWidth = panel.style.width;
+
+    panel.style.display = "block";
+    panel.style.position = "absolute";
+    panel.style.visibility = "hidden";
+    panel.style.pointerEvents = "none";
+    panel.style.left = "-10000px";
+    panel.style.top = "0";
+    panel.style.width = `${panelContainerWidth}px`;
+
+    maxHeight = Math.max(maxHeight, panel.scrollHeight);
+
+    panel.style.display = prevDisplay;
+    panel.style.position = prevPosition;
+    panel.style.visibility = prevVisibility;
+    panel.style.pointerEvents = prevPointerEvents;
+    panel.style.left = prevLeft;
+    panel.style.top = prevTop;
+    panel.style.width = prevWidth;
+  }
+
+  panelContainerEl.style.height = `${maxHeight}px`;
+  panelContainerEl.style.overflowY = "auto";
 };
 
 const attachThemeMediaListener = () => {
@@ -182,6 +220,7 @@ function renderMacroRecorderStatus(status: unknown, _lastExportAt: unknown) {
 
 const setDebugTraceTargetVisible = (visible: boolean) => {
   debugTraceTargetEl.style.display = visible ? "" : "none";
+  measureMaxPanelHeightAndLock();
 };
 
 const updateDeveloperControlsVisibility = () => {
@@ -242,6 +281,7 @@ async function load() {
   renderMacroRecorderStatus(macroData.macroRecorderStatus, macroData.macroRecorderLastExportAt);
   applyThemeMode(normalizeThemeMode(themeData.popupThemeMode));
   await setActiveTab(normalizePopupTab(tabData.popupActiveTab), false);
+  measureMaxPanelHeightAndLock();
 }
 
 async function save() {
@@ -289,6 +329,14 @@ for (const tab of popupTabs) {
   });
 }
 
+tabBarEl?.addEventListener("wheel", (event) => {
+  if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+    return;
+  }
+  tabBarEl.scrollLeft += event.deltaY;
+  event.preventDefault();
+});
+
 autoSendEl.addEventListener("change", () => void save().catch(() => {}));
 allowCodexEl.addEventListener("change", () => void save().catch(() => {}));
 downloadGitPatchesWithShiftClickEl.addEventListener("change", () => void save().catch(() => {}));
@@ -319,6 +367,7 @@ debugTraceTargetEl.addEventListener("change", () => void save().catch(() => {}))
 devPanelEnabledEl.addEventListener("change", () => {
   const isDeveloperMode = !!devPanelEnabledEl.checked;
   updateDeveloperControlsVisibility();
+  measureMaxPanelHeightAndLock();
   void storagePort.set({ popupDevPanelEnabled: isDeveloperMode }).catch(() => {});
   if (!isDeveloperMode) {
     void forceDisableHiddenDevFeatures().catch(() => {});
@@ -373,6 +422,7 @@ storagePort.onChanged?.((changes) => {
     if (typeof next === "boolean") {
       devPanelEnabledEl.checked = next;
       updateDeveloperControlsVisibility();
+      measureMaxPanelHeightAndLock();
       if (!next) {
         void forceDisableHiddenDevFeatures().catch(() => {});
       }
