@@ -65,9 +65,9 @@ function makeDomBusCtx(
   };
 }
 
-function mountProjectsNav(ariaExpanded = "true") {
+function mountProjectsNav(ariaExpanded = "true", navAriaLabel = "Chat history") {
   const nav = document.createElement("nav");
-  nav.setAttribute("aria-label", "Chat history");
+  nav.setAttribute("aria-label", navAriaLabel);
 
   const section = document.createElement("div");
   section.className = "sidebar-expando-section";
@@ -164,6 +164,33 @@ describe("autoExpandProjects", () => {
     header.addEventListener("click", () => {
       headerClicks += 1;
       // Intentionally do not update aria-expanded here.
+    });
+
+    addProjectRow(section, "audit", { expanded: false });
+
+    const ctx = makeTestContext({
+      autoExpandProjects: true,
+      autoExpandProjectItems: false
+    });
+    const handle = initAutoExpandProjectsFeature(ctx);
+    const t = handle.__test as unknown as AutoExpandProjectsTestApi;
+
+    const result = t.runOnce(ctx, "test");
+
+    expect(headerClicks).toBe(1);
+    expect(result.stats.projectsExpanded).toBe(false);
+    expect(result.done).toBe(false);
+
+    handle.dispose();
+  });
+
+  it("finds Projects section with localized nav aria-label and no sidebar-expando class hint", () => {
+    const { section, header } = mountProjectsNav("false", "История чатов");
+    section.className = "custom-section-without-expando-hint";
+    let headerClicks = 0;
+    header.addEventListener("click", () => {
+      headerClicks += 1;
+      header.setAttribute("aria-expanded", "true");
     });
 
     addProjectRow(section, "audit", { expanded: false });

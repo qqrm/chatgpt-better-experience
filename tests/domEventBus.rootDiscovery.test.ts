@@ -102,4 +102,25 @@ describe("domEventBus root discovery", () => {
 
     unsubscribe();
   });
+
+  it("discovers nav root with localized aria-label", async () => {
+    document.body.innerHTML = `
+      <main role="main" id="main"></main>
+      <nav aria-label="История чатов" id="chat-nav-localized"></nav>
+    `;
+
+    const bus = createDomEventBus(makeCtx());
+    const snapshots: Array<{ nav: Element | null }> = [];
+
+    const unsubscribe = bus.onRoots((roots) => {
+      snapshots.push({ nav: roots.nav });
+    });
+
+    const nav = document.getElementById("chat-nav-localized");
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+
+    expect(snapshots.some((snap) => snap.nav === nav)).toBe(true);
+
+    unsubscribe();
+  });
 });
