@@ -30,6 +30,7 @@ interface WaitForFinalTextArgs {
   snapshot: string;
   timeoutMs: number;
   quietMs: number;
+  shouldAbort?: () => boolean;
 }
 
 interface WaitForFinalTextResult extends InputReadResult {
@@ -72,6 +73,9 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   let lastSubmitClickAt = 0;
   let lastDictationSubmitViaHotkeyAt = 0;
   let lastDictationSubmitViaMouseAt = 0;
+  let inFlightStage: "idle" | "await-final-text" | "countdown" | "sending" = "idle";
+  let internalAutoSendActionUntil = 0;
+  let cancelActiveFlow: ((reason: string) => void) | null = null;
 
   const tmLog = (scope: string, msg: string, fields?: LogFields) => {
     ctx.logger.trace("autoSend", scope, msg, fields);
@@ -525,6 +529,18 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     });
   };
 
+  const isInternalAutoSendAction = () => performance.now() < internalAutoSendActionUntil;
+
+  const markInternalAutoSendAction = (windowMs = 1200) => {
+    internalAutoSendActionUntil = performance.now() + windowMs;
+  };
+
+  const cancelInFlightAutoSend = (reason: string) => {
+    if (!inFlight || !cancelActiveFlow) return false;
+    cancelActiveFlow(reason);
+    return true;
+  };
+
   const findStopGeneratingButton = () => {
     const candidates = qsa<HTMLElement>("button, [role='button']").filter((b) => {
       const a = norm(b.getAttribute("aria-label"));
@@ -812,10 +828,14 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     return true;
   };
 
-  const ensureNotGenerating = (timeoutMs: number) =>
+  const ensureNotGenerating = (timeoutMs: number, shouldAbort?: () => boolean) =>
     new Promise<boolean>((resolve) => {
       const t0 = performance.now();
       const tick = () => {
+        if (shouldAbort?.()) {
+          resolve(false);
+          return;
+        }
         if (!findStopGeneratingButton()) {
           resolve(true);
           return;
@@ -829,21 +849,22 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       tick();
     });
 
-  const stopGeneratingIfPossible = async (timeoutMs: number) => {
+  const stopGeneratingIfPossible = async (timeoutMs: number, shouldAbort?: () => boolean) => {
+    if (shouldAbort?.()) return false;
     const stopBtn = findStopGeneratingButton();
     if (!stopBtn) return true;
 
     tmLog("SEND", "stop generating before send", { btn: describeEl(stopBtn) });
     ctx.helpers.humanClick(stopBtn, "stop generating");
 
-    const ok = await ensureNotGenerating(timeoutMs);
+    const ok = await ensureNotGenerating(timeoutMs, shouldAbort);
     if (!ok) {
       tmLog("SEND", "stop generating timeout");
     }
     return ok;
   };
 
-  const waitForFinalText = ({ snapshot, timeoutMs, quietMs }: WaitForFinalTextArgs) =>
+  const waitForFinalText = ({ snapshot, timeoutMs, quietMs, shouldAbort }: WaitForFinalTextArgs) =>
     new Promise<WaitForFinalTextResult>((resolve) => {
       const t0 = performance.now();
 
@@ -863,6 +884,11 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       });
 
       const tick = () => {
+        if (shouldAbort?.()) {
+          const curAbort = readInputText();
+          resolve({ ok: false, text: curAbort.text, kind: curAbort.kind, inputOk: curAbort.ok });
+          return;
+        }
         const cur = readInputText();
         const v = cur.text;
 
@@ -912,7 +938,8 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       tick();
     });
 
-  const clickSendWithAck = async (ackTimeoutMs: number) => {
+  const clickSendWithAck = async (ackTimeoutMs: number, shouldAbort?: () => boolean) => {
+    if (shouldAbort?.()) return false;
     const before = readInputText().text;
 
     const btn = findSendButton();
@@ -935,6 +962,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       typeof (form as unknown as { requestSubmit?: unknown }).requestSubmit === "function"
     ) {
       try {
+        markInternalAutoSendAction();
         (form as HTMLFormElement).requestSubmit(btn as unknown as HTMLButtonElement);
         submitted = true;
         tmLog("SEND", "requestSubmit", { btn: describeEl(btn) });
@@ -942,10 +970,14 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         // fall back to synthetic click
       }
     }
-    if (!submitted) ctx.helpers.humanClick(btn, "send");
+    if (!submitted) {
+      markInternalAutoSendAction();
+      ctx.helpers.humanClick(btn, "send");
+    }
 
     const t0 = performance.now();
     while (performance.now() - t0 <= ackTimeoutMs) {
+      if (shouldAbort?.()) return false;
       const cur = readInputText().text;
       const cleared = cur.trim().length === 0;
       const stopGen = findStopGeneratingButton();
@@ -988,6 +1020,8 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     let machineState = autoSendInitialState;
     const commandQueue: AutoSendCommand[] = [];
     let shiftListenerInstalled = false;
+    let canceled = false;
+    let canceledReason: string | null = null;
 
     const machineConfig = {
       autoSendDelayMs: cfg.autoSendDelayMs,
@@ -996,17 +1030,46 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       sendAckTimeoutMs: cfg.sendAckTimeoutMs
     };
 
+    const syncInFlightStageFromState = () => {
+      inFlightStage =
+        machineState.kind === "AwaitFinalText"
+          ? "await-final-text"
+          : machineState.kind === "Countdown"
+            ? "countdown"
+            : machineState.kind === "Sending"
+              ? "sending"
+              : "idle";
+    };
+
+    syncInFlightStageFromState();
+
+    const isFlowCanceled = () => canceled;
+
+    cancelActiveFlow = (reason: string) => {
+      if (canceled) return;
+      canceled = true;
+      canceledReason = reason;
+      commandQueue.length = 0;
+      hideCountdown();
+      tmLog("FLOW", "auto-send canceled", { reason, stage: inFlightStage });
+      tmContract("FLOW", { phase: "canceled", reason, stage: inFlightStage });
+    };
+
     const step = (event: AutoSendEvent): AutoSendCommand[] => {
+      if (isFlowCanceled()) return [];
       const result = autoSendReducer(machineState, event, machineConfig);
       machineState = result.state;
+      syncInFlightStageFromState();
       return result.commands;
     };
 
     const enqueue = (commands: AutoSendCommand[]) => {
+      if (isFlowCanceled()) return;
       if (commands.length) commandQueue.push(...commands);
     };
 
     const enqueueWithInlineCountdownUi = (commands: AutoSendCommand[]) => {
+      if (isFlowCanceled()) return;
       for (const command of commands) {
         if (command.type === "UpdateCountdown") {
           updateCountdown(command.remainingMs, command.totalMs);
@@ -1018,6 +1081,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     };
 
     const enqueueWithInlineHideCountdown = (commands: AutoSendCommand[]) => {
+      if (isFlowCanceled()) return;
       for (const command of commands) {
         if (command.type === "HideCountdown") {
           hideCountdown();
@@ -1029,12 +1093,14 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     };
 
     const shiftHandler = (event: KeyboardEvent) => {
+      if (isFlowCanceled()) return;
       if (event.key !== "Shift") return;
       tmLog("FLOW", "shift cancel received");
       enqueueWithInlineHideCountdown(step({ type: "ShiftPressed" }));
     };
 
     const runCountdownEffect = async (durationMs: number) => {
+      if (isFlowCanceled()) return;
       if (durationMs <= 0) {
         enqueueWithInlineHideCountdown(
           step({ type: "CountdownFinished", nowMs: performance.now() })
@@ -1044,7 +1110,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
       showCountdown();
       const tickMs = 80;
-      while (machineState.kind === "Countdown") {
+      while (machineState.kind === "Countdown" && !isFlowCanceled()) {
         const nowMs = performance.now();
         enqueueWithInlineCountdownUi(step({ type: "CountdownTick", nowMs }));
         if (machineState.kind !== "Countdown") break;
@@ -1060,6 +1126,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     };
 
     const executeCommand = async (command: AutoSendCommand) => {
+      if (isFlowCanceled()) return;
       switch (command.type) {
         case "InstallShiftListener": {
           if (!shiftListenerInstalled) {
@@ -1079,8 +1146,10 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
           const finalRes = await waitForFinalText({
             snapshot: command.snapshot,
             timeoutMs: command.timeoutMs,
-            quietMs: command.quietMs
+            quietMs: command.quietMs,
+            shouldAbort: isFlowCanceled
           });
+          if (isFlowCanceled()) return;
 
           if (!finalRes.ok) {
             enqueue(step({ type: "FinalTextFailed", reason: "timeout" }));
@@ -1110,12 +1179,14 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
           return;
         }
         case "StopGeneratingIfPossible": {
-          const ok = await stopGeneratingIfPossible(command.timeoutMs);
+          const ok = await stopGeneratingIfPossible(command.timeoutMs, isFlowCanceled);
+          if (isFlowCanceled()) return;
           enqueue(step({ type: ok ? "StopGeneratingOk" : "StopGeneratingFailed" }));
           return;
         }
         case "ClickSendWithAck": {
-          const ok = await clickSendWithAck(command.ackTimeoutMs);
+          const ok = await clickSendWithAck(command.ackTimeoutMs, isFlowCanceled);
+          if (isFlowCanceled()) return;
           enqueue(step({ type: ok ? "SendAckOk" : "SendAckTimeout" }));
           return;
         }
@@ -1154,13 +1225,13 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
       enqueue(step(event));
 
-      while (commandQueue.length > 0) {
+      while (commandQueue.length > 0 && !isFlowCanceled()) {
         const command = commandQueue.shift();
         if (!command) continue;
         await executeCommand(command);
       }
 
-      if (isAutoSendTerminalState(machineState)) {
+      if (!isFlowCanceled() && isAutoSendTerminalState(machineState)) {
         tmLog("FLOW", "send result", {
           ok: machineState.kind === "Done",
           state: machineState.kind
@@ -1181,9 +1252,19 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       if (shiftListenerInstalled) {
         window.removeEventListener("keydown", shiftHandler, true);
       }
+      cancelActiveFlow = null;
       inFlight = false;
-      tmLog("FLOW", "submit click flow end");
-      tmContract("FLOW", { phase: "end", inFlight });
+      inFlightStage = "idle";
+      tmLog("FLOW", "submit click flow end", {
+        canceled: isFlowCanceled(),
+        reason: canceledReason ?? undefined
+      });
+      tmContract("FLOW", {
+        phase: "end",
+        inFlight,
+        canceled: isFlowCanceled(),
+        reason: canceledReason ?? undefined
+      });
     }
   };
 
@@ -1384,6 +1465,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     // Пока видна галочка "принять диктовку", Ctrl+Enter должен принять диктовку и отправить сообщение
     if (submitDictationVisible && (e.ctrlKey || e.metaKey) && e.key === "Enter") {
       swallowKeyEvent(e);
+      cancelInFlightAutoSend("ctrl-enter-submit-dictation");
 
       const submitBtn = findSubmitDictationButton();
       if (submitBtn) {
@@ -1418,6 +1500,9 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       }
 
       swallowKeyEvent(e);
+      if (!e.repeat) {
+        cancelInFlightAutoSend("dictation-hotkey");
+      }
 
       if (e.repeat) {
         tmLog("KEY", "dictation hotkey repeat ignored");
@@ -1468,21 +1553,35 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       });
     }
 
-    if (
-      btn instanceof HTMLElement &&
-      !isSubmitDictationButton(btn) &&
-      isDictationButtonVisible(btn) &&
-      isDictationToggleButton(btn)
-    ) {
-      lastDictationToggleAt = performance.now();
-    }
-
     const dictationState = getDictationUiState();
     const submitBtn = dictationState === "SUBMIT" ? findSubmitDictationButton() : null;
     const isSubmitClick =
       btn instanceof HTMLElement && (isSubmitDictationButton(btn) || btn === submitBtn);
+    const isSendClick = btn instanceof HTMLElement && isSendButton(btn);
+    const isDictationToggleClick =
+      btn instanceof HTMLElement && !isSubmitClick && isDictationToggleButton(btn);
+
+    if (inFlight && !isInternalAutoSendAction()) {
+      if (isSendClick) {
+        cancelInFlightAutoSend("manual-send-click");
+      } else if (isDictationToggleClick) {
+        cancelInFlightAutoSend("dictation-toggle-click");
+      } else if (isSubmitClick) {
+        cancelInFlightAutoSend("dictation-submit-click");
+      }
+    }
+
+    if (isDictationToggleClick) {
+      lastDictationToggleAt = performance.now();
+    }
 
     if (isSubmitClick) {
+      if (inFlight) {
+        tmLog("FLOW", "submit dictation click: flow still in flight, skip restart", {
+          btn: btnDesc
+        });
+        return;
+      }
       // Автосенд только для настоящего клика мышью по галочке
       if (!shouldAutoSendFromSubmitClick(e) || !cfg.autoSendEnabled) {
         tmLog("FLOW", "submit dictation click ignored: not mouse click", { btn: btnDesc });
@@ -1501,10 +1600,29 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     }
   };
 
+  const handleSubmit = (event: Event) => {
+    if (!cfg.autoSendEnabled || !inFlight) return;
+    if (isInternalAutoSendAction()) return;
+
+    const target = event.target;
+    if (!(target instanceof HTMLFormElement)) return;
+
+    const isComposerForm =
+      target.getAttribute("data-testid") === "composer" ||
+      !!target.querySelector("#prompt-textarea, [data-testid='prompt-textarea']") ||
+      !!target.querySelector("[data-testid='composer-footer-actions']");
+    if (!isComposerForm) return;
+
+    if (cancelInFlightAutoSend("manual-form-submit")) {
+      tmLog("FLOW", "manual form submit detected: canceled pending auto-send");
+    }
+  };
+
   applySettings();
 
   window.addEventListener("keydown", handleKeyDown, true);
   window.addEventListener("click", handleClick, true);
+  window.addEventListener("submit", handleSubmit, true);
 
   installTranscribeHook();
 
@@ -1533,8 +1651,10 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   return {
     name: "dictationAutoSend",
     dispose: () => {
+      cancelInFlightAutoSend("feature-dispose");
       window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("click", handleClick, true);
+      window.removeEventListener("submit", handleSubmit, true);
       window.removeEventListener("message", handleTranscribeMessage);
       setPathWatcherEnabled(false);
       disconnectDictationObserver();
