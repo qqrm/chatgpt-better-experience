@@ -87,6 +87,7 @@ const themeMediaQuery =
   typeof window !== "undefined" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 let themeMode: ThemeMode = "auto";
 let themeMediaListener: ((event: MediaQueryListEvent) => void) | null = null;
+let panelHeightMeasureRafId: number | null = null;
 
 const normalizeThemeMode = (value: unknown): ThemeMode =>
   value === "dark" || value === "light" || value === "auto" ? value : "auto";
@@ -114,6 +115,7 @@ const setActiveTab = async (tab: PopupTab, persist = true) => {
   if (persist) {
     await storagePort.set({ popupActiveTab: tab });
   }
+  schedulePanelHeightLock();
 };
 
 const measureMaxPanelHeightAndLock = () => {
@@ -152,11 +154,22 @@ const measureMaxPanelHeightAndLock = () => {
   panelContainerEl.style.overflowY = "auto";
 };
 
+const schedulePanelHeightLock = () => {
+  if (panelHeightMeasureRafId !== null) {
+    window.cancelAnimationFrame(panelHeightMeasureRafId);
+  }
+  panelHeightMeasureRafId = window.requestAnimationFrame(() => {
+    panelHeightMeasureRafId = null;
+    measureMaxPanelHeightAndLock();
+  });
+};
+
 const attachThemeMediaListener = () => {
   if (!themeMediaQuery || themeMediaListener) return;
   themeMediaListener = () => {
     if (themeMode === "auto") {
       setThemeToggleState(themeMode);
+      schedulePanelHeightLock();
     }
   };
   if (themeMediaQuery.addEventListener) {
@@ -186,6 +199,7 @@ const applyThemeMode = (mode: ThemeMode) => {
     detachThemeMediaListener();
   }
   setThemeToggleState(mode);
+  schedulePanelHeightLock();
 };
 
 const cycleThemeMode = async () => {
@@ -220,7 +234,7 @@ function renderMacroRecorderStatus(status: unknown, _lastExportAt: unknown) {
 
 const setDebugTraceTargetVisible = (visible: boolean) => {
   debugTraceTargetEl.style.display = visible ? "" : "none";
-  measureMaxPanelHeightAndLock();
+  schedulePanelHeightLock();
 };
 
 const updateDeveloperControlsVisibility = () => {
@@ -281,7 +295,7 @@ async function load() {
   renderMacroRecorderStatus(macroData.macroRecorderStatus, macroData.macroRecorderLastExportAt);
   applyThemeMode(normalizeThemeMode(themeData.popupThemeMode));
   await setActiveTab(normalizePopupTab(tabData.popupActiveTab), false);
-  measureMaxPanelHeightAndLock();
+  schedulePanelHeightLock();
 }
 
 async function save() {
@@ -325,7 +339,9 @@ async function save() {
 
 for (const tab of popupTabs) {
   tabButtonEls[tab].addEventListener("click", () => {
-    void setActiveTab(tab).catch(() => {});
+    void setActiveTab(tab)
+      .then(schedulePanelHeightLock)
+      .catch(() => {});
   });
 }
 
@@ -361,18 +377,23 @@ themeToggleEl.addEventListener("click", () => void cycleThemeMode().catch(() => 
 macroRecorderEnabledEl.addEventListener("change", () => void save().catch(() => {}));
 debugAutoExpandProjectsEl.addEventListener("change", () => {
   updateDeveloperControlsVisibility();
+  schedulePanelHeightLock();
   void save().catch(() => {});
 });
-debugTraceTargetEl.addEventListener("change", () => void save().catch(() => {}));
+debugTraceTargetEl.addEventListener("change", () => {
+  schedulePanelHeightLock();
+  void save().catch(() => {});
+});
 devPanelEnabledEl.addEventListener("change", () => {
   const isDeveloperMode = !!devPanelEnabledEl.checked;
   updateDeveloperControlsVisibility();
-  measureMaxPanelHeightAndLock();
+  schedulePanelHeightLock();
   void storagePort.set({ popupDevPanelEnabled: isDeveloperMode }).catch(() => {});
   if (!isDeveloperMode) {
     void forceDisableHiddenDevFeatures().catch(() => {});
   }
 });
+window.addEventListener("resize", schedulePanelHeightLock);
 
 storagePort.onChanged?.((changes) => {
   if ("macroRecorderStatus" in changes || "macroRecorderLastExportAt" in changes) {
@@ -422,7 +443,7 @@ storagePort.onChanged?.((changes) => {
     if (typeof next === "boolean") {
       devPanelEnabledEl.checked = next;
       updateDeveloperControlsVisibility();
-      measureMaxPanelHeightAndLock();
+      schedulePanelHeightLock();
       if (!next) {
         void forceDisableHiddenDevFeatures().catch(() => {});
       }
@@ -431,7 +452,9 @@ storagePort.onChanged?.((changes) => {
 
   if ("popupActiveTab" in changes) {
     const next = normalizePopupTab(changes.popupActiveTab?.newValue);
-    void setActiveTab(next, false).catch(() => {});
+    void setActiveTab(next, false)
+      .then(schedulePanelHeightLock)
+      .catch(() => {});
   }
 });
 

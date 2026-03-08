@@ -7,14 +7,11 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
   const norm = (value: string | null | undefined) => (value || "").trim().toLowerCase();
   const isVisible = (btn: HTMLElement) => btn.offsetParent !== null;
 
-  const DBG_PREFIX = "[TM][edit]";
-  const isEditTraceEnabled = () =>
-    !!ctx.settings.debugAutoExpandProjects && ctx.settings.debugTraceTarget === "editMessage";
+  const getModeForTrace = () => (/\/c\/[^/?#]+/.test(location.pathname) ? "chat" : "other");
 
-  const dbg = (msg: string, data?: Record<string, unknown>) => {
-    if (!isEditTraceEnabled()) return;
-    if (data) console.log(`${DBG_PREFIX} ${msg}`, data);
-    else console.log(`${DBG_PREFIX} ${msg}`);
+  const getComposerKindForTrace = (composer: ComposerInput | null) => {
+    if (!composer) return "none";
+    return composer instanceof HTMLTextAreaElement ? "textarea" : "contenteditable";
   };
 
   const describeBtn = (el: HTMLElement | null) => {
@@ -161,6 +158,14 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     return tryFindIn(document);
   };
 
+  const getSendButtonStateForTrace = (composer: ComposerInput | null) => {
+    const sendBtn = findSendButton(composer ?? undefined);
+    if (!sendBtn) return "missing";
+    if (!isVisible(sendBtn)) return "hidden";
+    if (isDisabled(sendBtn)) return "disabled";
+    return "ready";
+  };
+
   const isDictationStopButton = (btn: HTMLElement) => {
     const aria = norm(btn.getAttribute("aria-label"));
     const title = norm(btn.getAttribute("title"));
@@ -234,6 +239,27 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
     if (txt.includes("submit dictation")) return true;
 
     return false;
+  };
+
+  const getDictationStateForTrace = () => {
+    if (findSubmitDictationButton()) return "SUBMIT";
+    if (findDictationStopButton()) return "STOP";
+    return "NONE";
+  };
+
+  const traceEdit = (message: string, fields?: Record<string, unknown>) => {
+    ctx.logger.trace("editMessage", "KEY", message, fields);
+  };
+
+  const traceEditContract = (composer: ComposerInput | null, fields?: Record<string, unknown>) => {
+    ctx.logger.contractSnapshot("editMessage", "KEY", {
+      path: location.pathname,
+      mode: getModeForTrace(),
+      dictationState: getDictationStateForTrace(),
+      composerKind: getComposerKindForTrace(composer),
+      sendButtonState: getSendButtonStateForTrace(composer),
+      ...(fields ?? {})
+    });
   };
 
   const findComposerScope = () => {
@@ -472,7 +498,8 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
         const editBtn = findEditSubmitButton(composer);
         if (editBtn && !isDisabled(editBtn)) {
           ctx.logger.debug("KEY", "CTRL+ENTER apply edit");
-          dbg("CTRL+ENTER apply edit", { btn: describeBtn(editBtn) });
+          traceEdit("CTRL+ENTER apply edit", { btn: describeBtn(editBtn) });
+          traceEditContract(composer, { phase: "apply-edit" });
           click(editBtn, "apply-edit");
           return;
         }
@@ -481,7 +508,8 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       const anyEditBtn = findAnyEditSubmitButton();
       if (anyEditBtn && !isDisabled(anyEditBtn)) {
         ctx.logger.debug("KEY", "CTRL+ENTER apply edit (global)");
-        dbg("CTRL+ENTER apply edit (global)", { btn: describeBtn(anyEditBtn) });
+        traceEdit("CTRL+ENTER apply edit (global)", { btn: describeBtn(anyEditBtn) });
+        traceEditContract(composer, { phase: "apply-edit-global" });
         click(anyEditBtn, "apply-edit-global");
         return;
       }
@@ -525,10 +553,13 @@ export function initCtrlEnterSendFeature(ctx: FeatureContext): FeatureHandle {
       const sendBtn = findSendButton(composer ?? undefined);
       if (sendBtn && !isDisabled(sendBtn)) {
         ctx.logger.debug("KEY", "CTRL+ENTER send");
-        dbg("CTRL+ENTER send (fallback)", { btn: describeBtn(sendBtn) });
+        traceEdit("CTRL+ENTER send (fallback)", { btn: describeBtn(sendBtn) });
+        traceEditContract(composer, { phase: "send-fallback" });
         click(sendBtn, "send");
       } else {
         ctx.logger.debug("KEY", "send button not found");
+        traceEdit("send button not found");
+        traceEditContract(composer, { phase: "send-missing" });
       }
     })();
   };

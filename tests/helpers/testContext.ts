@@ -5,7 +5,10 @@ import type { DomDelta } from "../../src/application/domEventBus";
 
 const noopLogger: Logger = {
   isEnabled: false,
-  debug: () => {}
+  debug: () => {},
+  isTraceEnabled: () => false,
+  trace: () => {},
+  contractSnapshot: () => {}
 };
 
 const noopStoragePort: StoragePort = {

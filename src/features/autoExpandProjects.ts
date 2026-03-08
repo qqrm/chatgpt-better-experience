@@ -10,11 +10,10 @@ const AUTO_EXPAND_USER_COOLDOWN_MS = 5000;
 const AUTO_EXPAND_MAX_ATTEMPTS = 120;
 const AUTO_EXPAND_REPEAT_CLICK_COOLDOWN_MS = 8000;
 
-const DBG_PREFIX = "[TM][projects]";
 const DBG_DUMP_THROTTLE_MS = 2200;
-const DBG_MAX_OUTERHTML_CHARS = 90000;
-const DBG_MAX_TREE_DEPTH = 10;
-const DBG_MAX_TREE_LINES = 500;
+const DBG_MAX_OUTERHTML_CHARS = 1200;
+const DBG_MAX_TREE_DEPTH = 4;
+const DBG_MAX_TREE_LINES = 40;
 const DBG_MUTATION_SUMMARY_MAX_TARGETS = 5;
 const DBG_MUTATION_SUMMARY_MAX_ATTR_CHANGES = 12;
 const AUTO_EXPAND_PROJECTS_RELEVANT_SELECTOR = [
@@ -70,7 +69,55 @@ function isFeatureEnabled(ctx: FeatureContext): boolean {
 }
 
 function isProjectsDebugEnabled(ctx: FeatureContext): boolean {
-  return !!ctx.settings.debugAutoExpandProjects && ctx.settings.debugTraceTarget === "projects";
+  return ctx.logger.isTraceEnabled("projects");
+}
+
+function getProjectsMode(pathname: string): string {
+  if (/\/c\/[^/?#]+/.test(pathname)) return "chat";
+  if (pathname.includes("/codex") || pathname.includes("/codecs")) return "codex";
+  if (pathname === "/" || pathname === "") return "home";
+  return "other";
+}
+
+function getProjectsSendButtonState(): string {
+  const btn =
+    document.querySelector<HTMLElement>('[data-testid="send-button"]') ??
+    document.querySelector<HTMLElement>("#composer-submit-button") ??
+    document.querySelector<HTMLElement>("button.composer-submit-btn");
+  if (!btn) return "missing";
+  if (!isElementVisible(btn)) return "hidden";
+  if (
+    btn.hasAttribute("disabled") ||
+    (btn.getAttribute("aria-disabled") || "").toLowerCase() === "true"
+  ) {
+    return "disabled";
+  }
+  return "ready";
+}
+
+function traceProjects(
+  ctx: FeatureContext,
+  scope: string,
+  message: string,
+  fields?: Record<string, unknown>,
+  level: "log" | "warn" | "info" | "error" = "log"
+): void {
+  ctx.logger.trace("projects", scope, message, fields, level);
+}
+
+function traceProjectsContract(
+  ctx: FeatureContext,
+  scope: string,
+  fields?: Record<string, unknown>
+): void {
+  ctx.logger.contractSnapshot("projects", scope, {
+    path: location.pathname,
+    mode: getProjectsMode(location.pathname),
+    dictationState: "n/a",
+    composerKind: "n/a",
+    sendButtonState: getProjectsSendButtonState(),
+    ...(fields ?? {})
+  });
 }
 
 function short(value: string, n: number): string {
@@ -129,15 +176,23 @@ function maybeDumpProjectsSubtree(ctx: FeatureContext, section: HTMLElement, rea
   dbgLastDumpAt = now;
 
   const html = section.outerHTML;
-  const htmlOut =
+  const htmlPreview =
     html.length > DBG_MAX_OUTERHTML_CHARS
-      ? `${html.slice(0, DBG_MAX_OUTERHTML_CHARS)}\n<!-- [TRUNCATED ${html.length - DBG_MAX_OUTERHTML_CHARS} chars] -->`
+      ? `${html.slice(0, DBG_MAX_OUTERHTML_CHARS)}...(+${html.length - DBG_MAX_OUTERHTML_CHARS})`
       : html;
+  const tree = dumpTree(section);
+  const treePreview = short(tree, 420);
 
-  console.log(`${DBG_PREFIX} dump (${reason}) outerHTML.len=${html.length}`);
-  console.log(htmlOut);
-  console.log(`${DBG_PREFIX} dump (${reason}) structure:`);
-  console.log(dumpTree(section));
+  traceProjects(ctx, "DUMP", "projects subtree snapshot", {
+    reason,
+    outerHtmlLen: html.length,
+    outerHtmlPreview: htmlPreview,
+    treePreview
+  });
+  traceProjectsContract(ctx, "DUMP", {
+    reason,
+    outerHtmlLen: html.length
+  });
 }
 
 function isRelevantAttribute(attrName: string | null): boolean {
@@ -519,9 +574,11 @@ function expandCollapsedProjectFolders(
     expandableRows += 1;
 
     if (isProjectsDebugEnabled(ctx)) {
-      console.log(
-        `${DBG_PREFIX} row href=${href || "(no-href)"} expandable=1 toggle=${toggle ? elFingerprint(toggle) : "null"}`
-      );
+      traceProjects(ctx, "FLOW", "project row discovered", {
+        href: href || "(no-href)",
+        expandable: true,
+        toggle: toggle ? elFingerprint(toggle) : "null"
+      });
     }
 
     if (isProjectExpanded(projectLink, toggle)) continue;
@@ -531,8 +588,12 @@ function expandCollapsedProjectFolders(
     if (!toggle) {
       missingToggleRows += 1;
       if (isProjectsDebugEnabled(ctx))
-        console.warn(
-          `${DBG_PREFIX} missing toggle for expandable project href=${href || "(no-href)"}`
+        traceProjects(
+          ctx,
+          "FLOW",
+          "missing toggle for expandable project",
+          { href: href || "(no-href)" },
+          "warn"
         );
       continue;
     }
@@ -548,9 +609,11 @@ function expandCollapsedProjectFolders(
     const before = getElementStateSnapshot(toggle, projectLink);
     if (isProjectsDebugEnabled(ctx)) {
       const r = toggle.getBoundingClientRect();
-      console.log(
-        `${DBG_PREFIX} click toggle href=${href || "(no-href)"} bbox=${Math.round(r.width)}x${Math.round(r.height)} before=${before}`
-      );
+      traceProjects(ctx, "FLOW", "click toggle", {
+        href: href || "(no-href)",
+        bbox: `${Math.round(r.width)}x${Math.round(r.height)}`,
+        before
+      });
     }
     dispatchHumanClick(toggle);
     folderClicks = 1;
@@ -561,9 +624,11 @@ function expandCollapsedProjectFolders(
       if (!isProjectsDebugEnabled(ctx)) return;
       const after = getElementStateSnapshot(toggle, projectLink);
       const changed = after !== before;
-      console.log(
-        `${DBG_PREFIX} post-click href=${href || "(no-href)"} changed=${changed ? "1" : "0"} after=${after}`
-      );
+      traceProjects(ctx, "FLOW", "post-click", {
+        href: href || "(no-href)",
+        changed,
+        after
+      });
       if (!changed) clickNoEffectRows += 1;
     }, 380);
   }
@@ -598,7 +663,7 @@ function ensureDebugObserver(ctx: FeatureContext, section: HTMLElement): void {
         r.type === "attributes" ? isRelevantAttribute(r.attributeName) : r.type === "childList"
       );
       if (relevant.length === 0) return;
-      console.log(`${DBG_PREFIX} mutation ${summarizeMutations(relevant)}`);
+      traceProjects(ctx, "OBS", "mutation", { summary: summarizeMutations(relevant) });
       maybeDumpProjectsSubtree(ctx, section, "mutation");
     },
     {
@@ -610,16 +675,18 @@ function ensureDebugObserver(ctx: FeatureContext, section: HTMLElement): void {
     }
   );
   dbgObserverDisconnect = disconnect;
-  console.log(
-    `${DBG_PREFIX} debug observer attached to Projects section: ${elFingerprint(section)}`
-  );
+  traceProjects(ctx, "OBS", "debug observer attached", {
+    section: elFingerprint(section)
+  });
+  traceProjectsContract(ctx, "OBS", { phase: "observer-attached" });
   maybeDumpProjectsSubtree(ctx, section, "attach");
 }
 
 function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; done: boolean } {
   const nav = getChatHistoryNav(ctx);
   if (!nav) {
-    if (isProjectsDebugEnabled(ctx)) console.log(`${DBG_PREFIX} runOnce(${reason}) no sidebar nav`);
+    if (isProjectsDebugEnabled(ctx))
+      traceProjects(ctx, "FLOW", "runOnce no sidebar nav", { reason });
     return {
       stats: {
         projectsExpanded: false,
@@ -636,7 +703,7 @@ function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; don
   const section = findProjectsSection(nav);
   if (!section) {
     if (isProjectsDebugEnabled(ctx))
-      console.log(`${DBG_PREFIX} runOnce(${reason}) no Projects section`);
+      traceProjects(ctx, "FLOW", "runOnce no Projects section", { reason });
     return {
       stats: {
         projectsExpanded: false,
@@ -656,7 +723,7 @@ function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; don
   const wantItems = ctx.settings.autoExpandProjectItems;
   if (!wantProjects && !wantItems) {
     if (isProjectsDebugEnabled(ctx))
-      console.log(`${DBG_PREFIX} runOnce(${reason}) disabled by settings`);
+      traceProjects(ctx, "FLOW", "runOnce disabled by settings", { reason });
     return {
       stats: {
         projectsExpanded: false,
@@ -689,11 +756,22 @@ function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; don
     collapsedRows = result.collapsedRows;
     folderClicks = result.folderClicks;
     if (isProjectsDebugEnabled(ctx)) {
-      console.log(
-        `${DBG_PREFIX} runOnce(${reason}) rows=${rows} expandableRows=${expandableRows} collapsedRows=${collapsedRows} missingToggleRows=${result.missingToggleRows} folderClicks=${folderClicks}`
-      );
+      traceProjects(ctx, "FLOW", "runOnce rows stats", {
+        reason,
+        rows,
+        expandableRows,
+        collapsedRows,
+        missingToggleRows: result.missingToggleRows,
+        folderClicks
+      });
       if (rows > 0 && expandableRows === 0) {
-        console.warn(`${DBG_PREFIX} WARNING: rows>0 but expandableRows==0 (selector drift?)`);
+        traceProjects(
+          ctx,
+          "FLOW",
+          "rows>0 but expandableRows==0 (selector drift?)",
+          { reason, rows, expandableRows },
+          "warn"
+        );
         maybeDumpProjectsSubtree(ctx, section, "no-expandable-rows");
       }
     }
@@ -703,9 +781,19 @@ function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; don
     ? expanded && rows > 0 && expandableRows > 0 && collapsedRows === 0
     : expanded;
   if (isProjectsDebugEnabled(ctx)) {
-    console.log(
-      `${DBG_PREFIX} runOnce(${reason}) expanded=${expanded ? "1" : "0"} wantProjects=${wantProjects ? "1" : "0"} wantItems=${wantItems ? "1" : "0"} done=${done ? "1" : "0"}`
-    );
+    traceProjects(ctx, "FLOW", "runOnce summary", {
+      reason,
+      expanded,
+      wantProjects,
+      wantItems,
+      done
+    });
+    traceProjectsContract(ctx, "FLOW", {
+      reason,
+      projectsExpanded: expanded,
+      projectRows: rows,
+      collapsedRows
+    });
   }
 
   return {
@@ -765,7 +853,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     goalReached = false;
     attempts = 0;
     if (isProjectsDebugEnabled(ctx)) {
-      console.log(`${DBG_PREFIX} rearm after goal (${reason}) due to new project rows`);
+      traceProjects(ctx, "FLOW", "rearm after goal due to new project rows", { reason });
     }
     return true;
   };
@@ -827,7 +915,8 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
 
       attempts += 1;
       if (attempts > AUTO_EXPAND_MAX_ATTEMPTS) {
-        if (isProjectsDebugEnabled(ctx)) console.warn(`${DBG_PREFIX} max attempts reached, stop`);
+        if (isProjectsDebugEnabled(ctx))
+          traceProjects(ctx, "FLOW", "max attempts reached, stop", { attempts }, "warn");
         stop();
         return;
       }
@@ -851,7 +940,9 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
 
       if (done) {
         if (isProjectsDebugEnabled(ctx))
-          console.log(`${DBG_PREFIX} goal reached; idle until reload or re-enable`);
+          traceProjects(ctx, "FLOW", "goal reached; idle until reload or re-enable", {
+            reason
+          });
         refreshGoalSnapshot();
         goalReached = true;
         attempts = 0;
@@ -916,8 +1007,12 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       const prevDbg = !!prev.debugAutoExpandProjects;
       const nextDbg = !!next.debugAutoExpandProjects;
 
-      if (prevDbg !== nextDbg && nextDbg) console.info(`${DBG_PREFIX} debug enabled`);
-      if (prevDbg !== nextDbg && !nextDbg) console.info(`${DBG_PREFIX} debug disabled`);
+      if (prevDbg !== nextDbg && nextDbg) {
+        traceProjects(ctx, "CFG", "debug enabled", undefined, "info");
+      }
+      if (prevDbg !== nextDbg && !nextDbg) {
+        traceProjects(ctx, "CFG", "debug disabled", undefined, "info");
+      }
 
       if (prevDbg && !nextDbg) {
         dbgObserverDisconnect?.();
