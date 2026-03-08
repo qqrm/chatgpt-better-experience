@@ -1,4 +1,4 @@
-import { Settings } from "../domain/settings";
+import { DebugTraceTarget, Settings } from "../domain/settings";
 import { StoragePort } from "../domain/ports/storagePort";
 import { onPathChange as subscribePathChange } from "../lib/locationWatcher";
 import type { DomEventBus } from "./domEventBus";
@@ -15,9 +15,28 @@ export interface LogFields extends Record<string, unknown> {
   btn?: string;
 }
 
+export type TraceLevel = "log" | "info" | "warn" | "error";
+
+export interface TraceFields extends Record<string, unknown> {
+  path?: string;
+  mode?: string;
+  dictationState?: string;
+  composerKind?: string;
+  sendButtonState?: string;
+}
+
 export interface Logger {
   isEnabled: boolean;
   debug: (scope: string, message: string, fields?: LogFields) => void;
+  isTraceEnabled: (target: DebugTraceTarget) => boolean;
+  trace: (
+    target: DebugTraceTarget,
+    scope: string,
+    message: string,
+    fields?: TraceFields,
+    level?: TraceLevel
+  ) => void;
+  contractSnapshot: (target: DebugTraceTarget, scope: string, fields?: TraceFields) => void;
 }
 
 export interface FeatureContext {
@@ -87,9 +106,10 @@ function describeEl(el: Element | null) {
   return bits.join(" ");
 }
 
-export function createLogger(debugEnabled: boolean) {
+export function createLogger(debugEnabled: boolean, getSettings: () => Settings) {
   const BOOT_T0 = performance.now();
   let logCount = 0;
+  let traceCount = 0;
 
   const nowMs = () => (performance.now() - BOOT_T0) | 0;
 
@@ -129,7 +149,85 @@ export function createLogger(debugEnabled: boolean) {
     console.log(`[TM DictationAutoSend] #${logCount} ${t} ${scope}: ${message}${tail}`);
   };
 
-  return { isEnabled: debugEnabled, debug };
+  const isTraceEnabled = (target: DebugTraceTarget) => {
+    const settings = getSettings();
+    return !!settings.debugAutoExpandProjects && settings.debugTraceTarget === target;
+  };
+
+  const formatTraceValue = (value: unknown): string => {
+    if (value == null) return String(value);
+    if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+      return String(value);
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return '""';
+      return /^[\w./:@+-]+$/.test(trimmed) ? short(trimmed, 140) : `"${short(trimmed, 140)}"`;
+    }
+    if (value instanceof Element) {
+      return `"${short(describeEl(value), 180)}"`;
+    }
+    try {
+      return `"${short(JSON.stringify(value), 180)}"`;
+    } catch {
+      return `"${short(String(value), 180)}"`;
+    }
+  };
+
+  const formatTraceFields = (fields?: TraceFields): string => {
+    if (!fields || typeof fields !== "object") return "";
+    const entries = Object.entries(fields)
+      .filter(([, value]) => value !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b));
+    if (!entries.length) return "";
+    return entries.map(([key, value]) => `${key}=${formatTraceValue(value)}`).join(" ");
+  };
+
+  const trace = (
+    target: DebugTraceTarget,
+    scope: string,
+    message: string,
+    fields?: TraceFields,
+    level: TraceLevel = "log"
+  ) => {
+    if (!isTraceEnabled(target)) return;
+    traceCount += 1;
+    const t = String(nowMs()).padStart(6, " ");
+    const tail = formatTraceFields(fields);
+    const line = `[TM Trace][${target}] #${traceCount} +${t}ms ${scope}: ${message}${
+      tail ? ` | ${tail}` : ""
+    }`;
+    if (level === "warn") {
+      console.warn(line);
+      return;
+    }
+    if (level === "info") {
+      console.info(line);
+      return;
+    }
+    if (level === "error") {
+      console.error(line);
+      return;
+    }
+    console.log(line);
+  };
+
+  const contractSnapshot = (target: DebugTraceTarget, scope: string, fields?: TraceFields) => {
+    const fallbackPath =
+      typeof location !== "undefined" && typeof location.pathname === "string"
+        ? location.pathname
+        : "";
+    trace(target, scope, "contract snapshot", {
+      path: fallbackPath,
+      mode: "unknown",
+      dictationState: "n/a",
+      composerKind: "n/a",
+      sendButtonState: "n/a",
+      ...(fields ?? {})
+    });
+  };
+
+  return { isEnabled: debugEnabled, debug, isTraceEnabled, trace, contractSnapshot };
 }
 
 export function createFeatureContext({
@@ -141,7 +239,7 @@ export function createFeatureContext({
   storagePort: StoragePort;
   debugEnabled: boolean;
 }): FeatureContext {
-  const logger = createLogger(debugEnabled);
+  const logger = createLogger(debugEnabled, () => settings);
 
   const waitPresent = async (
     sel: string,

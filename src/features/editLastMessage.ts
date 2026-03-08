@@ -10,16 +10,7 @@ interface InputReadResult {
 }
 
 export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
-  const DBG_PREFIX = "[TM][edit]";
-
-  const isEditDebugEnabled = () =>
-    !!ctx.settings.debugAutoExpandProjects && ctx.settings.debugTraceTarget === "editMessage";
-
-  const dbg = (msg: string, data?: Record<string, unknown>) => {
-    if (!isEditDebugEnabled()) return;
-    if (data) console.log(`${DBG_PREFIX} ${msg}`, data);
-    else console.log(`${DBG_PREFIX} ${msg}`);
-  };
+  const getModeForTrace = () => (/\/c\/[^/?#]+/.test(location.pathname) ? "chat" : "other");
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -220,6 +211,42 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
     return null;
   };
 
+  const getComposerKindForTrace = () => {
+    const input = findTextbox();
+    if (!input) return "none";
+    return input instanceof HTMLTextAreaElement ? "textarea" : "contenteditable";
+  };
+
+  const getSendButtonStateForTrace = () => {
+    const btn =
+      document.querySelector<HTMLElement>('[data-testid="send-button"]') ??
+      document.querySelector<HTMLElement>("#composer-submit-button") ??
+      document.querySelector<HTMLElement>("button.composer-submit-btn");
+    if (!btn) return "missing";
+    if (!isElementVisible(btn)) return "hidden";
+    if (
+      btn.hasAttribute("disabled") ||
+      (btn.getAttribute("aria-disabled") || "").toLowerCase() === "true"
+    ) {
+      return "disabled";
+    }
+    return "ready";
+  };
+
+  const traceEdit = (message: string, fields?: Record<string, unknown>) => {
+    ctx.logger.trace("editMessage", "KEY", message, fields);
+  };
+
+  const traceEditContract = (fields?: Record<string, unknown>) => {
+    ctx.logger.contractSnapshot("editMessage", "KEY", {
+      path: location.pathname,
+      mode: getModeForTrace(),
+      composerKind: getComposerKindForTrace(),
+      sendButtonState: getSendButtonStateForTrace(),
+      ...(fields ?? {})
+    });
+  };
+
   const readTextboxText = (el: HTMLTextAreaElement | HTMLElement | null) => {
     if (!el) return "";
     if (el instanceof HTMLTextAreaElement) return el.value || "";
@@ -362,7 +389,13 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
     focusEditInputAtEnd(input);
     message.scrollIntoView({ block: "center" });
 
-    dbg("edit activated", {
+    traceEdit("edit activated", {
+      inputKind: input instanceof HTMLTextAreaElement ? "textarea" : "contenteditable",
+      inputLen:
+        input instanceof HTMLTextAreaElement ? input.value.length : (input.textContent || "").length
+    });
+    traceEditContract({
+      phase: "edit-activated",
       inputKind: input instanceof HTMLTextAreaElement ? "textarea" : "contenteditable",
       inputLen:
         input instanceof HTMLTextAreaElement ? input.value.length : (input.textContent || "").length

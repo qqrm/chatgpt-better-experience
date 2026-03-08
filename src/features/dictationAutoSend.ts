@@ -44,6 +44,7 @@ const TRANSCRIBE_HOOK_SOURCE = "tm-dictation-transcribe";
 const DEFAULT_CONFIG: DictationConfig = {
   autoSendEnabled: true,
   allowAutoSendInCodex: true,
+  // Intentionally fixed; auto-send delay is not exposed as a user setting.
   autoSendDelayMs: 3000,
   finalTextTimeoutMs: 25000,
   finalTextQuietMs: 320,
@@ -73,19 +74,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   let lastDictationSubmitViaMouseAt = 0;
 
   const tmLog = (scope: string, msg: string, fields?: LogFields) => {
-    const isDebugEnabled =
-      !!ctx.settings.debugAutoExpandProjects && ctx.settings.debugTraceTarget === "autoSend";
-    if (!isDebugEnabled) return;
-
-    const details =
-      fields && typeof fields === "object"
-        ? Object.entries(fields)
-            .filter(([, value]) => value !== undefined)
-            .map(([key, value]) => `${key}=${String(value)}`)
-            .join(" ")
-        : "";
-    const suffix = details ? ` | ${details}` : "";
-    console.log(`[TM DictationAutoSend] ${scope}: ${msg}${suffix}`);
+    ctx.logger.trace("autoSend", scope, msg, fields);
   };
 
   const qs = <T extends Element = Element>(sel: string, root: Document | Element = document) =>
@@ -205,6 +194,20 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     qs<HTMLElement>('[role="button"][aria-label*="Send"]') ||
     qs<HTMLElement>('button[aria-label*="Отправ"]') ||
     null;
+
+  const getComposerKindForTrace = () => {
+    const input = findComposerInput();
+    if (!input) return "none";
+    return input instanceof HTMLTextAreaElement ? "textarea" : "contenteditable";
+  };
+
+  const getSendButtonStateForTrace = () => {
+    const btn = findSendButton();
+    if (!btn) return "missing";
+    if (!isVisible(btn)) return "hidden";
+    if (isDisabled(btn)) return "disabled";
+    return "ready";
+  };
 
   let countdownRoot: HTMLElement | null = null;
   let countdownRing: SVGCircleElement | null = null;
@@ -503,6 +506,24 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
   const isCodexPath = (pathname: string) =>
     pathname.includes("/codex") || pathname.includes("/codecs");
+
+  const getModeForTrace = (pathname: string) => {
+    if (isCodexPath(pathname)) return "codex";
+    if (/\/c\/[^/?#]+/.test(pathname)) return "chat";
+    if (pathname === "/" || pathname === "") return "home";
+    return "other";
+  };
+
+  const tmContract = (scope: string, fields?: LogFields) => {
+    ctx.logger.contractSnapshot("autoSend", scope, {
+      path: location.pathname,
+      mode: getModeForTrace(location.pathname),
+      dictationState: lastDictationUiState,
+      composerKind: getComposerKindForTrace(),
+      sendButtonState: getSendButtonStateForTrace(),
+      ...(fields ?? {})
+    });
+  };
 
   const findStopGeneratingButton = () => {
     const candidates = qsa<HTMLElement>("button, [role='button']").filter((b) => {
@@ -1129,6 +1150,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         snapshot,
         initialShiftHeld
       });
+      tmContract("FLOW", { phase: "start", inputKind: snap.kind, inputFound: snap.ok });
 
       enqueue(step(event));
 
@@ -1143,11 +1165,17 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
           ok: machineState.kind === "Done",
           state: machineState.kind
         });
+        tmContract("FLOW", {
+          phase: "result",
+          ok: machineState.kind === "Done",
+          state: machineState.kind
+        });
       }
     } catch (e) {
       tmLog("ERR", "flow exception", {
         preview: String((e && (e as Error).stack) || (e as Error).message || e)
       });
+      tmContract("ERR", { phase: "exception" });
     } finally {
       hideCountdown();
       if (shiftListenerInstalled) {
@@ -1155,6 +1183,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       }
       inFlight = false;
       tmLog("FLOW", "submit click flow end");
+      tmContract("FLOW", { phase: "end", inFlight });
     }
   };
 
@@ -1499,6 +1528,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   refreshDictationObserver();
 
   tmLog("BOOT", "dictation auto-send init", { preview: location.href });
+  tmContract("BOOT", { phase: "init", preview: location.href });
 
   return {
     name: "dictationAutoSend",

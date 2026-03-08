@@ -20,7 +20,10 @@ function makeCtx(pathWatcher: PathWatcher) {
     },
     logger: {
       isEnabled: false,
-      debug: () => {}
+      debug: () => {},
+      isTraceEnabled: () => false,
+      trace: () => {},
+      contractSnapshot: () => {}
     },
     helpers: {
       waitPresent: async () => null,

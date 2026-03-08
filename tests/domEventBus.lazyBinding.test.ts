@@ -11,7 +11,13 @@ function makeCtx(pathWatcher: { active: boolean }): FeatureContext {
       set: async () => {}
     },
     domBus: null,
-    logger: { isEnabled: false, debug: () => {} },
+    logger: {
+      isEnabled: false,
+      debug: () => {},
+      isTraceEnabled: () => false,
+      trace: () => {},
+      contractSnapshot: () => {}
+    },
     keyState: { shift: false, ctrl: false, alt: false },
     helpers: {
       waitPresent: async () => null,
