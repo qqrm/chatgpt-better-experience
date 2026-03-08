@@ -16,9 +16,17 @@ const DBG_MAX_TREE_DEPTH = 4;
 const DBG_MAX_TREE_LINES = 40;
 const DBG_MUTATION_SUMMARY_MAX_TARGETS = 5;
 const DBG_MUTATION_SUMMARY_MAX_ATTR_CHANGES = 12;
+const PROJECT_LINK_SELECTOR = 'a[href*="/project"]';
+const PROJECTS_SECTION_HINT_SELECTOR = [
+  '[class*="sidebar-expando-section"]',
+  '[class*="expando-section"]',
+  '[class*="sidebar-section"]',
+  "[data-sidebar-section]",
+  '[data-section="projects"]'
+].join(", ");
 const AUTO_EXPAND_PROJECTS_RELEVANT_SELECTOR = [
   'nav[aria-label="Chat history"]',
-  'a[href*="/project"]',
+  PROJECT_LINK_SELECTOR,
   '[class*="sidebar-expando-section"]',
   "button[aria-expanded]",
   '[data-state="open"]',
@@ -297,21 +305,67 @@ function dispatchHumanClick(el: HTMLElement): void {
 }
 
 function getChatHistoryNav(ctx: FeatureContext): HTMLElement | null {
-  return (
-    (ctx.domBus?.getNavRoot() as HTMLElement | null) ??
-    ctx.helpers.safeQuery<HTMLElement>('nav[aria-label="Chat history"]')
-  );
+  const navFromBus = ctx.domBus?.getNavRoot() as HTMLElement | null;
+  if (navFromBus) return navFromBus;
+
+  const directNav =
+    ctx.helpers.safeQuery<HTMLElement>('nav[aria-label="Chat history"]') ??
+    ctx.helpers.safeQuery<HTMLElement>('nav[aria-label*="history" i]') ??
+    ctx.helpers.safeQuery<HTMLElement>('nav[aria-label*="чат" i]');
+  if (directNav) return directNav;
+
+  const projectLink = ctx.helpers.safeQuery<HTMLElement>(PROJECT_LINK_SELECTOR);
+  const navFromProject = projectLink?.closest<HTMLElement>("nav") ?? null;
+  if (navFromProject) return navFromProject;
+
+  const historyLikeItem =
+    ctx.helpers.safeQuery<HTMLElement>('[data-testid^="history-item-"]') ??
+    ctx.helpers.safeQuery<HTMLElement>('[data-sidebar-item="true"]');
+  return historyLikeItem?.closest<HTMLElement>("nav") ?? null;
 }
 
 function findProjectsSection(nav: HTMLElement): HTMLElement | null {
-  const sections = Array.from(
-    nav.querySelectorAll<HTMLElement>('[class*="sidebar-expando-section"]')
+  const hintedSections = Array.from(
+    nav.querySelectorAll<HTMLElement>(PROJECTS_SECTION_HINT_SELECTOR)
   );
-  for (const sec of sections) if (sec.querySelector('a[href*="/project"]')) return sec;
-  for (const sec of sections) {
+  for (const sec of hintedSections) if (sec.querySelector(PROJECT_LINK_SELECTOR)) return sec;
+  for (const sec of hintedSections) {
     const t = norm(sec.textContent);
     if (t.includes("projects") || t.includes("проекты")) return sec;
   }
+
+  const projectLink = nav.querySelector<HTMLAnchorElement>(PROJECT_LINK_SELECTOR);
+  if (projectLink) {
+    let cur: HTMLElement | null = projectLink.parentElement;
+    while (cur && cur !== nav) {
+      if (cur.querySelectorAll(PROJECT_LINK_SELECTOR).length >= 2) return cur;
+
+      const headingCandidate = cur.querySelector<HTMLElement>(
+        'h1, h2, h3, [role="heading"], button, [aria-label], [title]'
+      );
+      const headingText = norm(
+        `${headingCandidate?.textContent ?? ""} ${headingCandidate?.getAttribute("aria-label") ?? ""} ${headingCandidate?.getAttribute("title") ?? ""}`
+      );
+      if (headingText.includes("projects") || headingText.includes("проекты")) return cur;
+
+      cur = cur.parentElement;
+    }
+  }
+
+  const headingCandidates = Array.from(
+    nav.querySelectorAll<HTMLElement>('h1, h2, h3, [role="heading"], button, [aria-label], [title]')
+  );
+  for (const heading of headingCandidates) {
+    const t = norm(
+      `${heading.textContent ?? ""} ${heading.getAttribute("aria-label") ?? ""} ${heading.getAttribute("title") ?? ""}`
+    );
+    if (!t.includes("projects") && !t.includes("проекты")) continue;
+    const section =
+      heading.closest<HTMLElement>(PROJECTS_SECTION_HINT_SELECTOR) ??
+      heading.closest<HTMLElement>("section, li, div");
+    if (section) return section;
+  }
+
   return null;
 }
 
@@ -329,7 +383,7 @@ function normalizeProjectHref(href: string): string {
 function collectProjectHrefs(section: HTMLElement): Set<string> {
   const out = new Set<string>();
   for (const link of Array.from(
-    section.querySelectorAll<HTMLAnchorElement>('a[href*="/project"]')
+    section.querySelectorAll<HTMLAnchorElement>(PROJECT_LINK_SELECTOR)
   )) {
     const href = normalizeProjectHref(link.getAttribute("href") ?? link.href ?? "");
     if (href) out.add(href);
@@ -513,7 +567,7 @@ function findFolderToggleElForProject(projectLink: HTMLAnchorElement): HTMLEleme
     if (el) return el;
   }
   const parent = projectLink.parentElement;
-  if (parent && parent.querySelectorAll('a[href*="/project"]').length <= 1)
+  if (parent && parent.querySelectorAll(PROJECT_LINK_SELECTOR).length <= 1)
     return findFolderToggleEl(parent);
   return null;
 }
@@ -550,7 +604,7 @@ function expandCollapsedProjectFolders(
   missingToggleRows: number;
   clickNoEffectRows: number;
 } {
-  const projects = Array.from(section.querySelectorAll<HTMLAnchorElement>('a[href*="/project"]'));
+  const projects = Array.from(section.querySelectorAll<HTMLAnchorElement>(PROJECT_LINK_SELECTOR));
   if (projects.length === 0)
     return {
       totalRows: 0,
@@ -745,7 +799,7 @@ function runOnce(ctx: FeatureContext, reason: string): { stats: ExpandStats; don
     sectionClicked = res.clicked;
   }
 
-  let rows = section.querySelectorAll('a[href*="/project"]').length;
+  let rows = section.querySelectorAll(PROJECT_LINK_SELECTOR).length;
   let expandableRows = 0;
   let collapsedRows = 0;
   let folderClicks = 0;

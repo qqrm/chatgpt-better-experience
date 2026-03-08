@@ -35,7 +35,13 @@ export function createDomEventBus(ctx: FeatureContext) {
     ctx.logger.debug("DOMBUS", msg, data ? { event, ...data } : { event });
 
   const MAIN_ROOT_SELECTOR = 'main[role="main"]';
-  const NAV_ROOT_SELECTOR = 'nav[aria-label="Chat history"]';
+  const NAV_ROOT_SELECTORS = [
+    'nav[aria-label="Chat history"]',
+    'nav[aria-label*="history" i]',
+    'nav[aria-label*="чат" i]'
+  ];
+  const PROJECT_LINK_SELECTOR = 'a[href*="/project"]';
+  const SIDEBAR_ITEM_SELECTOR = '[data-sidebar-item="true"]';
   const HISTORY_OPTIONS_SELECTOR = '[data-testid^="history-item-"][data-testid$="-options"]';
   const HISTORY_ITEM_SELECTOR = '[data-testid^="history-item-"]';
   const ROOT_FINDER_TIMEOUT_MS = 15_000;
@@ -43,12 +49,22 @@ export function createDomEventBus(ctx: FeatureContext) {
   const resolveRoot = (channel: BusChannel): Element | null => {
     if (channel === "main") return ctx.helpers.safeQuery(MAIN_ROOT_SELECTOR);
 
-    const directNav = ctx.helpers.safeQuery(NAV_ROOT_SELECTOR);
-    if (directNav) return directNav;
+    for (const navSelector of NAV_ROOT_SELECTORS) {
+      const directNav = ctx.helpers.safeQuery(navSelector);
+      if (directNav) return directNav;
+    }
 
     const historyOptions = ctx.helpers.safeQuery(HISTORY_OPTIONS_SELECTOR);
     const navFromOptions = historyOptions?.closest("nav") ?? null;
     if (navFromOptions) return navFromOptions;
+
+    const projectLink = ctx.helpers.safeQuery(PROJECT_LINK_SELECTOR);
+    const navFromProjectLink = projectLink?.closest("nav") ?? null;
+    if (navFromProjectLink) return navFromProjectLink;
+
+    const sidebarItem = ctx.helpers.safeQuery(SIDEBAR_ITEM_SELECTOR);
+    const navFromSidebarItem = sidebarItem?.closest("nav") ?? null;
+    if (navFromSidebarItem) return navFromSidebarItem;
 
     const historyItem = ctx.helpers.safeQuery(HISTORY_ITEM_SELECTOR);
     return historyItem?.closest("nav") ?? null;
