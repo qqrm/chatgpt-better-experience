@@ -5,6 +5,8 @@
 - Never push directly to `main`.
 - Every change must be developed on a branch prefixed with `codex/` and merged via pull request.
 - The expected result for every completed task is an opened pull request from a dedicated `codex/*` branch; do not stop at "branch pushed".
+- Parallel execution in a single working directory is forbidden.
+- Mandatory model: **1 task = 1 branch = 1 worktree = 1 pull request**.
 - Use `git worktree` for task isolation: each new user task must run in a dedicated worktree directory.
 - Standard task worktree naming: `<repo-parent>\\wt\\<repo-name>-<task-slug>`.
 - One agent must own exactly one task worktree, one `codex/*` branch, and one pull request.
