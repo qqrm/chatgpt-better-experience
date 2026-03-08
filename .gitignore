@@ -22,3 +22,5 @@
 *.zip
 
 /node_modules/
+
+.codex/AGENTS.remote.md
