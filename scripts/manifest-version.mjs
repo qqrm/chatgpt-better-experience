@@ -11,10 +11,6 @@ function readRaw(filePath) {
   return fs.readFileSync(filePath, "utf8");
 }
 
-function readJson(filePath) {
-  return JSON.parse(readRaw(filePath));
-}
-
 function parseSemver(version) {
   const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(version).trim());
   if (!m) die(`Unsupported version format: "${version}". Expected x.y.z`);
@@ -64,12 +60,20 @@ if (!command) printUsage();
 
 const filePath = path.resolve(process.cwd(), fileArg ?? "config/extension/manifest.base.json");
 
-if (!fs.existsSync(filePath)) {
-  die(`File not found: ${filePath}`);
+let raw;
+try {
+  raw = readRaw(filePath);
+} catch {
+  die(`File not found or unreadable: ${filePath}`);
 }
 
-const raw = readRaw(filePath);
-const json = readJson(filePath);
+let json;
+try {
+  json = JSON.parse(raw);
+} catch {
+  die(`Invalid JSON in ${filePath}`);
+}
+
 const currentVersion = json?.version;
 
 if (typeof currentVersion !== "string" || currentVersion.trim() === "") {
