@@ -103,10 +103,10 @@ function addNewProjectRow(section: HTMLElement) {
 function addProjectRow(
   section: HTMLElement,
   name: string,
-  opts: { expanded?: boolean; onFolderClick?: () => void } = {}
+  opts: { expanded?: boolean; onFolderClick?: () => void; href?: string } = {}
 ) {
   const link = document.createElement("a");
-  link.href = `https://chatgpt.com/project/${encodeURIComponent(name)}`;
+  link.href = opts.href ?? `https://chatgpt.com/project/${encodeURIComponent(name)}`;
 
   const folderBtn = document.createElement("button");
   folderBtn.className = "icon";
@@ -524,6 +524,35 @@ describe("autoExpandProjects", () => {
     // This assertion verifies the first attempted click is the bottom-most collapsed project.
     expect(result.stats.folderClicks).toBe(1);
     expect(clickOrder).toEqual(["bottom-project"]);
+
+    handle.dispose();
+  });
+
+  it("supports project links with /g/g-p- URL format", () => {
+    const { section } = mountProjectsNav("true");
+
+    let clicks = 0;
+    addProjectRow(section, "rag", {
+      expanded: false,
+      href: "https://chatgpt.com/g/g-p-6999e22c830881919cdc183a",
+      onFolderClick: () => {
+        clicks += 1;
+      }
+    });
+
+    const ctx = makeTestContext({
+      autoExpandProjects: true,
+      autoExpandProjectItems: true
+    });
+    const handle = initAutoExpandProjectsFeature(ctx);
+    const t = handle.__test as unknown as AutoExpandProjectsTestApi;
+
+    const result = t.runOnce(ctx, "test");
+
+    expect(result.stats.projectRows).toBe(1);
+    expect(result.stats.collapsedProjectRows).toBe(1);
+    expect(result.stats.folderClicks).toBe(1);
+    expect(clicks).toBe(1);
 
     handle.dispose();
   });
