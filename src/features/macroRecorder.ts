@@ -138,6 +138,20 @@ function getNavigationType() {
   return nav?.type ?? null;
 }
 
+function buildSessionEntropy(seed: number) {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi && typeof cryptoApi.randomUUID === "function") {
+    return cryptoApi.randomUUID().replace(/-/g, "").slice(0, 16);
+  }
+  if (cryptoApi && typeof cryptoApi.getRandomValues === "function") {
+    const bytes = new Uint8Array(8);
+    cryptoApi.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  return `${seed.toString(36)}${Date.now().toString(36)}`.slice(0, 16);
+}
+
 export function initMacroRecorderFeature(
   ctx: FeatureContext,
   deps: MacroRecorderDeps = defaultMacroRecorderDeps
@@ -438,10 +452,11 @@ export function initMacroRecorderFeature(
 
     if (!resume) {
       segmentIndex = 0;
-      currentSessionId = `macro-${deps.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const createdAt = deps.now();
+      currentSessionId = `macro-${createdAt}-${buildSessionEntropy(createdAt)}`;
       await deps.persistence.createSession({
         sessionId: currentSessionId,
-        createdAt: deps.now(),
+        createdAt,
         createdAtIso: deps.isoNow(),
         userAgent: deps.userAgent()
       });
