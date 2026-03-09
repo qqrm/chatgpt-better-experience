@@ -556,4 +556,55 @@ describe("autoExpandProjects", () => {
 
     handle.dispose();
   });
+
+  it("treats g-p project as expanded when chats are mounted outside next sibling panel", () => {
+    const { section } = mountProjectsNav("true");
+
+    let vpnClicks = 0;
+    addProjectRow(section, "vpn", {
+      expanded: false,
+      href: "https://chatgpt.com/g/g-p-697b0fab9a608191811e75e5de0b52ad-vpn/project",
+      onFolderClick: () => {
+        vpnClicks += 1;
+      }
+    });
+
+    let ragClicks = 0;
+    addProjectRow(section, "rag", {
+      expanded: false,
+      href: "https://chatgpt.com/g/g-p-6984450a14788191ad819fb327c7e500-rag/project",
+      onFolderClick: () => {
+        ragClicks += 1;
+      }
+    });
+
+    // Simulate current ChatGPT behavior where visible child chats for a g-p project
+    // are mounted in a detached section-level overflow container, while the row
+    // button still exposes data-state=\"closed\".
+    const detachedVpnChats = document.createElement("div");
+    detachedVpnChats.className = "overflow-hidden";
+    const vpnChat = document.createElement("a");
+    vpnChat.href =
+      "https://chatgpt.com/g/g-p-697b0fab9a608191811e75e5de0b52ad/c/69a95070-a2e8-8393-8f05-14a92caf47f5";
+    vpnChat.textContent = "VPS для VPN";
+    detachedVpnChats.appendChild(vpnChat);
+    section.appendChild(detachedVpnChats);
+
+    const ctx = makeTestContext({
+      autoExpandProjects: true,
+      autoExpandProjectItems: true
+    });
+    const handle = initAutoExpandProjectsFeature(ctx);
+    const t = handle.__test as unknown as AutoExpandProjectsTestApi;
+
+    const result = t.runOnce(ctx, "test");
+
+    // vpn row must not be treated as collapsed only because its button reports
+    // data-state=closed when detached project chats are visible.
+    expect(vpnClicks).toBe(0);
+    expect(ragClicks).toBe(1);
+    expect(result.stats.folderClicks).toBe(1);
+
+    handle.dispose();
+  });
 });

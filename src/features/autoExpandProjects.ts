@@ -58,6 +58,21 @@ function isFeatureEnabled(ctx: FeatureContext): boolean {
   return !!ctx.settings.autoExpandProjects || !!ctx.settings.autoExpandProjectItems;
 }
 
+function isProjectsDebugEnabled(ctx: FeatureContext): boolean {
+  return ctx.logger.isTraceEnabled("projects");
+}
+
+function traceProjects(
+  ctx: FeatureContext,
+  scope: string,
+  message: string,
+  fields?: Record<string, unknown>,
+  level: "log" | "warn" | "info" | "error" = "log"
+): void {
+  if (!isProjectsDebugEnabled(ctx)) return;
+  ctx.logger.trace("projects", scope, message, fields, level);
+}
+
 function matchesSelectorOrDescendant(el: Element, selector: string): boolean {
   try {
     return el.matches(selector) || el.querySelector(selector) !== null;
@@ -283,10 +298,13 @@ function findFolderToggleForProject(projectLink: HTMLAnchorElement): HTMLElement
   if (li && !scopes.includes(li)) scopes.push(li);
 
   const parent = projectLink.parentElement;
-  if (parent && !scopes.includes(parent)) scopes.push(parent);
-
-  const section = projectLink.closest<HTMLElement>(PROJECT_SECTION_HINT_SELECTOR);
-  if (section && !scopes.includes(section)) scopes.push(section);
+  if (
+    parent &&
+    !scopes.includes(parent) &&
+    parent.querySelectorAll(PROJECT_LINK_SELECTOR).length <= 1
+  ) {
+    scopes.push(parent);
+  }
 
   for (const scope of scopes) {
     const statefulIcons = Array.from(
@@ -330,33 +348,96 @@ function isExpandableProjectRow(
   return String(next.className || "").includes("overflow-hidden");
 }
 
-function isProjectExpanded(projectLink: HTMLAnchorElement, toggle: HTMLElement | null): boolean {
-  const toggleState = toggle?.getAttribute("data-state");
-  if (toggleState === "open") return true;
-  if (toggleState === "closed") return false;
+function isCollapsedByContainerSignals(container: HTMLElement | null): boolean {
+  if (!container) return false;
+  if (container.hasAttribute("hidden")) return true;
+  if (container.getAttribute("aria-hidden") === "true") return true;
+
+  const display = norm(container.style.display);
+  const visibility = norm(container.style.visibility);
+  const opacity = norm(container.style.opacity);
+  if (display === "none" || visibility === "hidden" || opacity === "0") return true;
+
+  const maxHeight = container.style.maxHeight.trim();
+  const height = container.style.height.trim();
+  if (/^0(?:px|rem|em|%)?$/.test(maxHeight)) return true;
+  if (/^0(?:px|rem|em|%)?$/.test(height)) return true;
+
+  return false;
+}
+
+function buildProjectChatPrefixes(projectLink: HTMLAnchorElement): string[] {
+  const href = normalizeProjectHref(projectLink.getAttribute("href") ?? projectLink.href ?? "");
+  if (!href) return [];
+
+  const m = /^\/g\/([^/]+)\/project\/?$/i.exec(href);
+  if (!m) return [];
+
+  const token = m[1]!;
+  const out = new Set<string>([`/g/${token}/c/`]);
+
+  // In modern ChatGPT sidebar the row href can include a slug suffix:
+  // /g/g-p-<id>-<name>/project, while child chats use /g/g-p-<id>/c/<chatId>.
+  if (token.startsWith("g-p-")) {
+    let cursor = token;
+    for (let i = 0; i < 4; i += 1) {
+      const cut = cursor.lastIndexOf("-");
+      if (cut <= "g-p-".length) break;
+      cursor = cursor.slice(0, cut);
+      out.add(`/g/${cursor}/c/`);
+    }
+  }
+
+  return Array.from(out);
+}
+
+function findProjectChatContainer(
+  section: HTMLElement,
+  projectLink: HTMLAnchorElement
+): HTMLElement | null {
+  const prefixes = buildProjectChatPrefixes(projectLink);
+  if (!prefixes.length) return null;
+
+  const chatLinks = Array.from(section.querySelectorAll<HTMLAnchorElement>('a[href*="/c/"]'));
+  for (const chatLink of chatLinks) {
+    const href = normalizeProjectHref(chatLink.getAttribute("href") ?? chatLink.href ?? "");
+    if (!href) continue;
+    if (!prefixes.some((prefix) => href.includes(prefix))) continue;
+    return (
+      chatLink.closest<HTMLElement>("div.overflow-hidden, [class*='overflow-hidden']") ??
+      chatLink.parentElement
+    );
+  }
+
+  return null;
+}
+
+function isProjectExpanded(
+  section: HTMLElement,
+  projectLink: HTMLAnchorElement,
+  toggle: HTMLElement | null
+): boolean {
+  const mappedChatContainer = findProjectChatContainer(section, projectLink);
+  if (mappedChatContainer) {
+    if (!isCollapsedByContainerSignals(mappedChatContainer)) return true;
+    return false;
+  }
+
+  const next = projectLink.nextElementSibling as HTMLElement | null;
+  if (next && String(next.className || "").includes("overflow-hidden")) {
+    if (isCollapsedByContainerSignals(next)) return false;
+    if (next.querySelector('a[href*="/c/"]')) return true;
+  }
 
   const aria = toggle?.getAttribute("aria-expanded");
   if (aria === "true") return true;
   if (aria === "false") return false;
 
-  const next = projectLink.nextElementSibling as HTMLElement | null;
-  if (!next || !String(next.className || "").includes("overflow-hidden")) return false;
+  const toggleState = toggle?.getAttribute("data-state");
+  if (toggleState === "open") return true;
+  if (toggleState === "closed") return false;
 
-  if (next.hasAttribute("hidden")) return false;
-  if (next.getAttribute("aria-hidden") === "true") return false;
-
-  const display = norm(next.style.display);
-  const visibility = norm(next.style.visibility);
-  const opacity = norm(next.style.opacity);
-
-  if (display === "none" || visibility === "hidden" || opacity === "0") return false;
-
-  const height = next.style.height.trim();
-  const maxHeight = next.style.maxHeight.trim();
-  if (/^0(?:px|rem|em|%)?$/.test(height)) return false;
-  if (/^0(?:px|rem|em|%)?$/.test(maxHeight)) return false;
-
-  return true;
+  return false;
 }
 
 function expandProjectItems(ctx: FeatureContext, section: HTMLElement): ProjectRowsResult {
@@ -380,7 +461,7 @@ function expandProjectItems(ctx: FeatureContext, section: HTMLElement): ProjectR
 
     expandableRows += 1;
 
-    if (isProjectExpanded(projectLink, toggle)) continue;
+    if (isProjectExpanded(section, projectLink, toggle)) continue;
 
     collapsedRows += 1;
 
@@ -415,12 +496,14 @@ function runOnce(ctx: FeatureContext, reason: string): RunResult {
   const nav = getChatHistoryNav(ctx);
   if (!nav) {
     ctx.logger.debug("autoExpandProjects", `skip (${reason}): nav not found`);
+    traceProjects(ctx, "FLOW", "runOnce no sidebar nav", { reason });
     return { stats: baseStats, done: false };
   }
 
   const section = findProjectsSection(nav);
   if (!section) {
     ctx.logger.debug("autoExpandProjects", `skip (${reason}): section not found`);
+    traceProjects(ctx, "FLOW", "runOnce no Projects section", { reason });
     return { stats: baseStats, done: false };
   }
 
@@ -455,6 +538,21 @@ function runOnce(ctx: FeatureContext, reason: string): RunResult {
       stats.expandableProjectRows > 0 &&
       stats.collapsedProjectRows === 0
     : expanded;
+
+  traceProjects(ctx, "FLOW", "runOnce rows stats", {
+    reason,
+    rows: stats.projectRows,
+    expandableRows: stats.expandableProjectRows,
+    collapsedRows: stats.collapsedProjectRows,
+    folderClicks: stats.folderClicks
+  });
+  traceProjects(ctx, "FLOW", "runOnce summary", {
+    reason,
+    expanded,
+    done,
+    wantItems,
+    wantProjects: !!ctx.settings.autoExpandProjects
+  });
 
   ctx.logger.debug(
     "autoExpandProjects",
