@@ -32,6 +32,7 @@ jobs:
               - 'src/**'
               - 'tests/**'
               - 'config/extension/**'
+              - 'config/tooling/**'
               - 'icons/**'
               - 'icons-src/**'
               - 'scripts/**'

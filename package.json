@@ -9,23 +9,23 @@
     "build:amo": "npx web-ext@9.3.0 build --source-dir dist --artifacts-dir web-ext-artifacts --overwrite-dest",
     "verify:ci": "npm run verify && npm test && npm run lint:amo && npm run build:amo",
     "generate:icons": "node scripts/generate-icons.mjs",
-    "lint": "eslint .",
-    "format:check": "prettier --check .",
-    "format:write": "prettier --write .",
-    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --config config/tooling/eslint.config.mjs",
+    "format:check": "prettier --check . --config config/tooling/prettier.config.json --ignore-path config/tooling/prettier.ignore",
+    "format:write": "prettier --write . --config config/tooling/prettier.config.json --ignore-path config/tooling/prettier.ignore",
+    "typecheck": "tsc --noEmit -p config/tooling/tsconfig.json",
     "verify": "node scripts/verify.mjs",
     "prepare": "husky",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "vitest run --config config/tooling/vitest.config.ts",
+    "test:watch": "vitest --config config/tooling/vitest.config.ts",
     "verify:ci:fix": "npm run format:write && npm run verify:ci"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
-      "eslint --fix",
-      "prettier --write"
+      "eslint --fix --config config/tooling/eslint.config.mjs",
+      "prettier --write --config config/tooling/prettier.config.json --ignore-path config/tooling/prettier.ignore"
     ],
     "*.{js,mjs,cjs,json,md,html,css,scss,yml,yaml}": [
-      "prettier --write"
+      "prettier --write --config config/tooling/prettier.config.json --ignore-path config/tooling/prettier.ignore"
     ]
   },
   "dependencies": {
