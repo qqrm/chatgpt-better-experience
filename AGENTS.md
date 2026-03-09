@@ -36,6 +36,8 @@
 - If any local check fails, fix the underlying issue in the same PR so all required checks are green before creating/updating the PR.
 - Before every PR, run the same checks used by CI (or a strict superset), not ad-hoc approximations.
 - Canonical local pre-PR validation command is `npm run verify:ci`; use it unless you have a documented reason to run a strict superset manually.
+- PR description format is mandatory: `Summary`, `Validation`, `Notes` (in this order), following `.github/pull_request_template.md`.
+- In `Validation`, list exact commands in backticks with explicit status (`passed`, `failed`, or `skipped`).
 - Firefox/AMO validation is mandatory for PRs that touch workflows, manifest, build scripts, packaging, or extension assets:
   - Run `npm run build`, `npm run lint:amo`, and `npm run build:amo` (or `npm run verify:ci`, which includes them) using the pinned web-ext toolchain.
   - Keep the pinned web-ext version in sync between `package.json` scripts and `.github/workflows/firefox-amo-sign.yml`.
