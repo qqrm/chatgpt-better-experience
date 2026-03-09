@@ -20,6 +20,7 @@
 - Standard task worktree naming: `<repo-parent>\\wt\\<repo-name>-<task-slug>`.
 - One agent must own exactly one task worktree, one `codex/*` branch, and one pull request.
 - For each new user task, create a fresh `codex/*` branch and worktree before making any file changes.
+- Before every new task, first sync local `main` with remote `origin/main`: `git fetch origin && git pull --ff-only origin main`.
 - Task start flow: in the primary checkout on the chosen base branch (`main` or `dev`), run `git fetch origin && git pull --ff-only origin <base-branch>`, then create the task worktree from `origin/<base-branch>`.
 - Canonical task setup command: `git worktree add <standard-worktree-path> -b codex/<task-slug> origin/<base-branch>`.
 - Run edits, checks, commits, and pushes only from the task's dedicated worktree.
