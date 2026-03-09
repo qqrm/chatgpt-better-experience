@@ -24,3 +24,7 @@
 /node_modules/
 
 .codex/AGENTS.remote.md
+
+# local rag data
+/.rag/
+/.rag-service/

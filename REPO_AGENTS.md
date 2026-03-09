@@ -33,3 +33,10 @@
 - Prefer official or well-maintained community GitHub Actions for CI/CD tasks over custom scripts; add custom scripting only when no reliable action exists and document the reason in the PR notes.
 - Include the exact command list and outcomes in PR notes.
 - CI must confirm local validation; CI should not be the first place packaging/lint regressions are discovered.
+
+## Shared Local RAG (CBE)
+
+- Use only the external multi-repo RAG service at `B:\repos\multi-repo-rag`.
+- Do not create or commit `tools/repo-rag` inside this repository.
+- Register this repository in the shared service with `repo_id: cbe`.
+- `repo_path` may point to the primary checkout or an active worktree for this repo.
