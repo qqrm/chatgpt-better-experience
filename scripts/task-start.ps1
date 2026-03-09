@@ -58,7 +58,7 @@ if (-not (Test-Path -LiteralPath $gitMarker)) {
   throw "Missing .git marker at $repoRoot."
 }
 
-$isPrimaryCheckout = (Get-Item -LiteralPath $gitMarker).PSIsContainer
+$isPrimaryCheckout = (Get-Item -Force -LiteralPath $gitMarker).PSIsContainer
 if (-not $isPrimaryCheckout) {
   throw "Run task-start.ps1 from the primary checkout (not from a linked worktree)."
 }
