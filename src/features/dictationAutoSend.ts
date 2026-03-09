@@ -227,7 +227,8 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
         height: 36px;
         position: relative;
         display: none;
-        pointer-events: none;
+        pointer-events: auto;
+        cursor: pointer;
         color: var(--text-secondary, var(--text-color-secondary, #9ca3af));
         opacity: 0.95;
         flex: 0 0 36px;
@@ -337,7 +338,9 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
     const root = document.createElement("div");
     root.id = "tm-autosend-countdown";
-    root.setAttribute("aria-hidden", "true");
+    root.setAttribute("role", "button");
+    root.setAttribute("aria-label", "Cancel pending auto-send");
+    root.setAttribute("title", "Cancel pending auto-send");
     root.innerHTML = `
       <svg class="tm-autosend-svg" viewBox="0 0 36 36" aria-hidden="true" focusable="false">
         <circle class="tm-autosend-track" cx="18" cy="18" r="15"></circle>
@@ -1534,6 +1537,17 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
     refreshDictationObserver();
     const target = e.target;
+    const clickedCountdown =
+      target instanceof Element && target.closest ? target.closest("#tm-autosend-countdown") : null;
+    if (clickedCountdown) {
+      if (inFlight && cancelInFlightAutoSend("countdown-click")) {
+        tmLog("FLOW", "countdown click: canceled pending auto-send");
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      return;
+    }
+
     const btn =
       target instanceof Element && target.closest
         ? target.closest("button, [role='button']")
