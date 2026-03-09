@@ -114,12 +114,14 @@ jobs:
             checkout_ref="$release_sha"
           fi
 
-          echo "release_sha=$release_sha" >> "$GITHUB_OUTPUT"
-          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
-          echo "bumped=$bumped" >> "$GITHUB_OUTPUT"
-          echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
-          echo "bump_branch=$bump_branch" >> "$GITHUB_OUTPUT"
-          echo "bump_pr_url=$bump_pr_url" >> "$GITHUB_OUTPUT"
+          {
+            echo "release_sha=$release_sha"
+            echo "release_version=$release_version"
+            echo "bumped=$bumped"
+            echo "checkout_ref=$checkout_ref"
+            echo "bump_branch=$bump_branch"
+            echo "bump_pr_url=$bump_pr_url"
+          } >> "$GITHUB_OUTPUT"
 
   sign-and-submit:
     if: ${{ needs.prepare-version.result == 'success' && needs.prepare-version.outputs.checkout_ref != '' }}
