@@ -4,7 +4,7 @@
 
 - `npm run verify`
 
-2. Update the version in `manifest.json` (and anywhere else required by the store).
+2. Update the version in `config/extension/manifest.base.json` (and anywhere else required by the store).
 
 3. Build the extension bundle:
 

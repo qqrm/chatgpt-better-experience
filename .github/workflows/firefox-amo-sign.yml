@@ -48,30 +48,31 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ ! -f manifest.json ]]; then
-            echo "::error::manifest.json not found"
+          manifest_path="config/extension/manifest.base.json"
+          if [[ ! -f "$manifest_path" ]]; then
+            echo "::error::$manifest_path not found"
             exit 1
           fi
 
-          release_version="$(node scripts/manifest-version.mjs print manifest.json)"
+          release_version="$(node scripts/manifest-version.mjs print "$manifest_path")"
           bumped="false"
           checkout_ref=""
           bump_branch=""
           bump_pr_url=""
 
-          if git rev-parse --verify HEAD^ >/dev/null 2>&1 && git cat-file -e HEAD^:manifest.json >/dev/null 2>&1; then
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1 && git cat-file -e HEAD^:"$manifest_path" >/dev/null 2>&1; then
             prev_manifest="$(mktemp)"
-            git show HEAD^:manifest.json > "$prev_manifest"
+            git show HEAD^:"$manifest_path" > "$prev_manifest"
             prev_version="$(node scripts/manifest-version.mjs print "$prev_manifest")"
             rm -f "$prev_manifest"
 
             if [[ "$release_version" == "$prev_version" ]]; then
-              echo "manifest.json version unchanged on main push; auto-bumping patch version"
-              release_version="$(node scripts/manifest-version.mjs bump-patch manifest.json)"
+              echo "$manifest_path version unchanged on main push; auto-bumping patch version"
+              release_version="$(node scripts/manifest-version.mjs bump-patch "$manifest_path")"
 
               git config user.name "github-actions[bot]"
               git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git add manifest.json
+              git add "$manifest_path"
               git commit -m "chore(version): bump manifest to ${release_version} [amo-auto-bump]"
 
               release_sha="$(git rev-parse HEAD)"
@@ -158,7 +159,7 @@ jobs:
         env:
           AMO_API_KEY: ${{ secrets.JWT_ISSUER }}
           AMO_API_SECRET: ${{ secrets.JWT_SECRET }}
-        run: npx web-ext@9.3.0 sign --source-dir dist --artifacts-dir web-ext-artifacts --api-key "$AMO_API_KEY" --api-secret "$AMO_API_SECRET" --channel listed --amo-metadata amo-metadata.json --timeout 900000
+        run: npx web-ext@9.3.0 sign --source-dir dist --artifacts-dir web-ext-artifacts --api-key "$AMO_API_KEY" --api-secret "$AMO_API_SECRET" --channel listed --amo-metadata config/extension/amo-metadata.json --timeout 900000
 
       - name: Upload signed XPI artifact
         uses: actions/upload-artifact@v6.0.0
