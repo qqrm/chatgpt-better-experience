@@ -53,8 +53,8 @@ function printUsage() {
   die(
     [
       "Usage:",
-      "  node scripts/manifest-version.mjs print [path/to/manifest.json]",
-      "  node scripts/manifest-version.mjs bump-patch [path/to/manifest.json]"
+      "  node scripts/manifest-version.mjs print [path/to/manifest.base.json]",
+      "  node scripts/manifest-version.mjs bump-patch [path/to/manifest.base.json]"
     ].join("\n")
   );
 }
@@ -62,7 +62,7 @@ function printUsage() {
 const [command, fileArg] = process.argv.slice(2);
 if (!command) printUsage();
 
-const filePath = path.resolve(process.cwd(), fileArg ?? "manifest.json");
+const filePath = path.resolve(process.cwd(), fileArg ?? "config/extension/manifest.base.json");
 
 if (!fs.existsSync(filePath)) {
   die(`File not found: ${filePath}`);

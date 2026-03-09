@@ -1,6 +1,6 @@
-import { startContentScript } from "./src/application/contentScript";
-import { StorageApi, createStoragePort } from "./src/infra/storageAdapter";
-import { StoragePort } from "./src/domain/ports/storagePort";
+import { startContentScript } from "../application/contentScript";
+import { StorageApi, createStoragePort } from "../infra/storageAdapter";
+import { StoragePort } from "../domain/ports/storagePort";
 
 declare const chrome: {
   runtime?: { lastError?: unknown };

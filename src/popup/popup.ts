@@ -1,6 +1,6 @@
-import { loadPopupSettings, savePopupSettings } from "./src/application/popupUseCases";
-import { StoragePort } from "./src/domain/ports/storagePort";
-import { StorageApi, createStoragePort } from "./src/infra/storageAdapter";
+import { loadPopupSettings, savePopupSettings } from "../application/popupUseCases";
+import { StoragePort } from "../domain/ports/storagePort";
+import { StorageApi, createStoragePort } from "../infra/storageAdapter";
 
 function mustGetElement<T extends HTMLElement>(id: string) {
   const el = document.getElementById(id);

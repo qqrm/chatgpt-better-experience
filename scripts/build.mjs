@@ -2,6 +2,11 @@ import { build } from "esbuild";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 
 const distDir = "dist";
+const contentEntry = "src/entrypoints/content.ts";
+const popupEntry = "src/popup/popup.ts";
+const backgroundEntry = "src/background.ts";
+const popupHtmlPath = "src/popup/popup.html";
+const manifestPath = "config/extension/manifest.base.json";
 
 const shared = {
   bundle: true,
@@ -19,25 +24,25 @@ await mkdir(distDir, { recursive: true });
 await Promise.all([
   build({
     ...shared,
-    entryPoints: ["content.ts"],
+    entryPoints: [contentEntry],
     outfile: `${distDir}/content.js`
   }),
   build({
     ...shared,
-    entryPoints: ["popup.ts"],
+    entryPoints: [popupEntry],
     outfile: `${distDir}/popup.js`
   }),
   build({
     ...shared,
-    entryPoints: ["src/background.ts"],
+    entryPoints: [backgroundEntry],
     outfile: `${distDir}/background.js`
   })
 ]);
 
-const popupHtml = await readFile("popup.html", "utf8");
+const popupHtml = await readFile(popupHtmlPath, "utf8");
 await writeFile(`${distDir}/popup.html`, popupHtml.replace(/dist\//g, ""));
 
-const manifestRaw = await readFile("manifest.json", "utf8");
+const manifestRaw = await readFile(manifestPath, "utf8");
 const manifest = JSON.parse(manifestRaw);
 
 if (Array.isArray(manifest.content_scripts)) {

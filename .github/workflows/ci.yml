@@ -31,11 +31,7 @@ jobs:
             heavy:
               - 'src/**'
               - 'tests/**'
-              - 'content.ts'
-              - 'popup.ts'
-              - 'popup.html'
-              - 'manifest.json'
-              - 'amo-metadata.json'
+              - 'config/extension/**'
               - 'icons/**'
               - 'icons-src/**'
               - 'scripts/**'
