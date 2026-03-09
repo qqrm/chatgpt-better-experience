@@ -98,6 +98,24 @@ jobs:
 
               if [[ -n "$bump_pr_url" ]]; then
                 gh pr merge --auto --squash "$bump_pr_url" || echo "Could not enable auto-merge for ${bump_pr_url}; merge manually if needed."
+
+                # Keep only the latest AMO auto-bump PR open to avoid stale manifest conflicts.
+                current_pr_number="$(gh pr view "$bump_pr_url" --json number --jq '.number' 2>/dev/null || true)"
+                if [[ -n "$current_pr_number" ]]; then
+                  CURRENT_PR="$current_pr_number" gh pr list \
+                    --repo "${GITHUB_REPOSITORY}" \
+                    --state open \
+                    --base main \
+                    --json number,headRefName \
+                    --jq '.[] | select(.headRefName | startswith("amo-auto-bump/")) | select((.number | tostring) != env.CURRENT_PR) | .number' \
+                  | while read -r stale_pr; do
+                      if [[ -n "$stale_pr" ]]; then
+                        gh pr close "$stale_pr" \
+                          --repo "${GITHUB_REPOSITORY}" \
+                          --comment "Superseded by #${current_pr_number}: keeping only the latest AMO auto-bump PR."
+                      fi
+                    done
+                fi
               else
                 echo "::warning::Auto-bump branch pushed (${bump_branch}) but PR was not created. Create PR manually to sync main."
               fi
