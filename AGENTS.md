@@ -1,15 +1,15 @@
-# Agent Instructions Bootstrap
+# Agent Instructions
 
-This repository uses local instruction files by default.
+This repository uses manually maintained local instructions.
 
 ## Instruction Load Order
 
-1. If `.codex/AGENTS.remote.md` is already present (provisioned during fresh Codex web-agent environment setup), read it first.
-2. Apply repository overrides from `REPO_AGENTS.md` when the file exists.
-3. Apply additional scoped `AGENTS.md` files in subdirectories when present.
+1. Apply repository overrides from `REPO_AGENTS.md` when the file exists.
+2. Apply additional scoped `AGENTS.md` files in subdirectories when present.
 
 ## Initialization Policy
 
-- Do not run pre-task live fetch in normal local development.
-- Use codex-tools initialization scripts only when bootstrapping a fresh Codex web-agent environment from scratch.
-- Do not commit `.codex/AGENTS.remote.md`.
+- Do not download or bootstrap instruction files via codex-tools.
+- Configure environment and instruction files separately for each repository.
+- Start each new task in a fresh dedicated worktree (`1 task = 1 branch = 1 worktree = 1 PR`).
+- Do not commit private local instruction files from `.codex/`.
