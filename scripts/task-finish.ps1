@@ -7,6 +7,8 @@ param(
 
   [string]$PrBody = "",
 
+  [string]$PrBodyFile = "",
+
   [switch]$SkipVerify
 )
 
@@ -66,6 +68,10 @@ if (-not $branchName.StartsWith("codex/")) {
 $status = Invoke-Git -Args @("status", "--porcelain") -WorkDir $repoRoot
 if (-not [string]::IsNullOrWhiteSpace($status)) {
   throw "Working tree is not clean. Commit/stash all changes before running task-finish.ps1."
+}
+
+if (-not [string]::IsNullOrWhiteSpace($PrBody) -and -not [string]::IsNullOrWhiteSpace($PrBodyFile)) {
+  throw "Use either -PrBody or -PrBodyFile, not both."
 }
 
 Write-Host "Fetching origin..."
@@ -137,18 +143,55 @@ if ([string]::IsNullOrWhiteSpace($PrTitle)) {
   $PrTitle = (Invoke-Git -Args @("log", "-1", "--pretty=%s") -WorkDir $repoRoot).Trim()
 }
 
-if ([string]::IsNullOrWhiteSpace($PrBody)) {
-  if ($SkipVerify) {
-    $PrBody = "## Summary`n- Automated PR created by task-finish.ps1.`n`n## Validation (local)`n- skipped (`-SkipVerify`)"
-  } else {
-    $PrBody = "## Summary`n- Automated PR created by task-finish.ps1.`n`n## Validation (local)`n- npm run verify:ci"
+if (-not [string]::IsNullOrWhiteSpace($PrBodyFile)) {
+  if (-not [System.IO.Path]::IsPathRooted($PrBodyFile)) {
+    $PrBodyFile = Join-Path $repoRoot $PrBodyFile
+  }
+
+  if (-not (Test-Path -LiteralPath $PrBodyFile -PathType Leaf)) {
+    throw "PR body file not found: $PrBodyFile"
   }
 }
 
-Write-Host "Creating pull request..."
-$prUrl = & gh pr create --base $BaseBranch --head $branchName --title $PrTitle --body $PrBody
-if ($LASTEXITCODE -ne 0) {
-  throw "Unable to create pull request with gh."
+if ([string]::IsNullOrWhiteSpace($PrBody) -and [string]::IsNullOrWhiteSpace($PrBodyFile)) {
+  $validationLine = if ($SkipVerify) {
+    "- skipped (`-SkipVerify`)"
+  } else {
+    "- `npm run verify:ci` (passed)"
+  }
+
+  $PrBody = @"
+## Summary
+- Describe what changed and why.
+- Keep it to 1-3 concise bullets.
+
+## Validation
+$validationLine
+
+## Notes
+- Add risks, follow-ups, or write "none".
+"@
 }
 
-Write-Host "Pull request opened: $prUrl"
+Write-Host "Creating pull request..."
+$tempPrBodyFile = ""
+$ghBodyFile = $PrBodyFile
+
+if ([string]::IsNullOrWhiteSpace($ghBodyFile)) {
+  $tempPrBodyFile = Join-Path ([System.IO.Path]::GetTempPath()) ("task-finish-pr-body-" + [System.Guid]::NewGuid().ToString("N") + ".md")
+  Set-Content -LiteralPath $tempPrBodyFile -Value $PrBody -Encoding utf8
+  $ghBodyFile = $tempPrBodyFile
+}
+
+try {
+  $prUrl = & gh pr create --base $BaseBranch --head $branchName --title $PrTitle --body-file $ghBodyFile
+  if ($LASTEXITCODE -ne 0) {
+    throw "Unable to create pull request with gh."
+  }
+
+  Write-Host "Pull request opened: $prUrl"
+} finally {
+  if (-not [string]::IsNullOrWhiteSpace($tempPrBodyFile) -and (Test-Path -LiteralPath $tempPrBodyFile)) {
+    Remove-Item -LiteralPath $tempPrBodyFile -ErrorAction SilentlyContinue
+  }
+}
