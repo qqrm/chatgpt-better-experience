@@ -20,9 +20,6 @@ const preserveReadingPositionOnSendEl = mustGetElement<HTMLInputElement>(
 const downloadGitPatchesWithShiftClickEl = mustGetElement<HTMLInputElement>(
   "downloadGitPatchesWithShiftClick"
 );
-const clearClipboardAfterShiftDownloadEl = mustGetElement<HTMLInputElement>(
-  "clearClipboardAfterShiftDownload"
-);
 const editLastMessageEl = mustGetElement<HTMLInputElement>("editLastMessageOnArrowUp");
 const renameChatOnF2El = mustGetElement<HTMLInputElement>("renameChatOnF2");
 const autoExpandEl = mustGetElement<HTMLInputElement>("autoExpandChats");
@@ -270,7 +267,6 @@ async function load() {
   showMessageTimestampsEl.checked = settings.showMessageTimestamps;
   preserveReadingPositionOnSendEl.checked = settings.preserveReadingPositionOnSend;
   downloadGitPatchesWithShiftClickEl.checked = settings.downloadGitPatchesWithShiftClick;
-  clearClipboardAfterShiftDownloadEl.checked = settings.clearClipboardAfterShiftDownload;
   editLastMessageEl.checked = settings.editLastMessageOnArrowUp;
   renameChatOnF2El.checked = settings.renameChatOnF2;
   autoExpandEl.checked = settings.autoExpandChats;
@@ -321,7 +317,7 @@ async function save() {
     showMessageTimestamps: !!showMessageTimestampsEl.checked,
     preserveReadingPositionOnSend: !!preserveReadingPositionOnSendEl.checked,
     downloadGitPatchesWithShiftClick: !!downloadGitPatchesWithShiftClickEl.checked,
-    clearClipboardAfterShiftDownload: !!clearClipboardAfterShiftDownloadEl.checked,
+    clearClipboardAfterShiftDownload: true,
     editLastMessageOnArrowUp: !!editLastMessageEl.checked,
     renameChatOnF2: !!renameChatOnF2El.checked,
     autoExpandChats: !!autoExpandEl.checked,
@@ -366,7 +362,6 @@ allowCodexEl.addEventListener("change", () => void save().catch(() => {}));
 showMessageTimestampsEl.addEventListener("change", () => void save().catch(() => {}));
 preserveReadingPositionOnSendEl.addEventListener("change", () => void save().catch(() => {}));
 downloadGitPatchesWithShiftClickEl.addEventListener("change", () => void save().catch(() => {}));
-clearClipboardAfterShiftDownloadEl.addEventListener("change", () => void save().catch(() => {}));
 editLastMessageEl.addEventListener("change", () => void save().catch(() => {}));
 renameChatOnF2El.addEventListener("change", () => void save().catch(() => {}));
 autoExpandEl.addEventListener("change", () => void save().catch(() => {}));

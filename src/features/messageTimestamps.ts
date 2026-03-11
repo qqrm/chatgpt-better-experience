@@ -2,6 +2,8 @@ import { FeatureContext, FeatureHandle } from "../application/featureContext";
 import type { DomDelta } from "../application/domEventBus";
 import {
   collectMessageElementsFromNode,
+  findMainComposerForm,
+  findMainSendButton,
   findMainRoot,
   findMessageTurn,
   findUserMessageBubble,
@@ -13,17 +15,14 @@ import {
   type LocalStorageAreaLike,
   type MessageTimestampRecord
 } from "./messageTimestamps.repo";
-import {
-  MESSAGE_TIMESTAMPS_BRIDGE_SOURCE,
-  type UserMessageSentBridgePayload
-} from "./messageTimestamps.bridge";
 
 const STYLE_ID = "qqrm-message-timestamps-style";
-const PAGE_BRIDGE_SCRIPT_ID = "qqrm-message-timestamps-page-bridge";
 const USER_BUBBLE_ATTR = "data-qqrm-message-time-bubble";
 const TIMESTAMP_ATTR = "data-qqrm-message-time";
 const ASSISTANT_TIMESTAMP_ATTR = "data-qqrm-message-time-role";
 const ASSISTANT_COMPLETION_QUIET_MS = 1500;
+const USER_SEND_CAPTURE_DEDUPE_MS = 750;
+const MAX_PENDING_USER_SENDS = 12;
 
 type AssistantTracker = {
   messageId: string;
@@ -33,12 +32,7 @@ type AssistantTracker = {
   quietTimerId: number | null;
 };
 
-type RuntimeLike = {
-  getURL?: (path: string) => string;
-};
-
 type ExtensionLike = {
-  runtime?: RuntimeLike;
   storage?: {
     local?: LocalStorageAreaLike;
   };
@@ -126,13 +120,13 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     started: false,
     currentConversationId: readConversationId(),
     currentRecords: new Map<string, MessageTimestampRecord>(),
-    pendingUserMessages: new Map<string, { conversationId: string | null; sentAt: number }>(),
+    pendingUserSends: [] as Array<{ conversationId: string | null; sentAt: number }>,
+    lastUserSendCaptureAt: 0,
     expectedAssistantCounts: new Map<string, number>(),
     assistantTrackers: new Map<string, AssistantTracker>(),
     unsubMainDelta: null as (() => void) | null,
     unsubRoots: null as (() => void) | null,
-    unsubPath: null as (() => void) | null,
-    pageListener: null as ((event: MessageEvent<unknown>) => void) | null
+    unsubPath: null as (() => void) | null
   };
 
   const setCurrentRecord = (
@@ -149,6 +143,28 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
       conversationId,
       (state.expectedAssistantCounts.get(conversationId) ?? 0) + 1
     );
+  };
+
+  const capturePendingUserSend = (sentAt = Date.now()) => {
+    if (sentAt - state.lastUserSendCaptureAt < USER_SEND_CAPTURE_DEDUPE_MS) return;
+    state.lastUserSendCaptureAt = sentAt;
+    state.pendingUserSends.push({
+      conversationId: state.currentConversationId ?? readConversationId(),
+      sentAt
+    });
+    if (state.pendingUserSends.length > MAX_PENDING_USER_SENDS) {
+      state.pendingUserSends.splice(0, state.pendingUserSends.length - MAX_PENDING_USER_SENDS);
+    }
+  };
+
+  const takePendingUserSend = (conversationId: string | null) => {
+    const matchIndex = state.pendingUserSends.findIndex((entry) => {
+      if (!conversationId) return true;
+      return entry.conversationId === null || entry.conversationId === conversationId;
+    });
+    if (matchIndex < 0) return null;
+    const [pending] = state.pendingUserSends.splice(matchIndex, 1);
+    return pending ?? null;
   };
 
   const consumeExpectedAssistant = (conversationId: string) => {
@@ -368,37 +384,15 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     for (const messageEl of Array.from(userMessages)) {
       const messageId = messageEl.getAttribute("data-message-id");
       if (!messageId) continue;
-      const pending = state.pendingUserMessages.get(messageId);
+      if (state.currentRecords.get(messageId)?.sentAt) continue;
+      const pending = takePendingUserSend(conversationId);
       if (!pending) continue;
-      state.pendingUserMessages.delete(messageId);
       incrementExpectedAssistant(conversationId);
       const record: MessageTimestampRecord = { role: "user", sentAt: pending.sentAt };
       setCurrentRecord(conversationId, messageId, record);
       renderMessage(messageEl);
       await persistRecord(conversationId, messageId, record);
     }
-  };
-
-  const handleUserMessageSent = (payload: UserMessageSentBridgePayload) => {
-    const conversationId = payload.conversationId ?? readConversationId();
-    const sentAt = payload.createTimeMs ?? payload.sentAtMs;
-
-    if (!conversationId) {
-      state.pendingUserMessages.set(payload.messageId, { conversationId: null, sentAt });
-      return;
-    }
-
-    incrementExpectedAssistant(conversationId);
-
-    const record: MessageTimestampRecord = { role: "user", sentAt };
-    setCurrentRecord(conversationId, payload.messageId, record);
-
-    const existing = document.querySelector<HTMLElement>(
-      `[data-message-id="${payload.messageId}"]`
-    );
-    if (existing) renderMessage(existing);
-
-    void persistRecord(conversationId, payload.messageId, record);
   };
 
   const handleMainDelta = (delta: DomDelta) => {
@@ -427,43 +421,29 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     }
   };
 
-  const ensurePageBridgeInjected = () => {
-    if (document.getElementById(PAGE_BRIDGE_SCRIPT_ID)) return;
-    const runtime = extensionApi?.runtime;
-    const src = runtime?.getURL?.("conversationPageBridge.js");
-    if (!src) return;
+  const handleSubmitCapture = (event: Event) => {
+    const form = findMainComposerForm();
+    if (!form) return;
+    if (event.target !== form) return;
+    capturePendingUserSend();
+  };
 
-    const script = document.createElement("script");
-    script.id = PAGE_BRIDGE_SCRIPT_ID;
-    script.src = src;
-    script.async = false;
-    (document.head ?? document.documentElement)?.appendChild(script);
+  const handleClickCapture = (event: Event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest<HTMLElement>("button, [role='button']");
+    if (!button) return;
+    const sendButton = findMainSendButton();
+    if (!sendButton || button !== sendButton) return;
+    capturePendingUserSend();
   };
 
   const start = () => {
     if (state.started) return;
     state.started = true;
     ensureStyle();
-    ensurePageBridgeInjected();
-
-    state.pageListener = (event: MessageEvent<unknown>) => {
-      if (event.source !== window) return;
-      const data = event.data as Partial<UserMessageSentBridgePayload> | null;
-      if (!data || data.source !== MESSAGE_TIMESTAMPS_BRIDGE_SOURCE) return;
-      if (data.type !== "user-message-sent") return;
-      if (typeof data.messageId !== "string" || typeof data.sentAtMs !== "number") return;
-
-      handleUserMessageSent({
-        source: MESSAGE_TIMESTAMPS_BRIDGE_SOURCE,
-        type: "user-message-sent",
-        conversationId: typeof data.conversationId === "string" ? data.conversationId : null,
-        messageId: data.messageId,
-        sentAtMs: data.sentAtMs,
-        createTimeMs: typeof data.createTimeMs === "number" ? data.createTimeMs : null
-      });
-    };
-
-    window.addEventListener("message", state.pageListener);
+    window.addEventListener("submit", handleSubmitCapture, true);
+    window.addEventListener("click", handleClickCapture, true);
 
     state.unsubPath = ctx.helpers.onPathChange(() => {
       stopAllAssistantTrackers();
@@ -497,11 +477,8 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     state.unsubPath?.();
     state.unsubPath = null;
     stopAllAssistantTrackers();
-
-    if (state.pageListener) {
-      window.removeEventListener("message", state.pageListener);
-      state.pageListener = null;
-    }
+    window.removeEventListener("submit", handleSubmitCapture, true);
+    window.removeEventListener("click", handleClickCapture, true);
 
     removeAllRenderedTimestamps();
     document.getElementById(STYLE_ID)?.remove();
