@@ -27,6 +27,22 @@ describe("normalizeSettings renameChatOnF2", () => {
   });
 });
 
+describe("normalizeSettings conversation enhancements", () => {
+  it("defaults timestamps and scroll preservation to true", () => {
+    const settings = normalizeSettings({});
+    expect(settings.showMessageTimestamps).toBe(true);
+    expect(settings.preserveReadingPositionOnSend).toBe(true);
+  });
+
+  it("parses timestamps and scroll preservation booleans", () => {
+    expect(normalizeSettings({ showMessageTimestamps: false }).showMessageTimestamps).toBe(false);
+    expect(
+      normalizeSettings({ preserveReadingPositionOnSend: false }).preserveReadingPositionOnSend
+    ).toBe(false);
+    expect(normalizeSettings({ showMessageTimestamps: "false" }).showMessageTimestamps).toBe(true);
+  });
+});
+
 describe("normalizeSettings debugTraceTarget", () => {
   it("accepts autoSend target", () => {
     expect(normalizeSettings({ debugTraceTarget: "autoSend" }).debugTraceTarget).toBe("autoSend");

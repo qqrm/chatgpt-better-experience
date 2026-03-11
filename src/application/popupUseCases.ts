@@ -21,6 +21,8 @@ export async function loadPopupSettings({ storagePort }: PopupStorageDeps) {
 export interface PopupSettingsInput {
   autoSend: boolean;
   allowAutoSendInCodex: boolean;
+  showMessageTimestamps: boolean;
+  preserveReadingPositionOnSend: boolean;
   downloadGitPatchesWithShiftClick: boolean;
   clearClipboardAfterShiftDownload: boolean;
   editLastMessageOnArrowUp: boolean;

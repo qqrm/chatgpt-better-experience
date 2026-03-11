@@ -58,6 +58,18 @@ export function normalizeSettings(data: Record<string, unknown>): Settings {
         ? ((data as { allowAutoSendInCodex?: unknown }).allowAutoSendInCodex as boolean)
         : base.allowAutoSendInCodex,
 
+    showMessageTimestamps:
+      typeof (data as { showMessageTimestamps?: unknown }).showMessageTimestamps === "boolean"
+        ? ((data as { showMessageTimestamps?: unknown }).showMessageTimestamps as boolean)
+        : base.showMessageTimestamps,
+
+    preserveReadingPositionOnSend:
+      typeof (data as { preserveReadingPositionOnSend?: unknown }).preserveReadingPositionOnSend ===
+      "boolean"
+        ? ((data as { preserveReadingPositionOnSend?: unknown })
+            .preserveReadingPositionOnSend as boolean)
+        : base.preserveReadingPositionOnSend,
+
     downloadGitPatchesWithShiftClick:
       typeof (data as { downloadGitPatchesWithShiftClick?: unknown })
         .downloadGitPatchesWithShiftClick === "boolean"

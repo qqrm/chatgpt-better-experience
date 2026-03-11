@@ -13,6 +13,10 @@ type PopupTab = "automation" | "input" | "sidebar" | "performance" | "codex" | "
 
 const autoSendEl = mustGetElement<HTMLInputElement>("autoSend");
 const allowCodexEl = mustGetElement<HTMLInputElement>("allowAutoSendInCodex");
+const showMessageTimestampsEl = mustGetElement<HTMLInputElement>("showMessageTimestamps");
+const preserveReadingPositionOnSendEl = mustGetElement<HTMLInputElement>(
+  "preserveReadingPositionOnSend"
+);
 const downloadGitPatchesWithShiftClickEl = mustGetElement<HTMLInputElement>(
   "downloadGitPatchesWithShiftClick"
 );
@@ -263,6 +267,8 @@ async function load() {
 
   autoSendEl.checked = settings.autoSend;
   allowCodexEl.checked = settings.allowAutoSendInCodex;
+  showMessageTimestampsEl.checked = settings.showMessageTimestamps;
+  preserveReadingPositionOnSendEl.checked = settings.preserveReadingPositionOnSend;
   downloadGitPatchesWithShiftClickEl.checked = settings.downloadGitPatchesWithShiftClick;
   clearClipboardAfterShiftDownloadEl.checked = settings.clearClipboardAfterShiftDownload;
   editLastMessageEl.checked = settings.editLastMessageOnArrowUp;
@@ -312,6 +318,8 @@ async function save() {
   const input = {
     autoSend: !!autoSendEl.checked,
     allowAutoSendInCodex: !!allowCodexEl.checked,
+    showMessageTimestamps: !!showMessageTimestampsEl.checked,
+    preserveReadingPositionOnSend: !!preserveReadingPositionOnSendEl.checked,
     downloadGitPatchesWithShiftClick: !!downloadGitPatchesWithShiftClickEl.checked,
     clearClipboardAfterShiftDownload: !!clearClipboardAfterShiftDownloadEl.checked,
     editLastMessageOnArrowUp: !!editLastMessageEl.checked,
@@ -355,6 +363,8 @@ tabBarEl?.addEventListener("wheel", (event) => {
 
 autoSendEl.addEventListener("change", () => void save().catch(() => {}));
 allowCodexEl.addEventListener("change", () => void save().catch(() => {}));
+showMessageTimestampsEl.addEventListener("change", () => void save().catch(() => {}));
+preserveReadingPositionOnSendEl.addEventListener("change", () => void save().catch(() => {}));
 downloadGitPatchesWithShiftClickEl.addEventListener("change", () => void save().catch(() => {}));
 clearClipboardAfterShiftDownloadEl.addEventListener("change", () => void save().catch(() => {}));
 editLastMessageEl.addEventListener("change", () => void save().catch(() => {}));

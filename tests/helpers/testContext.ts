@@ -20,6 +20,8 @@ export function makeTestContext(settings: Partial<Settings> = {}): FeatureContex
   const merged: Settings = {
     autoSend: false,
     allowAutoSendInCodex: false,
+    showMessageTimestamps: false,
+    preserveReadingPositionOnSend: false,
     downloadGitPatchesWithShiftClick: false,
     clearClipboardAfterShiftDownload: false,
     editLastMessageOnArrowUp: false,
