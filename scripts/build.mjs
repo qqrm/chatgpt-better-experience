@@ -3,6 +3,7 @@ import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 
 const distDir = "dist";
 const contentEntry = "src/entrypoints/content.ts";
+const conversationPageBridgeEntry = "src/entrypoints/conversationPageBridge.ts";
 const popupEntry = "src/popup/popup.ts";
 const backgroundEntry = "src/background.ts";
 const popupHtmlPath = "src/popup/popup.html";
@@ -29,6 +30,11 @@ await Promise.all([
   }),
   build({
     ...shared,
+    entryPoints: [conversationPageBridgeEntry],
+    outfile: `${distDir}/conversationPageBridge.js`
+  }),
+  build({
+    ...shared,
     entryPoints: [popupEntry],
     outfile: `${distDir}/popup.js`
   }),
@@ -49,6 +55,15 @@ if (Array.isArray(manifest.content_scripts)) {
   manifest.content_scripts = manifest.content_scripts.map((script) => ({
     ...script,
     js: Array.isArray(script.js) ? script.js.map(stripDistPrefix) : script.js
+  }));
+}
+
+if (Array.isArray(manifest.web_accessible_resources)) {
+  manifest.web_accessible_resources = manifest.web_accessible_resources.map((entry) => ({
+    ...entry,
+    resources: Array.isArray(entry.resources)
+      ? entry.resources.map(stripDistPrefix)
+      : entry.resources
   }));
 }
 

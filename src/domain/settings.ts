@@ -3,6 +3,8 @@ export type DebugTraceTarget = "projects" | "editMessage" | "autoSend";
 export interface Settings {
   autoSend: boolean;
   allowAutoSendInCodex: boolean;
+  showMessageTimestamps: boolean;
+  preserveReadingPositionOnSend: boolean;
   downloadGitPatchesWithShiftClick: boolean;
   clearClipboardAfterShiftDownload: boolean;
   editLastMessageOnArrowUp: boolean;
@@ -33,6 +35,8 @@ export type SettingsRecord = Settings & Record<string, unknown>;
 export const SETTINGS_DEFAULTS: SettingsRecord = {
   autoSend: true,
   allowAutoSendInCodex: true,
+  showMessageTimestamps: true,
+  preserveReadingPositionOnSend: true,
   downloadGitPatchesWithShiftClick: true,
   clearClipboardAfterShiftDownload: false,
   editLastMessageOnArrowUp: true,

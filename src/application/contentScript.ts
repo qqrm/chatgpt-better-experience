@@ -15,6 +15,8 @@ import { initTrimChatDomFeature } from "../features/trimChatDom";
 import { initHideShareButtonFeature } from "../features/hideShareButton";
 import { initDownloadPatchMenuItemFeature } from "../features/downloadPatchMenuItem";
 import { initMacroRecorderFeature } from "../features/macroRecorder";
+import { initMessageTimestampsFeature } from "../features/messageTimestamps";
+import { initPreserveReadingPositionOnSendFeature } from "../features/preserveReadingPositionOnSend";
 
 declare global {
   interface Window {
@@ -62,6 +64,8 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       initAutoTempChatFeature(ctx),
       initOneClickDeleteFeature(ctx),
       initTrimChatDomFeature(ctx),
+      initMessageTimestampsFeature(ctx),
+      initPreserveReadingPositionOnSendFeature(ctx),
       initHideShareButtonFeature(ctx),
       initDownloadPatchMenuItemFeature(ctx),
       initWideChatFeature(ctx),
@@ -94,6 +98,8 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
           "autoExpandProjectItems" in changes ||
           "autoSend" in changes ||
           "allowAutoSendInCodex" in changes ||
+          "showMessageTimestamps" in changes ||
+          "preserveReadingPositionOnSend" in changes ||
           "downloadGitPatchesWithShiftClick" in changes ||
           "clearClipboardAfterShiftDownload" in changes ||
           "editLastMessageOnArrowUp" in changes ||

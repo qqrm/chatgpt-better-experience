@@ -681,6 +681,26 @@
           <div class="sectionTitle">Performance &amp; UI</div>
           <div class="row">
             <div class="check">
+              <input id="showMessageTimestamps" type="checkbox" checked />
+              <label for="showMessageTimestamps">
+                <span>Show message timestamps</span>
+                <span class="note"
+                  >Your messages use sent time, GPT messages use completion time</span
+                >
+              </label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="check">
+              <input id="preserveReadingPositionOnSend" type="checkbox" checked />
+              <label for="preserveReadingPositionOnSend">
+                <span>Keep reading position on send</span>
+                <span class="note">Prevents ChatGPT from forcing the thread to the bottom</span>
+              </label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="check">
               <input id="trimChatDom" type="checkbox" />
               <label for="trimChatDom">
                 <span>Trim chat DOM</span>

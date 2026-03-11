@@ -24,6 +24,8 @@ describe("popup use cases macroRecorderEnabled + debug traces", () => {
       {
         autoSend: true,
         allowAutoSendInCodex: true,
+        showMessageTimestamps: true,
+        preserveReadingPositionOnSend: true,
         downloadGitPatchesWithShiftClick: true,
         clearClipboardAfterShiftDownload: false,
         editLastMessageOnArrowUp: true,
@@ -50,5 +52,7 @@ describe("popup use cases macroRecorderEnabled + debug traces", () => {
     expect(settings.macroRecorderEnabled).toBe(true);
     expect(settings.debugAutoExpandProjects).toBe(true);
     expect(settings.debugTraceTarget).toBe("projects");
+    expect(settings.showMessageTimestamps).toBe(true);
+    expect(settings.preserveReadingPositionOnSend).toBe(true);
   });
 });
