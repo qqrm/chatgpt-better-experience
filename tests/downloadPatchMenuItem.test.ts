@@ -195,7 +195,7 @@ describe("downloadPatchMenuItem shift-click", () => {
     }
   });
 
-  it("clears clipboard only after download callback resolves", async () => {
+  it("always clears clipboard only after download callbacks resolve", async () => {
     document.body.innerHTML = `
       <div role="menu">
         <div role="menuitem" id="copy-item" aria-label="Copy patch"><span>Copy patch</span></div>
@@ -225,10 +225,7 @@ describe("downloadPatchMenuItem shift-click", () => {
     });
 
     const handle = initDownloadPatchMenuItemFeature(
-      makeTestContext({
-        downloadGitPatchesWithShiftClick: true,
-        clearClipboardAfterShiftDownload: true
-      })
+      makeTestContext({ downloadGitPatchesWithShiftClick: true })
     );
 
     try {

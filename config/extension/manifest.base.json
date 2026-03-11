@@ -16,12 +16,6 @@
       "run_at": "document_start"
     }
   ],
-  "web_accessible_resources": [
-    {
-      "resources": ["dist/conversationPageBridge.js"],
-      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"]
-    }
-  ],
   "action": {
     "default_title": "chat-gpt-better-experience",
     "default_popup": "dist/popup.html",

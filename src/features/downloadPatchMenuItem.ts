@@ -80,12 +80,10 @@ export function initDownloadPatchMenuItemFeature(ctx: FeatureContext): FeatureHa
         return;
       }
 
-      if (ctx.settings.clearClipboardAfterShiftDownload) {
-        try {
-          await navigator.clipboard.writeText("");
-        } catch {
-          // best effort only
-        }
+      try {
+        await navigator.clipboard.writeText("");
+      } catch {
+        // best effort only
       }
     } finally {
       activeOperationId = null;

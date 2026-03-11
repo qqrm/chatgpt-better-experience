@@ -3,7 +3,6 @@ import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 
 const distDir = "dist";
 const contentEntry = "src/entrypoints/content.ts";
-const conversationPageBridgeEntry = "src/entrypoints/conversationPageBridge.ts";
 const popupEntry = "src/popup/popup.ts";
 const backgroundEntry = "src/background.ts";
 const popupHtmlPath = "src/popup/popup.html";
@@ -27,11 +26,6 @@ await Promise.all([
     ...shared,
     entryPoints: [contentEntry],
     outfile: `${distDir}/content.js`
-  }),
-  build({
-    ...shared,
-    entryPoints: [conversationPageBridgeEntry],
-    outfile: `${distDir}/conversationPageBridge.js`
   }),
   build({
     ...shared,
