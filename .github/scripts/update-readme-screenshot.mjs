@@ -14,7 +14,7 @@ try {
   throw error;
 }
 
-const popupPath = resolve("popup.html");
+const popupPath = resolve("dist/popup.html");
 const screenshotPath = resolve("docs/images/popup-dark.jpeg");
 const readmePath = resolve("README.md");
 const markerStart = "<!-- popup-screenshot:start -->";
