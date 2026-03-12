@@ -34,7 +34,7 @@ export function createDomEventBus(ctx: FeatureContext) {
   const log = (event: string, msg: string, data?: Record<string, unknown>) =>
     ctx.logger.debug("DOMBUS", msg, data ? { event, ...data } : { event });
 
-  const MAIN_ROOT_SELECTOR = 'main[role="main"]';
+  const MAIN_ROOT_SELECTORS = ['main[role="main"]', "main", '[role="main"]'];
   const NAV_ROOT_SELECTORS = [
     'nav[aria-label="Chat history"]',
     'nav[aria-label*="history" i]',
@@ -47,7 +47,13 @@ export function createDomEventBus(ctx: FeatureContext) {
   const ROOT_FINDER_TIMEOUT_MS = 15_000;
 
   const resolveRoot = (channel: BusChannel): Element | null => {
-    if (channel === "main") return ctx.helpers.safeQuery(MAIN_ROOT_SELECTOR);
+    if (channel === "main") {
+      for (const selector of MAIN_ROOT_SELECTORS) {
+        const root = ctx.helpers.safeQuery(selector);
+        if (root) return root;
+      }
+      return null;
+    }
 
     for (const navSelector of NAV_ROOT_SELECTORS) {
       const directNav = ctx.helpers.safeQuery(navSelector);
