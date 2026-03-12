@@ -74,8 +74,8 @@ jobs:
           fi
 
           if git diff --name-only "${BASE}" HEAD -- \
-            popup.html \
-            popup.ts \
+            src/popup/popup.html \
+            src/popup/popup.ts \
             src/application/popupUseCases.ts \
             | grep -q .; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
