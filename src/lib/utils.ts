@@ -172,7 +172,14 @@ export function normalizeSettings(data: Record<string, unknown>): Settings {
 
     debugTraceTarget: (() => {
       const raw = (data as { debugTraceTarget?: unknown }).debugTraceTarget;
-      if (raw === "projects" || raw === "editMessage" || raw === "autoSend") return raw;
+      if (
+        raw === "projects" ||
+        raw === "editMessage" ||
+        raw === "autoSend" ||
+        raw === "timestamps"
+      ) {
+        return raw;
+      }
       return base.debugTraceTarget;
     })()
   };

@@ -304,12 +304,14 @@ async function save() {
   const wideChatWidth = Math.min(100, Math.max(0, Number(wideChatWidthEl.value) || 0));
   const trimChatDomKeep = Math.min(50, Math.max(5, Number(trimChatDomKeepEl.value) || 0));
 
-  const debugTraceTarget: "projects" | "editMessage" | "autoSend" =
+  const debugTraceTarget: "projects" | "editMessage" | "autoSend" | "timestamps" =
     debugTraceTargetEl.value === "editMessage"
       ? "editMessage"
       : debugTraceTargetEl.value === "autoSend"
         ? "autoSend"
-        : "projects";
+        : debugTraceTargetEl.value === "timestamps"
+          ? "timestamps"
+          : "projects";
 
   const input = {
     autoSend: !!autoSendEl.checked,
@@ -438,7 +440,12 @@ storagePort.onChanged?.((changes) => {
 
   if ("debugTraceTarget" in changes) {
     const next = changes.debugTraceTarget?.newValue;
-    if (next === "projects" || next === "editMessage" || next === "autoSend") {
+    if (
+      next === "projects" ||
+      next === "editMessage" ||
+      next === "autoSend" ||
+      next === "timestamps"
+    ) {
       debugTraceTargetEl.value = next;
     }
   }

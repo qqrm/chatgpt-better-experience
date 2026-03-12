@@ -1,5 +1,12 @@
 import type { MessageTimestampRecord } from "./messageTimestamps.repo";
 
+type ChatGptApiDebugLevel = "log" | "info" | "warn" | "error";
+type ChatGptApiDebug = (
+  message: string,
+  fields?: Record<string, unknown>,
+  level?: ChatGptApiDebugLevel
+) => void;
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
@@ -48,26 +55,41 @@ export function buildChatGptUrl(pathname: string): string {
   return new URL(pathname, base).toString();
 }
 
-export async function getAccessToken(): Promise<string | null> {
+export async function getAccessToken(debug?: ChatGptApiDebug): Promise<string | null> {
+  const url = buildChatGptUrl("/api/auth/session?unstable_client=true");
   try {
-    const response = await fetch(buildChatGptUrl("/api/auth/session?unstable_client=true"), {
+    debug?.("access token request", { url });
+    const response = await fetch(url, {
       credentials: "include"
     });
+    debug?.(
+      "access token response",
+      { url, ok: response.ok, status: response.status },
+      response.ok ? "info" : "warn"
+    );
     if (!response.ok) return null;
     const data = (await response.json()) as { accessToken?: unknown };
-    return typeof data.accessToken === "string" ? data.accessToken : null;
-  } catch {
+    const token = typeof data.accessToken === "string" ? data.accessToken : null;
+    debug?.("access token parsed", { url, tokenPresent: !!token }, token ? "info" : "warn");
+    return token;
+  } catch (error) {
+    debug?.("access token request failed", { url, error: String(error) }, "error");
     return null;
   }
 }
 
 export async function buildChatGptAuthHeaders({
-  includeJsonContentType = false
+  includeJsonContentType = false,
+  debug
 }: {
   includeJsonContentType?: boolean;
+  debug?: ChatGptApiDebug;
 } = {}): Promise<Record<string, string> | null> {
-  const token = await getAccessToken();
-  if (!token) return null;
+  const token = await getAccessToken(debug);
+  if (!token) {
+    debug?.("auth headers unavailable: no token", {}, "warn");
+    return null;
+  }
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`
@@ -79,6 +101,10 @@ export async function buildChatGptAuthHeaders({
 
   const deviceId = localStorage.getItem("oai-device-id");
   if (deviceId) headers["oai-device-id"] = deviceId;
+  debug?.("auth headers built", {
+    includeJsonContentType,
+    hasDeviceId: !!deviceId
+  });
 
   return headers;
 }
@@ -116,20 +142,36 @@ export function extractConversationTimestampRecords(
 }
 
 export async function fetchConversationTimestampRecords(
-  conversationId: string
+  conversationId: string,
+  debug?: ChatGptApiDebug
 ): Promise<Record<string, MessageTimestampRecord> | null> {
+  const url = buildChatGptUrl(`/backend-api/conversation/${conversationId}`);
   try {
-    const headers = await buildChatGptAuthHeaders();
+    debug?.("conversation request scheduled", { conversationId, url });
+    const headers = await buildChatGptAuthHeaders({ debug });
     if (!headers) return null;
 
-    const response = await fetch(buildChatGptUrl(`/backend-api/conversation/${conversationId}`), {
+    const response = await fetch(url, {
       credentials: "include",
       headers
     });
+    debug?.(
+      "conversation response",
+      { conversationId, url, ok: response.ok, status: response.status },
+      response.ok ? "info" : "warn"
+    );
 
     if (!response.ok) return null;
-    return extractConversationTimestampRecords(await response.json());
-  } catch {
+    const payload = await response.json();
+    const records = extractConversationTimestampRecords(payload);
+    debug?.("conversation payload parsed", {
+      conversationId,
+      url,
+      recordCount: Object.keys(records).length
+    });
+    return records;
+  } catch (error) {
+    debug?.("conversation request failed", { conversationId, url, error: String(error) }, "error");
     return null;
   }
 }

@@ -175,6 +175,32 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     unsubPath: null as (() => void) | null
   };
 
+  const trace = (
+    scope: string,
+    message: string,
+    fields?: Record<string, unknown>,
+    level: "log" | "info" | "warn" | "error" = "log"
+  ) => {
+    ctx.logger.trace(
+      "timestamps",
+      scope,
+      message,
+      {
+        path: location.pathname,
+        conversationId: state.currentConversationId ?? "",
+        conversationKey: state.currentConversationKey,
+        ...(fields ?? {})
+      },
+      level
+    );
+  };
+
+  const recordSummary = (record: MessageTimestampRecord | undefined) => ({
+    recordRole: record?.role ?? "",
+    sentAt: record?.sentAt ?? 0,
+    completedAt: record?.completedAt ?? 0
+  });
+
   const readConversationScope = () => ({
     conversationId: readCurrentConversationId(),
     conversationKey: readConversationStorageKey()
@@ -191,7 +217,11 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
 
   const renderUserTimestamp = (messageEl: HTMLElement, text: string, title: string) => {
     const bubble = findUserMessageBubble(messageEl);
-    if (!bubble) return;
+    const messageId = messageEl.getAttribute("data-message-id") ?? "";
+    if (!bubble) {
+      trace("TS/RENDER", "user bubble not found", { messageId }, "warn");
+      return;
+    }
 
     bubble.setAttribute(USER_BUBBLE_ATTR, "1");
 
@@ -205,9 +235,11 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
 
     stamp.textContent = text;
     stamp.title = title;
+    trace("TS/RENDER", "rendered user timestamp", { messageId, text, title });
   };
 
   const renderAssistantTimestamp = (messageEl: HTMLElement, text: string, title: string) => {
+    const messageId = messageEl.getAttribute("data-message-id") ?? "";
     let stamp = messageEl.querySelector<HTMLElement>(
       `[${TIMESTAMP_ATTR}][${ASSISTANT_TIMESTAMP_ATTR}="assistant"]`
     );
@@ -221,6 +253,7 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
 
     stamp.textContent = text;
     stamp.title = title;
+    trace("TS/RENDER", "rendered assistant timestamp", { messageId, text, title });
   };
 
   const renderMessage = (messageEl: HTMLElement) => {
@@ -236,6 +269,11 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     const record = state.currentRecords.get(messageId);
     const timestampMs = role === "user" ? record?.sentAt : record?.completedAt;
     if (!timestampMs) {
+      trace("TS/RENDER", "skip render: missing timestamp", {
+        messageId,
+        role,
+        ...recordSummary(record)
+      });
       removeRenderedTimestamp(messageEl);
       return;
     }
@@ -257,6 +295,10 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     const messages = root.querySelectorAll<HTMLElement>(
       "[data-message-id][data-message-author-role]"
     );
+    trace("TS/RENDER", "render current conversation", {
+      messageCount: messages.length,
+      recordCount: state.currentRecords.size
+    });
     for (const messageEl of Array.from(messages)) renderMessage(messageEl);
   };
 
@@ -272,6 +314,14 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     if (recordsEqual(previous, next)) return false;
 
     state.currentRecords.set(messageId, next);
+    trace("TS/STATE", "record patch applied", {
+      messageId,
+      role: next.role,
+      previousSentAt: previous?.sentAt ?? 0,
+      previousCompletedAt: previous?.completedAt ?? 0,
+      nextSentAt: next.sentAt ?? 0,
+      nextCompletedAt: next.completedAt ?? 0
+    });
     return true;
   };
 
@@ -285,10 +335,21 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     messageId: string,
     patch: Partial<MessageTimestampRecord> & Pick<MessageTimestampRecord, "role">
   ) => {
+    trace("TS/STORE", "persist record patch", {
+      messageId,
+      role: patch.role,
+      sentAt: patch.sentAt ?? 0,
+      completedAt: patch.completedAt ?? 0
+    });
     const next = await repo.upsertMessage(conversationKey, messageId, patch);
     if (conversationKey !== state.currentConversationKey) return;
     state.currentRecords.set(messageId, next);
     renderMessageById(messageId);
+    trace("TS/STORE", "persist record patch complete", {
+      messageId,
+      role: next.role,
+      ...recordSummary(next)
+    });
   };
 
   const syncCurrentConversationFromApi = async () => {
@@ -297,25 +358,45 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     if (!conversationId) return;
 
     const version = ++state.apiSyncVersion;
-    const records = await fetchConversationTimestampRecords(conversationId);
-    if (!records) return;
+    trace("TS/API", "sync conversation from api start", { version });
+    const records = await fetchConversationTimestampRecords(
+      conversationId,
+      (message, fields, level) => trace("TS/API", message, fields, level)
+    );
+    if (!records) {
+      trace("TS/API", "sync conversation from api returned no records", { version }, "warn");
+      return;
+    }
     if (
       version !== state.apiSyncVersion ||
       state.currentConversationId !== conversationId ||
       state.currentConversationKey !== conversationKey
     ) {
+      trace("TS/API", "discarded stale api sync result", { version }, "warn");
       return;
     }
 
+    let changedCount = 0;
     for (const [messageId, record] of Object.entries(records)) {
       const changed = applyCurrentRecordPatch(conversationKey, messageId, record);
-      if (changed) renderMessageById(messageId);
-      if (changed) void persistRecordPatch(conversationKey, messageId, record);
+      if (changed) {
+        changedCount += 1;
+        renderMessageById(messageId);
+        void persistRecordPatch(conversationKey, messageId, record);
+      }
     }
+    trace("TS/API", "sync conversation from api complete", {
+      version,
+      apiRecordCount: Object.keys(records).length,
+      changedCount
+    });
   };
 
   const scheduleApiSync = () => {
     if (!state.currentConversationId) return;
+    trace("TS/API", "schedule api sync", {
+      pendingConversationId: state.currentConversationId
+    });
     state.apiSyncScheduler?.schedule();
   };
 
@@ -342,6 +423,10 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     stopAssistantTracker(messageId);
 
     const completedAt = Date.now();
+    trace("TS/ASSISTANT", "finalize assistant tracker", {
+      messageId,
+      completedAt
+    });
     const changed = applyCurrentRecordPatch(tracker.conversationKey, messageId, {
       role: "assistant",
       completedAt
@@ -364,6 +449,10 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     tracker.quietTimerId = window.setTimeout(() => {
       finalizeAssistantTracker(messageId);
     }, ASSISTANT_COMPLETION_QUIET_MS);
+    trace("TS/ASSISTANT", "schedule assistant finalize", {
+      messageId,
+      quietMs: ASSISTANT_COMPLETION_QUIET_MS
+    });
   };
 
   const trackAssistantMessage = (messageEl: HTMLElement) => {
@@ -372,6 +461,10 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     if (!messageId) return;
     if (state.assistantTrackers.has(messageId)) return;
     if (state.currentRecords.get(messageId)?.completedAt) return;
+    trace("TS/ASSISTANT", "start assistant tracker", {
+      messageId,
+      hasCompletedAt: !!state.currentRecords.get(messageId)?.completedAt
+    });
 
     const root = findMessageTurn(messageEl) ?? messageEl;
     const observer = new MutationObserver(() => {
@@ -406,6 +499,10 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     if (state.pendingUserSends.length > MAX_PENDING_USER_SENDS) {
       state.pendingUserSends.splice(0, state.pendingUserSends.length - MAX_PENDING_USER_SENDS);
     }
+    trace("TS/USER", "captured pending user send", {
+      sentAt,
+      pendingCount: state.pendingUserSends.length
+    });
   };
 
   const takePendingUserSend = (conversationKey: string) => {
@@ -428,8 +525,26 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
 
     const pending = takePendingUserSend(state.currentConversationKey);
     const sentAt = pending?.sentAt ?? (allowNowFallback ? Date.now() : undefined);
-    if (!sentAt) return false;
+    if (!sentAt) {
+      trace(
+        "TS/USER",
+        "unable to adopt user message",
+        {
+          messageId,
+          allowNowFallback,
+          pendingCount: state.pendingUserSends.length
+        },
+        "warn"
+      );
+      return false;
+    }
 
+    trace("TS/USER", "adopt user message", {
+      messageId,
+      allowNowFallback,
+      usedPendingSend: !!pending,
+      sentAt
+    });
     const changed = applyCurrentRecordPatch(state.currentConversationKey, messageId, {
       role: "user",
       sentAt
@@ -456,6 +571,12 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     const scope = readConversationScope();
     const previousConversationKey = state.currentConversationKey;
     const localRecords = new Map(state.currentRecords);
+    trace("TS/LOAD", "load current conversation start", {
+      previousConversationKey,
+      nextConversationKey: scope.conversationKey,
+      nextConversationId: scope.conversationId ?? "",
+      localRecordCount: localRecords.size
+    });
 
     state.currentConversationId = scope.conversationId;
     state.currentConversationKey = scope.conversationKey;
@@ -464,6 +585,9 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
 
     const conversation = await repo.getConversation(scope.conversationKey);
     if (state.currentConversationKey !== scope.conversationKey) return;
+    trace("TS/LOAD", "repo conversation loaded", {
+      repoRecordCount: Object.keys(conversation?.messages ?? {}).length
+    });
 
     for (const [messageId, record] of Object.entries(conversation?.messages ?? {})) {
       state.currentRecords.set(messageId, record);
@@ -480,6 +604,9 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     renderCurrentConversation();
     adoptPendingUserMessages(false, findMainRoot() ?? document);
     scheduleApiSync();
+    trace("TS/LOAD", "load current conversation complete", {
+      recordCount: state.currentRecords.size
+    });
   };
 
   const refreshConversationScopeIfNeeded = () => {
@@ -491,6 +618,17 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
       return false;
     }
 
+    trace(
+      "TS/SCOPE",
+      "conversation scope changed",
+      {
+        previousConversationId: state.currentConversationId ?? "",
+        nextConversationId: nextScope.conversationId ?? "",
+        previousConversationKey: state.currentConversationKey,
+        nextConversationKey: nextScope.conversationKey
+      },
+      "info"
+    );
     stopAllAssistantTrackers();
     void loadCurrentConversation();
     return true;
@@ -509,6 +647,11 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
       }
     }
 
+    trace("TS/DELTA", "handle main delta", {
+      reason: delta.reason,
+      addedCount: delta.added.length,
+      discoveredMessageCount: addedMessages.size
+    });
     if (!addedMessages.size) return;
 
     for (const messageEl of addedMessages.values()) {
@@ -531,6 +674,7 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     const form = findMainComposerForm();
     if (!form) return;
     if (event.target !== form) return;
+    trace("TS/USER", "submit captured from composer form");
     capturePendingUserSend();
   };
 
@@ -541,12 +685,22 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     if (!button) return;
     const sendButton = findMainSendButton();
     if (!sendButton || button !== sendButton) return;
+    trace("TS/USER", "click captured from send button");
     capturePendingUserSend();
   };
 
   const start = () => {
     if (state.started) return;
     state.started = true;
+    ctx.logger.contractSnapshot("timestamps", "TS/BOOT", {
+      mode: "chat",
+      dictationState: "n/a",
+      composerKind: "n/a",
+      sendButtonState: "n/a",
+      path: location.pathname,
+      conversationId: state.currentConversationId ?? "",
+      conversationKey: state.currentConversationKey
+    });
     state.apiSyncScheduler = ctx.helpers.debounceScheduler(() => {
       void syncCurrentConversationFromApi();
     }, API_SYNC_DEBOUNCE_MS);
@@ -556,6 +710,7 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     window.addEventListener("click", handleClickCapture, true);
 
     state.unsubPath = ctx.helpers.onPathChange(() => {
+      trace("TS/SCOPE", "path change observed", { nextPath: location.pathname }, "info");
       stopAllAssistantTrackers();
       void loadCurrentConversation();
     });
@@ -584,6 +739,7 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
   const stop = () => {
     if (!state.started) return;
     state.started = false;
+    trace("TS/BOOT", "stop feature");
     state.apiSyncVersion += 1;
     state.apiSyncScheduler?.cancel();
     state.apiSyncScheduler = null;

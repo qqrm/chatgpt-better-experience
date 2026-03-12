@@ -47,4 +47,10 @@ describe("normalizeSettings debugTraceTarget", () => {
   it("accepts autoSend target", () => {
     expect(normalizeSettings({ debugTraceTarget: "autoSend" }).debugTraceTarget).toBe("autoSend");
   });
+
+  it("accepts timestamps target", () => {
+    expect(normalizeSettings({ debugTraceTarget: "timestamps" }).debugTraceTarget).toBe(
+      "timestamps"
+    );
+  });
 });
