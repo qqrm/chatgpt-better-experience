@@ -43,7 +43,7 @@ describe("popup use cases macroRecorderEnabled + debug traces", () => {
         hideShareButton: false,
         macroRecorderEnabled: true,
         debugAutoExpandProjects: true,
-        debugTraceTarget: "projects"
+        debugTraceTarget: "timestamps"
       }
     );
 
@@ -51,7 +51,7 @@ describe("popup use cases macroRecorderEnabled + debug traces", () => {
     expect(settings.renameChatOnF2).toBe(false);
     expect(settings.macroRecorderEnabled).toBe(true);
     expect(settings.debugAutoExpandProjects).toBe(true);
-    expect(settings.debugTraceTarget).toBe("projects");
+    expect(settings.debugTraceTarget).toBe("timestamps");
     expect(settings.showMessageTimestamps).toBe(true);
     expect(settings.preserveReadingPositionOnSend).toBe(true);
   });

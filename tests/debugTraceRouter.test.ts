@@ -61,6 +61,22 @@ describe("debug trace router", () => {
     expect(line).toContain("should be logged");
   });
 
+  it("supports timestamps target", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const ctx = makeCtx({ debugAutoExpandProjects: true, debugTraceTarget: "timestamps" });
+
+    ctx.logger.trace("timestamps", "TS", "render skipped", {
+      path: "/c/42",
+      messageId: "msg-1"
+    });
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const line = String(logSpy.mock.calls[0][0]);
+    expect(line).toContain("[TM Trace][timestamps]");
+    expect(line).toContain("render skipped");
+    expect(line).toContain("messageId=msg-1");
+  });
+
   it("contract snapshot emits expected invariant fields", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const ctx = makeCtx({ debugAutoExpandProjects: true, debugTraceTarget: "editMessage" });
