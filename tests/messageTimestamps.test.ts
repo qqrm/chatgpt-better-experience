@@ -193,6 +193,7 @@ describe("message timestamps", () => {
   it("backfills timestamps for the active chat from the conversation api", async () => {
     vi.resetModules();
     vi.useFakeTimers();
+    const expectedOrigin = window.location.origin;
 
     (
       globalThis as typeof globalThis & {
@@ -208,37 +209,36 @@ describe("message timestamps", () => {
       }
     };
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/api/auth/session")) {
-          return createFetchResponse({ accessToken: "token-123" });
-        }
-        if (url.includes("/backend-api/conversation/conv-123")) {
-          return createFetchResponse({
-            mapping: {
-              "node-user": {
-                message: {
-                  id: "user-1",
-                  author: { role: "user" },
-                  create_time: 1700000000
-                }
-              },
-              "node-assistant": {
-                message: {
-                  id: "assistant-1",
-                  author: { role: "assistant" },
-                  create_time: 1700000060,
-                  update_time: 1700000120
-                }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `${expectedOrigin}/api/auth/session?unstable_client=true`) {
+        return createFetchResponse({ accessToken: "token-123" });
+      }
+      if (url === `${expectedOrigin}/backend-api/conversation/conv-123`) {
+        return createFetchResponse({
+          mapping: {
+            "node-user": {
+              message: {
+                id: "user-1",
+                author: { role: "user" },
+                create_time: 1700000000
+              }
+            },
+            "node-assistant": {
+              message: {
+                id: "assistant-1",
+                author: { role: "assistant" },
+                create_time: 1700000060,
+                update_time: 1700000120
               }
             }
-          });
-        }
-        return createFetchResponse({}, false);
-      })
-    );
+          }
+        });
+      }
+      return createFetchResponse({}, false);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
 
     const { initMessageTimestampsFeature } = await import("../src/features/messageTimestamps");
 
@@ -279,6 +279,14 @@ describe("message timestamps", () => {
 
     expect(userStamp?.textContent ?? "").toMatch(/\d/);
     expect(assistantStamp?.textContent ?? "").toMatch(/\d/);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${expectedOrigin}/api/auth/session?unstable_client=true`,
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${expectedOrigin}/backend-api/conversation/conv-123`,
+      expect.objectContaining({ credentials: "include" })
+    );
 
     handle.dispose();
   });

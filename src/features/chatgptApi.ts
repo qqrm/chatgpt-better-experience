@@ -40,9 +40,17 @@ function readAssistantCompletedAt(
   );
 }
 
+export function buildChatGptUrl(pathname: string): string {
+  const base =
+    typeof location !== "undefined" && typeof location.origin === "string"
+      ? location.origin
+      : "https://chatgpt.com";
+  return new URL(pathname, base).toString();
+}
+
 export async function getAccessToken(): Promise<string | null> {
   try {
-    const response = await fetch("/api/auth/session?unstable_client=true", {
+    const response = await fetch(buildChatGptUrl("/api/auth/session?unstable_client=true"), {
       credentials: "include"
     });
     if (!response.ok) return null;
@@ -114,7 +122,7 @@ export async function fetchConversationTimestampRecords(
     const headers = await buildChatGptAuthHeaders();
     if (!headers) return null;
 
-    const response = await fetch(`/backend-api/conversation/${conversationId}`, {
+    const response = await fetch(buildChatGptUrl(`/backend-api/conversation/${conversationId}`), {
       credentials: "include",
       headers
     });

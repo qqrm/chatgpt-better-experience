@@ -1,5 +1,5 @@
 import { FeatureContext, FeatureHandle } from "../application/featureContext";
-import { buildChatGptAuthHeaders } from "./chatgptApi";
+import { buildChatGptAuthHeaders, buildChatGptUrl } from "./chatgptApi";
 
 const ONE_CLICK_DELETE_HOOK_MARK = "data-qqrm-oneclick-del-hooked";
 const ONE_CLICK_DELETE_ARCHIVE_MARK = "data-qqrm-oneclick-archive";
@@ -92,7 +92,7 @@ export const patchConversation = async (
     });
     if (!headers) return false;
 
-    const response = await fetch(`/backend-api/conversation/${conversationId}`, {
+    const response = await fetch(buildChatGptUrl(`/backend-api/conversation/${conversationId}`), {
       method: "PATCH",
       credentials: "include",
       headers,
