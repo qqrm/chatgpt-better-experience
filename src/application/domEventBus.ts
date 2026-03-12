@@ -7,6 +7,7 @@ export type DomDelta = {
   channel: BusChannel;
   added: Element[];
   removed: Element[];
+  touched?: Element[];
   reason: "initial" | "route" | "mutation" | "rebind";
   at: number;
 };
@@ -22,6 +23,7 @@ type ChannelState = {
   observer: MutationObserver | null;
   pendingAdded: Set<Element>;
   pendingRemoved: Set<Element>;
+  pendingTouched: Set<Element>;
   lastReason: DomDelta["reason"];
   rafSchedule: () => void;
   rafCancel: () => void;
@@ -109,6 +111,7 @@ export function createDomEventBus(ctx: FeatureContext) {
       observer: null,
       pendingAdded: new Set<Element>(),
       pendingRemoved: new Set<Element>(),
+      pendingTouched: new Set<Element>(),
       lastReason: "initial",
       rafSchedule: schedule,
       rafCancel: cancel,
@@ -224,6 +227,7 @@ export function createDomEventBus(ctx: FeatureContext) {
     }
     state.pendingAdded.clear();
     state.pendingRemoved.clear();
+    state.pendingTouched.clear();
 
     if (state.observer) {
       state.observer.disconnect();
@@ -245,6 +249,8 @@ export function createDomEventBus(ctx: FeatureContext) {
 
         for (const el of extractAddedElements(mutations)) state.pendingAdded.add(el);
         for (const m of mutations) {
+          const target = m.target instanceof Element ? m.target : (m.target.parentElement ?? null);
+          if (target) state.pendingTouched.add(target);
           if (m.type !== "childList") continue;
           for (const node of Array.from(m.removedNodes)) {
             if (node.nodeType === Node.ELEMENT_NODE) state.pendingRemoved.add(node as Element);
@@ -267,7 +273,8 @@ export function createDomEventBus(ctx: FeatureContext) {
     channel: BusChannel,
     reason: DomDelta["reason"],
     added: Element[],
-    removed: Element[]
+    removed: Element[],
+    touched: Element[] = []
   ) => {
     const set = listeners.get(channel);
     if (!set || set.size === 0) return;
@@ -279,6 +286,7 @@ export function createDomEventBus(ctx: FeatureContext) {
       channel,
       added,
       removed,
+      touched,
       reason,
       at: stats.lastEmitAt
     };
@@ -323,13 +331,15 @@ export function createDomEventBus(ctx: FeatureContext) {
 
     const added = Array.from(state.pendingAdded);
     const removed = Array.from(state.pendingRemoved);
+    const touched = Array.from(state.pendingTouched);
     state.pendingAdded.clear();
     state.pendingRemoved.clear();
+    state.pendingTouched.clear();
 
     const reason = state.lastReason;
     state.lastReason = "mutation";
 
-    emit(channel, reason, added, removed);
+    emit(channel, reason, added, removed, touched);
   };
 
   const rebind = (reason: DomDelta["reason"]) => {

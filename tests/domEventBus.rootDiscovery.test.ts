@@ -81,6 +81,32 @@ function makeCtx(): FeatureContext {
 }
 
 describe("domEventBus root discovery", () => {
+  it("emits touched mutation targets for main-channel updates", async () => {
+    document.body.innerHTML = `
+      <main role="main" id="main">
+        <div id="message-content"></div>
+      </main>
+    `;
+
+    const bus = createDomEventBus(makeCtx());
+    const deltas: Array<{ touched: Element[] | undefined }> = [];
+
+    const unsubscribe = bus.onDelta("main", (delta) => {
+      if (delta.reason === "mutation") deltas.push({ touched: delta.touched });
+    });
+
+    const content = document.getElementById("message-content");
+    const chunk = document.createElement("p");
+    chunk.textContent = "reply";
+    content?.appendChild(chunk);
+
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+
+    expect(deltas.some((delta) => delta.touched?.includes(content as Element))).toBe(true);
+
+    unsubscribe();
+  });
+
   it("discovers main root when ChatGPT renders a plain main without role", async () => {
     document.body.innerHTML = '<main id="main-no-role"></main>';
 

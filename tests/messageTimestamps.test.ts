@@ -72,14 +72,26 @@ function createDomBusHarness() {
         rebinds: 0
       })
     },
-    emitMainAdded(...added: Element[]) {
+    emitMainDelta({
+      added = [],
+      removed = [],
+      touched = []
+    }: {
+      added?: Element[];
+      removed?: Element[];
+      touched?: Element[];
+    }) {
       mainDeltaListener?.({
         channel: "main",
         added,
-        removed: [],
+        removed,
+        touched,
         reason: "mutation",
         at: Date.now()
       });
+    },
+    emitMainAdded(...added: Element[]) {
+      this.emitMainDelta({ added, touched: added });
     },
     emitRoots(reason: RootSnapshot["reason"] = "route") {
       rootsListener?.({
@@ -340,6 +352,71 @@ describe("message timestamps", () => {
     await flushMicrotasks();
 
     const assistantStamp = assistantMessage.querySelector<HTMLElement>(
+      '[data-qqrm-message-time][data-qqrm-message-time-variant="assistant"]'
+    );
+    expect(assistantStamp?.textContent ?? "").toMatch(/\d/);
+
+    handle.dispose();
+  });
+
+  it("stamps messages when ChatGPT mutates content inside an existing message container", async () => {
+    vi.resetModules();
+    vi.useFakeTimers();
+
+    const domBus = createDomBusHarness();
+    const ctx = makeTestContext({ showMessageTimestamps: true });
+    ctx.domBus = domBus.domBus as typeof ctx.domBus;
+
+    const { initMessageTimestampsFeature } = await import("../src/features/messageTimestamps");
+
+    window.history.replaceState({}, "", "/c/existing-conv");
+    mountHtml(`
+      <main role="main">
+        <div data-message-author-role="user" data-message-id="live-user-1">
+          <div class="user-message-bubble-color"></div>
+        </div>
+        <div data-message-author-role="assistant" data-message-id="live-assistant-1">
+          <div class="assistant-message-content"></div>
+        </div>
+      </main>
+      <form data-testid="composer">
+        <textarea data-testid="prompt-textarea"></textarea>
+        <button id="composer-submit-button" type="submit">Send</button>
+      </form>
+    `);
+
+    const handle = initMessageTimestampsFeature(ctx);
+    domBus.emitRoots("initial");
+
+    const form = document.querySelector("form");
+    expect(form).not.toBeNull();
+    form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    const userBubble = document.querySelector<HTMLElement>(".user-message-bubble-color");
+    const userContent = document.createElement("p");
+    userContent.textContent = "hello";
+    userBubble?.appendChild(userContent);
+    domBus.emitMainDelta({ added: [userContent], touched: [userBubble ?? document.body] });
+    await flushMicrotasks();
+
+    const userStamp = document.querySelector<HTMLElement>(
+      '[data-qqrm-message-time][data-qqrm-message-time-variant="user"]'
+    );
+    expect(userStamp?.textContent ?? "").toMatch(/\d/);
+
+    const assistantContent = document.querySelector<HTMLElement>(".assistant-message-content");
+    const assistantChunk = document.createElement("p");
+    assistantChunk.textContent = "reply";
+    assistantContent?.appendChild(assistantChunk);
+    domBus.emitMainDelta({
+      added: [assistantChunk],
+      touched: [assistantContent ?? document.body]
+    });
+
+    await vi.advanceTimersByTimeAsync(ASSISTANT_COMPLETION_WAIT_MS);
+    await flushMicrotasks();
+
+    const assistantStamp = document.querySelector<HTMLElement>(
       '[data-qqrm-message-time][data-qqrm-message-time-variant="assistant"]'
     );
     expect(assistantStamp?.textContent ?? "").toMatch(/\d/);
