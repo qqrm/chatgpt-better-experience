@@ -31,6 +31,20 @@ export function readConversationId(pathname = location.pathname): string | null 
   return match?.[1] ?? null;
 }
 
+function normalizeConversationPath(pathname: string): string {
+  const trimmed = pathname.trim();
+  if (!trimmed) return "/";
+
+  const withoutTrailingSlash = trimmed.replace(/\/+$/, "");
+  return withoutTrailingSlash || "/";
+}
+
+export function readConversationStorageKey(pathname = location.pathname): string {
+  const conversationId = readConversationId(pathname);
+  if (conversationId) return conversationId;
+  return `path:${normalizeConversationPath(pathname)}`;
+}
+
 export function findMainRoot(root: ParentNode = document): HTMLElement | null {
   for (const selector of MAIN_ROOT_SELECTORS) {
     const el = root.querySelector<HTMLElement>(selector);

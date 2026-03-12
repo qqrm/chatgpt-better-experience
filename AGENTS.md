@@ -14,6 +14,7 @@
 - Never push directly to `main`.
 - Every change must be developed on a branch prefixed with `codex/` and merged via pull request.
 - The expected result for every completed task is an opened pull request from a dedicated `codex/*` branch; do not stop at "branch pushed".
+- After opening a pull request, enable GitHub auto-merge so the PR merges automatically once all required CI checks and branch protection rules pass, unless the user explicitly asks not to or the PR is intentionally left in a non-mergeable state.
 - Parallel execution in a single working directory is forbidden.
 - Mandatory model: **1 task = 1 branch = 1 worktree = 1 pull request**.
 - Use `git worktree` for task isolation: each new user task must run in a dedicated worktree directory.
