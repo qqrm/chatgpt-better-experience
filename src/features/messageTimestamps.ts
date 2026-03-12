@@ -8,7 +8,7 @@ import {
   findMessageTurn,
   findUserMessageBubble,
   getMessageRole,
-  readConversationId
+  readConversationStorageKey
 } from "./chatgptConversation";
 import {
   createMessageTimestampRepository,
@@ -118,9 +118,9 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
 
   const state = {
     started: false,
-    currentConversationId: readConversationId(),
+    currentConversationKey: readConversationStorageKey(),
     currentRecords: new Map<string, MessageTimestampRecord>(),
-    pendingUserSends: [] as Array<{ conversationId: string | null; sentAt: number }>,
+    pendingUserSends: [] as Array<{ conversationKey: string; sentAt: number }>,
     lastUserSendCaptureAt: 0,
     expectedAssistantCounts: new Map<string, number>(),
     assistantTrackers: new Map<string, AssistantTracker>(),
@@ -130,11 +130,11 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
   };
 
   const setCurrentRecord = (
-    conversationId: string | null,
+    conversationKey: string,
     messageId: string,
     record: MessageTimestampRecord
   ) => {
-    if (!conversationId || conversationId !== state.currentConversationId) return;
+    if (conversationKey !== state.currentConversationKey) return;
     state.currentRecords.set(messageId, record);
   };
 
@@ -149,7 +149,7 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     if (sentAt - state.lastUserSendCaptureAt < USER_SEND_CAPTURE_DEDUPE_MS) return;
     state.lastUserSendCaptureAt = sentAt;
     state.pendingUserSends.push({
-      conversationId: state.currentConversationId ?? readConversationId(),
+      conversationKey: state.currentConversationKey ?? readConversationStorageKey(),
       sentAt
     });
     if (state.pendingUserSends.length > MAX_PENDING_USER_SENDS) {
@@ -157,10 +157,9 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     }
   };
 
-  const takePendingUserSend = (conversationId: string | null) => {
+  const takePendingUserSend = (conversationKey: string) => {
     const matchIndex = state.pendingUserSends.findIndex((entry) => {
-      if (!conversationId) return true;
-      return entry.conversationId === null || entry.conversationId === conversationId;
+      return entry.conversationKey === conversationKey;
     });
     if (matchIndex < 0) return null;
     const [pending] = state.pendingUserSends.splice(matchIndex, 1);
@@ -176,43 +175,38 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
   };
 
   const loadCurrentConversation = async () => {
-    const conversationId = readConversationId();
-    const previousConversationId = state.currentConversationId;
+    const conversationKey = readConversationStorageKey();
+    const previousConversationKey = state.currentConversationKey;
     const localRecords = new Map(state.currentRecords);
-    state.currentConversationId = conversationId;
+    state.currentConversationKey = conversationKey;
     state.currentRecords.clear();
 
-    if (!conversationId) {
-      removeAllRenderedTimestamps();
-      return;
-    }
-
-    const conversation = await repo.getConversation(conversationId);
-    if (state.currentConversationId !== conversationId) return;
+    const conversation = await repo.getConversation(conversationKey);
+    if (state.currentConversationKey !== conversationKey) return;
 
     for (const [messageId, record] of Object.entries(conversation?.messages ?? {})) {
       state.currentRecords.set(messageId, record);
     }
 
-    if (conversationId === previousConversationId) {
+    if (conversationKey === previousConversationKey) {
       for (const [messageId, record] of localRecords) {
         state.currentRecords.set(messageId, record);
       }
     }
 
     renderCurrentConversation();
-    void adoptPendingUserMessages(conversationId);
+    void adoptPendingUserMessages(conversationKey);
   };
 
   const persistRecord = async (
-    conversationId: string,
+    conversationKey: string,
     messageId: string,
     patch: Partial<MessageTimestampRecord> & Pick<MessageTimestampRecord, "role">
   ) => {
-    const next = await repo.upsertMessage(conversationId, messageId, patch);
-    setCurrentRecord(conversationId, messageId, next);
+    const next = await repo.upsertMessage(conversationKey, messageId, patch);
+    setCurrentRecord(conversationKey, messageId, next);
 
-    if (conversationId === state.currentConversationId) {
+    if (conversationKey === state.currentConversationKey) {
       const messageEl = document.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
       if (messageEl) renderMessage(messageEl);
     }
@@ -346,12 +340,12 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
   };
 
   const trackAssistantMessage = (messageEl: HTMLElement) => {
-    const conversationId = state.currentConversationId;
+    const conversationKey = state.currentConversationKey;
     const messageId = messageEl.getAttribute("data-message-id");
-    if (!conversationId || !messageId) return;
+    if (!messageId) return;
     if (state.assistantTrackers.has(messageId)) return;
     if (state.currentRecords.get(messageId)?.completedAt) return;
-    if (!consumeExpectedAssistant(conversationId)) return;
+    if (!consumeExpectedAssistant(conversationKey)) return;
 
     const root = findMessageTurn(messageEl) ?? messageEl;
     const observer = new MutationObserver(() => {
@@ -367,7 +361,7 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
 
     state.assistantTrackers.set(messageId, {
       messageId,
-      conversationId,
+      conversationId: conversationKey,
       root,
       observer,
       quietTimerId: null
@@ -376,7 +370,7 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     scheduleAssistantFinalize(messageId);
   };
 
-  const adoptPendingUserMessages = async (conversationId: string) => {
+  const adoptPendingUserMessages = async (conversationKey: string) => {
     const root = findMainRoot() ?? document;
     const userMessages = root.querySelectorAll<HTMLElement>(
       '[data-message-author-role="user"][data-message-id]'
@@ -385,13 +379,13 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
       const messageId = messageEl.getAttribute("data-message-id");
       if (!messageId) continue;
       if (state.currentRecords.get(messageId)?.sentAt) continue;
-      const pending = takePendingUserSend(conversationId);
+      const pending = takePendingUserSend(conversationKey);
       if (!pending) continue;
-      incrementExpectedAssistant(conversationId);
+      incrementExpectedAssistant(conversationKey);
       const record: MessageTimestampRecord = { role: "user", sentAt: pending.sentAt };
-      setCurrentRecord(conversationId, messageId, record);
+      setCurrentRecord(conversationKey, messageId, record);
       renderMessage(messageEl);
-      await persistRecord(conversationId, messageId, record);
+      await persistRecord(conversationKey, messageId, record);
     }
   };
 
@@ -412,8 +406,7 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
       renderMessage(messageEl);
 
       if (role === "user") {
-        const conversationId = state.currentConversationId;
-        if (conversationId) void adoptPendingUserMessages(conversationId);
+        void adoptPendingUserMessages(state.currentConversationKey);
         continue;
       }
 
