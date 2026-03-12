@@ -31,6 +31,53 @@ export function readConversationId(pathname = location.pathname): string | null 
   return match?.[1] ?? null;
 }
 
+export function readConversationIdFromHref(href: string | null | undefined): string | null {
+  if (!href) return null;
+
+  try {
+    return readConversationId(new URL(href, location.origin).pathname);
+  } catch {
+    const match = href.match(/\/c\/([^/?#]+)/);
+    return match?.[1] ?? null;
+  }
+}
+
+export function readCurrentConversationId(
+  root: ParentNode = document,
+  pathname = location.pathname
+): string | null {
+  const fromPath = readConversationId(pathname);
+  if (fromPath) return fromPath;
+
+  const canonical = root.querySelector<HTMLLinkElement>('link[rel="canonical"][href]');
+  const canonicalId = readConversationIdFromHref(canonical?.href);
+  if (canonicalId) return canonicalId;
+
+  const currentNavLink = root.querySelector<HTMLAnchorElement>(
+    'a[aria-current="page"][href*="/c/"]'
+  );
+  const currentNavId = readConversationIdFromHref(currentNavLink?.href);
+  if (currentNavId) return currentNavId;
+
+  const candidateIds = new Set<string>();
+  for (const element of Array.from(
+    root.querySelectorAll<HTMLAnchorElement | HTMLLinkElement>(
+      'link[rel="alternate"][href*="/c/"], a[href*="/c/"]'
+    )
+  )) {
+    const conversationId = readConversationIdFromHref(element.getAttribute("href"));
+    if (conversationId) candidateIds.add(conversationId);
+    if (candidateIds.size > 1) break;
+  }
+
+  if (candidateIds.size === 1) {
+    const [conversationId] = candidateIds;
+    return conversationId ?? null;
+  }
+
+  return null;
+}
+
 function normalizeConversationPath(pathname: string): string {
   const trimmed = pathname.trim();
   if (!trimmed) return "/";
@@ -39,8 +86,11 @@ function normalizeConversationPath(pathname: string): string {
   return withoutTrailingSlash || "/";
 }
 
-export function readConversationStorageKey(pathname = location.pathname): string {
-  const conversationId = readConversationId(pathname);
+export function readConversationStorageKey(
+  pathname = location.pathname,
+  root: ParentNode = document
+): string {
+  const conversationId = readCurrentConversationId(root, pathname);
   if (conversationId) return conversationId;
   return `path:${normalizeConversationPath(pathname)}`;
 }

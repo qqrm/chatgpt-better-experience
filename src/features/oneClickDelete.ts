@@ -1,4 +1,5 @@
 import { FeatureContext, FeatureHandle } from "../application/featureContext";
+import { buildChatGptAuthHeaders } from "./chatgptApi";
 
 const ONE_CLICK_DELETE_HOOK_MARK = "data-qqrm-oneclick-del-hooked";
 const ONE_CLICK_DELETE_ARCHIVE_MARK = "data-qqrm-oneclick-archive";
@@ -81,35 +82,15 @@ export const extractConversationIdFromRow = (row: HTMLElement | null): string | 
   return match ? match[1] : null;
 };
 
-export const getAccessToken = async (): Promise<string | null> => {
-  try {
-    const response = await fetch("/api/auth/session?unstable_client=true", {
-      credentials: "include"
-    });
-    if (!response.ok) return null;
-    const data = (await response.json()) as { accessToken?: unknown };
-    if (data && typeof data.accessToken === "string") return data.accessToken;
-    return null;
-  } catch {
-    return null;
-  }
-};
-
 export const patchConversation = async (
   conversationId: string,
   payload: Record<string, unknown>
 ): Promise<boolean> => {
   try {
-    const token = await getAccessToken();
-    if (!token) return false;
-
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json"
-    };
-
-    const deviceId = localStorage.getItem("oai-device-id");
-    if (deviceId) headers["oai-device-id"] = deviceId;
+    const headers = await buildChatGptAuthHeaders({
+      includeJsonContentType: true
+    });
+    if (!headers) return false;
 
     const response = await fetch(`/backend-api/conversation/${conversationId}`, {
       method: "PATCH",
