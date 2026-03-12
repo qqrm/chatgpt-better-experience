@@ -638,8 +638,9 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     if (refreshConversationScopeIfNeeded()) return;
 
     const addedMessages = new Map<string, HTMLElement>();
+    const candidateNodes = [...delta.added, ...(delta.touched ?? [])];
 
-    for (const node of delta.added) {
+    for (const node of candidateNodes) {
       for (const messageEl of collectMessageElementsFromNode(node)) {
         const messageId = messageEl.getAttribute("data-message-id");
         if (!messageId) continue;
@@ -650,6 +651,8 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
     trace("TS/DELTA", "handle main delta", {
       reason: delta.reason,
       addedCount: delta.added.length,
+      touchedCount: delta.touched?.length ?? 0,
+      candidateNodeCount: candidateNodes.length,
       discoveredMessageCount: addedMessages.size
     });
     if (!addedMessages.size) return;

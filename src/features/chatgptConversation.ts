@@ -191,16 +191,19 @@ export function findUserMessageBubble(messageEl: HTMLElement): HTMLElement | nul
 export function collectMessageElementsFromNode(node: Node): HTMLElement[] {
   if (!(node instanceof Element)) return [];
 
-  const out: HTMLElement[] = [];
-  if (
+  const out = new Set<HTMLElement>();
+  const directMessage =
     node instanceof HTMLElement &&
     node.hasAttribute("data-message-id") &&
     node.hasAttribute("data-message-author-role")
-  ) {
-    out.push(node);
-  }
+      ? node
+      : null;
+  if (directMessage) out.add(directMessage);
+
+  const ancestorMessage = node.closest<HTMLElement>("[data-message-id][data-message-author-role]");
+  if (ancestorMessage) out.add(ancestorMessage);
 
   const nested = node.querySelectorAll<HTMLElement>("[data-message-id][data-message-author-role]");
-  for (const el of Array.from(nested)) out.push(el);
-  return out;
+  for (const el of Array.from(nested)) out.add(el);
+  return Array.from(out);
 }
