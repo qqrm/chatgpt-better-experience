@@ -81,6 +81,25 @@ function makeCtx(): FeatureContext {
 }
 
 describe("domEventBus root discovery", () => {
+  it("discovers main root when ChatGPT renders a plain main without role", async () => {
+    document.body.innerHTML = '<main id="main-no-role"></main>';
+
+    const bus = createDomEventBus(makeCtx());
+    const snapshots: Array<{ main: Element | null }> = [];
+
+    const unsubscribe = bus.onRoots((roots) => {
+      snapshots.push({ main: roots.main });
+    });
+
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+
+    const main = document.getElementById("main-no-role");
+    expect(snapshots.some((snap) => snap.main === main)).toBe(true);
+    expect(bus.getMainRoot()).toBe(main);
+
+    unsubscribe();
+  });
+
   it("discovers nav root that appears after initial start", async () => {
     document.body.innerHTML = '<main role="main" id="main"></main>';
 
