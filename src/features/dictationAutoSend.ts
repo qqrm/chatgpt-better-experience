@@ -1632,11 +1632,31 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     }
   };
 
+  const handleBeforeInput = (event: Event) => {
+    if (!cfg.autoSendEnabled || inFlightStage !== "countdown") return;
+    if (isInternalAutoSendAction()) return;
+
+    const composerInput = findComposerInput();
+    if (!composerInput) return;
+
+    const target = event.target;
+    const isComposerEdit =
+      target === composerInput || (target instanceof Node && composerInput.contains(target));
+    if (!isComposerEdit) return;
+
+    if (cancelInFlightAutoSend("manual-composer-edit")) {
+      tmLog("FLOW", "manual composer edit detected: canceled pending auto-send", {
+        inputKind: composerInput instanceof HTMLTextAreaElement ? "textarea" : "contenteditable"
+      });
+    }
+  };
+
   applySettings();
 
   window.addEventListener("keydown", handleKeyDown, true);
   window.addEventListener("click", handleClick, true);
   window.addEventListener("submit", handleSubmit, true);
+  window.addEventListener("beforeinput", handleBeforeInput, true);
 
   installTranscribeHook();
 
@@ -1669,6 +1689,7 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("click", handleClick, true);
       window.removeEventListener("submit", handleSubmit, true);
+      window.removeEventListener("beforeinput", handleBeforeInput, true);
       window.removeEventListener("message", handleTranscribeMessage);
       setPathWatcherEnabled(false);
       disconnectDictationObserver();
