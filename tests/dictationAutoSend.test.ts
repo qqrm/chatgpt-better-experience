@@ -639,6 +639,63 @@ describe("dictationAutoSend", () => {
     nowSpy.mockRestore();
   });
 
+  it("cancels pending auto-send when user edits composer during countdown", async () => {
+    vi.useFakeTimers();
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => Date.now());
+
+    document.body.innerHTML = `
+      <main role="main">
+        <form data-testid="composer">
+          <div id="prompt-textarea" contenteditable="true"></div>
+          <div data-testid="composer-footer-actions">
+            <button
+              id="composer-submit-button"
+              data-testid="send-button"
+              aria-label="Send"
+              title="Send message"
+              type="submit"
+            >
+              Send
+            </button>
+          </div>
+        </form>
+      </main>
+    `;
+
+    const ctx = makeTestContext({ autoSend: true, allowAutoSendInCodex: true });
+    ctx.helpers.humanClick = () => true;
+
+    const handle = initDictationAutoSendFeature(ctx);
+    const testApi = handle.__test as DictationTestApi;
+    expect(testApi.runAutoSendFlow).toBeTypeOf("function");
+
+    const form = document.querySelector('form[data-testid="composer"]') as HTMLFormElement;
+    const input = document.getElementById("prompt-textarea") as HTMLElement;
+    const requestSubmit = vi.fn(() => {
+      input.textContent = "";
+      input.innerText = "";
+    });
+    (form as unknown as { requestSubmit: unknown }).requestSubmit = requestSubmit;
+
+    const flow = testApi.runAutoSendFlow?.("", false);
+    input.textContent = "Текст";
+    input.innerText = "Текст";
+
+    await vi.advanceTimersByTimeAsync(1200);
+
+    input.dispatchEvent(new Event("beforeinput", { bubbles: true, cancelable: true }));
+    input.textContent = "Текст с правкой";
+    input.innerText = "Текст с правкой";
+
+    await vi.advanceTimersByTimeAsync(5000);
+    await Promise.resolve(flow);
+
+    expect(requestSubmit).toHaveBeenCalledTimes(0);
+
+    handle.dispose();
+    nowSpy.mockRestore();
+  });
+
   it("cancels pending auto-send when dictation is toggled again", async () => {
     vi.useFakeTimers();
     const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => Date.now());
