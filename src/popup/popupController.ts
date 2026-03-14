@@ -218,7 +218,9 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
     typeof win.matchMedia === "function" ? win.matchMedia("(prefers-color-scheme: dark)") : null;
   let themeMediaListener: ((event: MediaQueryListEvent) => void) | null = null;
   let panelHeightMeasureRafId: number | null = null;
-  let selectiveProjectsRegistry: AutoExpandProjectsRegistry = normalizeAutoExpandProjectsRegistry({});
+  let selectiveProjectsRegistry: AutoExpandProjectsRegistry = normalizeAutoExpandProjectsRegistry(
+    {}
+  );
   let selectiveProjectsPrefs: AutoExpandProjectsPrefs = normalizeAutoExpandProjectsPrefs({});
   let selectiveProjectsDropdownOpen = false;
   let selectiveProjectsDropdownTimerId: number | null = null;
@@ -276,7 +278,9 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
     return normalizeSettings({ ...settings, ...popupPreview.settings });
   };
 
-  const applyPreviewRegistry = (registry: AutoExpandProjectsRegistry): AutoExpandProjectsRegistry =>
+  const applyPreviewRegistry = (
+    registry: AutoExpandProjectsRegistry
+  ): AutoExpandProjectsRegistry =>
     popupPreview?.registry ? normalizeAutoExpandProjectsRegistry(popupPreview.registry) : registry;
 
   const applyPreviewPrefs = (prefs: AutoExpandProjectsPrefs): AutoExpandProjectsPrefs =>
