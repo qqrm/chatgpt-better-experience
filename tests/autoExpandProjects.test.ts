@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DomDelta, RootSnapshot } from "../src/application/domEventBus";
 import type { FeatureContext } from "../src/application/featureContext";
+import {
+  AUTO_EXPAND_PROJECTS_PREFS_KEY,
+  AUTO_EXPAND_PROJECTS_REGISTRY_KEY,
+  type AutoExpandProjectsPrefs,
+  type AutoExpandProjectsRegistry
+} from "../src/domain/settings";
+import type { StoragePort, StorageChangeHandler } from "../src/domain/ports/storagePort";
 import { initAutoExpandProjectsFeature } from "../src/features/autoExpandProjects";
 import { makeTestContext } from "./helpers/testContext";
 
@@ -13,25 +20,121 @@ type AutoExpandProjectsTestApi = {
       projectsExpanded: boolean;
       projectRows: number;
       collapsedProjectRows: number;
+      expandedProjectRows: number;
+      mismatchedProjectRows: number;
       folderClicks: number;
     };
     done: boolean;
   };
+  loadLocalState: () => Promise<void>;
+  getLocalState: () => {
+    registry: AutoExpandProjectsRegistry;
+    prefs: AutoExpandProjectsPrefs;
+  };
+  captureRemovedProjectCandidates: (removed: Element[]) => string[];
 };
+
+type MemoryStorage = StoragePort & {
+  syncData: Record<string, unknown>;
+  localData: Record<string, unknown>;
+};
+
+function makeRegistryEntry(href: string, title: string, lastSeenAt: number, lastSeenOrder: number) {
+  return { href, title, lastSeenAt, lastSeenOrder };
+}
+
+function makeMemoryStorage(localData: Record<string, unknown> = {}): MemoryStorage {
+  const syncData: Record<string, unknown> = {};
+  const storedLocal = { ...localData };
+  const changeHandlers = new Set<StorageChangeHandler>();
+
+  const emit = (
+    changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
+    area: string
+  ) => {
+    for (const handler of changeHandlers) handler(changes, area);
+  };
+
+  return {
+    syncData,
+    localData: storedLocal,
+    get: async <T extends Record<string, unknown>>(defaults: T) => ({
+      ...defaults,
+      ...(syncData as Partial<T>)
+    }),
+    set: async (values) => {
+      const changes = Object.fromEntries(
+        Object.entries(values).map(([key, value]) => [
+          key,
+          { oldValue: syncData[key], newValue: value }
+        ])
+      );
+      Object.assign(syncData, values);
+      emit(changes, "sync");
+    },
+    getLocal: async <T extends Record<string, unknown>>(defaults: T) => ({
+      ...defaults,
+      ...(storedLocal as Partial<T>)
+    }),
+    setLocal: async (values) => {
+      const changes = Object.fromEntries(
+        Object.entries(values).map(([key, value]) => [
+          key,
+          { oldValue: storedLocal[key], newValue: value }
+        ])
+      );
+      Object.assign(storedLocal, values);
+      emit(changes, "local");
+    },
+    onChanged: (handler) => {
+      changeHandlers.add(handler);
+    }
+  };
+}
+
+function makeSelectiveLocalState(
+  entries: Array<{ href: string; title: string; lastSeenAt?: number; lastSeenOrder?: number }>,
+  expandedByHref: Record<string, boolean> = {}
+) {
+  return {
+    [AUTO_EXPAND_PROJECTS_REGISTRY_KEY]: {
+      version: 1,
+      entriesByHref: Object.fromEntries(
+        entries.map((entry, index) => [
+          entry.href,
+          makeRegistryEntry(
+            entry.href,
+            entry.title,
+            entry.lastSeenAt ?? 100,
+            entry.lastSeenOrder ?? index
+          )
+        ])
+      )
+    },
+    [AUTO_EXPAND_PROJECTS_PREFS_KEY]: {
+      version: 1,
+      expandedByHref: { ...expandedByHref }
+    }
+  };
+}
 
 function makeDomBusCtx(
   settings: {
     autoExpandProjects?: boolean;
     autoExpandProjectItems?: boolean;
-  } = {}
+  } = {},
+  localData: Record<string, unknown> = {}
 ): FeatureContext & {
   emitRoots: (roots: RootSnapshot) => void;
-  emitNavDelta: () => void;
+  emitNavDelta: (delta?: Partial<DomDelta>) => void;
+  storagePort: MemoryStorage;
 } {
+  const storagePort = makeMemoryStorage(localData);
   const ctx = makeTestContext({
     autoExpandProjects: settings.autoExpandProjects ?? true,
-    autoExpandProjectItems: settings.autoExpandProjectItems ?? true
+    autoExpandProjectItems: settings.autoExpandProjectItems ?? false
   });
+  ctx.storagePort = storagePort;
 
   const rootSubs = new Set<(roots: RootSnapshot) => void>();
   const navSubs = new Set<(delta: DomDelta) => void>();
@@ -53,13 +156,20 @@ function makeDomBusCtx(
 
   return {
     ...ctx,
+    storagePort,
     emitRoots: (roots: RootSnapshot) => {
       for (const cb of rootSubs) cb(roots);
     },
-    emitNavDelta: () => {
+    emitNavDelta: (delta: Partial<DomDelta> = {}) => {
       const now = Date.now();
       for (const cb of navSubs) {
-        cb({ channel: "nav", added: [], removed: [], reason: "mutation", at: now });
+        cb({
+          channel: "nav",
+          added: delta.added ?? [],
+          removed: delta.removed ?? [],
+          reason: delta.reason ?? "mutation",
+          at: now
+        });
       }
     }
   };
@@ -84,6 +194,7 @@ function mountProjectsNav(ariaExpanded = "true", navAriaLabel = "Chat history") 
 }
 
 function addNewProjectRow(section: HTMLElement) {
+  const row = document.createElement("div");
   const link = document.createElement("a");
   link.href = "https://chatgpt.com/project/new";
 
@@ -95,56 +206,88 @@ function addNewProjectRow(section: HTMLElement) {
   label.textContent = "New project";
 
   link.append(iconBtn, label);
-  section.appendChild(link);
+  row.appendChild(link);
+  section.appendChild(row);
 
-  return { link, iconBtn };
+  return { row, link, iconBtn };
 }
 
 function addProjectRow(
   section: HTMLElement,
   name: string,
-  opts: { expanded?: boolean; onFolderClick?: () => void; href?: string } = {}
+  opts: {
+    expanded?: boolean;
+    onFolderClick?: (expanded: boolean) => void;
+    href?: string;
+    keepMountedWhenCollapsed?: boolean;
+  } = {}
 ) {
+  const row = document.createElement("div");
   const link = document.createElement("a");
   link.href = opts.href ?? `https://chatgpt.com/project/${encodeURIComponent(name)}`;
 
   const folderBtn = document.createElement("button");
   folderBtn.className = "icon";
-  folderBtn.dataset.state = opts.expanded ? "open" : "closed";
-  folderBtn.setAttribute(
-    "aria-label",
-    opts.expanded ? "Collapse project folder" : "Expand project folder"
-  );
   const iconSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   folderBtn.appendChild(iconSvg);
 
   const label = document.createElement("span");
   label.textContent = name;
   link.append(folderBtn, label);
-  section.appendChild(link);
+  row.appendChild(link);
 
   const children = document.createElement("div");
   children.className = "overflow-hidden";
-  if (opts.expanded) {
-    const chat = document.createElement("a");
-    chat.href = `https://chatgpt.com/c/${name}-chat`;
-    chat.textContent = `${name} chat`;
-    children.appendChild(chat);
-  }
-  section.appendChild(children);
+  row.appendChild(children);
+  section.appendChild(row);
+
+  const applyExpandedState = (expanded: boolean) => {
+    folderBtn.dataset.state = expanded ? "open" : "closed";
+    folderBtn.setAttribute(
+      "aria-label",
+      expanded ? "Collapse project folder" : "Expand project folder"
+    );
+
+    if (expanded) {
+      children.removeAttribute("aria-hidden");
+      children.style.height = "";
+      children.style.maxHeight = "";
+      children.style.opacity = "";
+      if (!children.querySelector('a[href*="/c/"]')) {
+        const chat = document.createElement("a");
+        chat.href = `https://chatgpt.com/c/${name}-chat`;
+        chat.textContent = `${name} chat`;
+        children.appendChild(chat);
+      }
+      return;
+    }
+
+    children.setAttribute("aria-hidden", "true");
+    children.style.height = "0px";
+    children.style.maxHeight = "0px";
+    children.style.opacity = "0";
+    if (!opts.keepMountedWhenCollapsed) {
+      children.replaceChildren();
+    }
+  };
+
+  applyExpandedState(!!opts.expanded);
 
   folderBtn.addEventListener("click", () => {
-    folderBtn.dataset.state = "open";
-    if (!children.querySelector('a[href*="/c/"]')) {
-      const chat = document.createElement("a");
-      chat.href = `https://chatgpt.com/c/${name}-chat`;
-      chat.textContent = `${name} chat`;
-      children.appendChild(chat);
-    }
-    opts.onFolderClick?.();
+    const nextExpanded = folderBtn.dataset.state !== "open";
+    applyExpandedState(nextExpanded);
+    opts.onFolderClick?.(nextExpanded);
   });
 
-  return { link, folderBtn, children };
+  return { row, link, folderBtn, children, applyExpandedState };
+}
+
+async function prepareSelectiveFeature(ctx: FeatureContext, localData: Record<string, unknown>) {
+  ctx.storagePort = makeMemoryStorage(localData);
+  const handle = initAutoExpandProjectsFeature(ctx);
+  const t = handle.__test as unknown as AutoExpandProjectsTestApi;
+  await t.loadLocalState();
+  return { handle, t };
 }
 
 describe("autoExpandProjects", () => {
@@ -163,7 +306,6 @@ describe("autoExpandProjects", () => {
     let headerClicks = 0;
     header.addEventListener("click", () => {
       headerClicks += 1;
-      // Intentionally do not update aria-expanded here.
     });
 
     addProjectRow(section, "audit", { expanded: false });
@@ -216,7 +358,6 @@ describe("autoExpandProjects", () => {
     let headerClicks = 0;
     header.addEventListener("click", () => {
       headerClicks += 1;
-      // Simulate ChatGPT updating state on click.
       header.setAttribute("aria-expanded", "true");
     });
 
@@ -232,27 +373,25 @@ describe("autoExpandProjects", () => {
     const result = t.runOnce(ctx, "test");
 
     expect(headerClicks).toBe(1);
-    // The feature intentionally does not mark the section as expanded until a later run.
     expect(result.stats.projectsExpanded).toBe(false);
     expect(result.done).toBe(false);
 
     handle.dispose();
   });
 
-  it("skips New project row and clicks the matching folder toggle for the actual project row", () => {
+  it("skips New project and expands only selected project rows", async () => {
     const { section } = mountProjectsNav("true");
-
     let newProjectClicks = 0;
     const newRow = addNewProjectRow(section);
     newRow.iconBtn.addEventListener("click", () => {
       newProjectClicks += 1;
     });
 
-    let projectsClicks = 0;
+    let topProjectClicks = 0;
     addProjectRow(section, "projects", {
       expanded: false,
       onFolderClick: () => {
-        projectsClicks += 1;
+        topProjectClicks += 1;
       }
     });
 
@@ -268,236 +407,96 @@ describe("autoExpandProjects", () => {
       autoExpandProjects: true,
       autoExpandProjectItems: true
     });
-    const handle = initAutoExpandProjectsFeature(ctx);
-    const t = handle.__test as unknown as AutoExpandProjectsTestApi;
+    const { handle, t } = await prepareSelectiveFeature(
+      ctx,
+      makeSelectiveLocalState(
+        [
+          { href: "/project/projects", title: "projects" },
+          { href: "/project/audit", title: "audit" }
+        ],
+        {
+          "/project/projects": false,
+          "/project/audit": true
+        }
+      )
+    );
 
     const result = t.runOnce(ctx, "test");
 
     expect(newProjectClicks).toBe(0);
-    expect(projectsClicks).toBe(0);
+    expect(topProjectClicks).toBe(0);
     expect(auditClicks).toBe(1);
+    expect(result.stats.projectRows).toBe(2);
+    expect(result.stats.collapsedProjectRows).toBe(1);
     expect(result.stats.folderClicks).toBe(1);
-    expect(result.stats.collapsedProjectRows).toBeGreaterThanOrEqual(2);
 
     handle.dispose();
   });
 
-  it("continues after its own synthetic clicks and is not blocked by user cooldown", async () => {
-    const ctx = makeDomBusCtx({ autoExpandProjects: true, autoExpandProjectItems: true });
-    const { section, header } = mountProjectsNav("false");
-
-    header.addEventListener("click", () => {
-      header.setAttribute("aria-expanded", "true");
-      ctx.emitNavDelta();
-    });
-
-    addNewProjectRow(section);
-
-    let folderClicks = 0;
-    addProjectRow(section, "projects", {
-      expanded: false,
-      onFolderClick: () => {
-        folderClicks += 1;
-        ctx.emitNavDelta();
-      }
-    });
-
-    const handle = initAutoExpandProjectsFeature(ctx);
-
-    ctx.emitNavDelta();
-    await vi.advanceTimersByTimeAsync(4000);
-
-    expect(folderClicks).toBeGreaterThanOrEqual(1);
-
-    handle.dispose();
-  });
-
-  it("rearms after goal reached when a new project row appears (virtualized/lazy load)", async () => {
-    const ctx = makeDomBusCtx({ autoExpandProjects: true, autoExpandProjectItems: true });
+  it("collapses unselected expanded projects and reaches goal on the next run", async () => {
     const { section } = mountProjectsNav("true");
+    const auditRow = addProjectRow(section, "audit", { expanded: true });
 
-    addNewProjectRow(section);
-
-    let auditClicks = 0;
-    const auditRow = addProjectRow(section, "audit", {
-      expanded: false,
-      onFolderClick: () => {
-        auditClicks += 1;
-        ctx.emitNavDelta();
-      }
+    const ctx = makeTestContext({
+      autoExpandProjects: true,
+      autoExpandProjectItems: true
     });
+    const { handle, t } = await prepareSelectiveFeature(
+      ctx,
+      makeSelectiveLocalState([{ href: "/project/audit", title: "audit" }], {
+        "/project/audit": false
+      })
+    );
 
-    const handle = initAutoExpandProjectsFeature(ctx);
+    const first = t.runOnce(ctx, "collapse");
+    const second = t.runOnce(ctx, "collapse-follow-up");
 
-    // First run: expand the only collapsed project.
-    ctx.emitNavDelta();
-    await vi.advanceTimersByTimeAsync(400);
-    expect(auditClicks).toBe(1);
-
-    // Second run: observe the expanded DOM and reach goal.
-    await vi.advanceTimersByTimeAsync(2000);
-    ctx.emitNavDelta();
-    await vi.advanceTimersByTimeAsync(400);
-    expect(auditClicks).toBe(1);
-
-    // Simulate virtualization: the rendered bottom-most project changes.
-    auditRow.link.remove();
-    auditRow.children.remove();
-
-    let vpnClicks = 0;
-    addProjectRow(section, "vpn", {
-      expanded: false,
-      onFolderClick: () => {
-        vpnClicks += 1;
-        ctx.emitNavDelta();
-      }
-    });
-
-    ctx.emitNavDelta();
-    await vi.advanceTimersByTimeAsync(2000);
-    await vi.advanceTimersByTimeAsync(400);
-
-    expect(vpnClicks).toBe(1);
-
-    handle.dispose();
-  });
-
-  it("one-shot: does not re-expand after goal reached on roots/visibility rebind", async () => {
-    const ctx = makeDomBusCtx({ autoExpandProjects: true, autoExpandProjectItems: true });
-    const { section } = mountProjectsNav("true");
-
-    let auditClicks = 0;
-    const auditRow = addProjectRow(section, "audit", {
-      expanded: false,
-      onFolderClick: () => {
-        auditClicks += 1;
-      }
-    });
-
-    const handle = initAutoExpandProjectsFeature(ctx);
-
-    // Let the feature click once and settle.
-    await vi.advanceTimersByTimeAsync(7000);
-
-    expect(auditClicks).toBe(1);
-    expect(auditRow.folderBtn.dataset.state).toBe("open");
-
-    // User collapses manually.
-    auditRow.folderBtn.dataset.state = "closed";
-
-    // Simulate tab switch / visibility rebind causing domBus roots + nav deltas.
-    ctx.emitRoots({
-      main: null,
-      nav: document.querySelector('nav[aria-label="Chat history"]'),
-      reason: "rebind"
-    });
-    ctx.emitNavDelta();
-
-    await vi.advanceTimersByTimeAsync(7000);
-
-    // One-shot behavior: no further auto clicks.
-    expect(auditClicks).toBe(1);
+    expect(first.stats.expandedProjectRows).toBe(1);
+    expect(first.stats.folderClicks).toBe(1);
+    expect(first.done).toBe(false);
     expect(auditRow.folderBtn.dataset.state).toBe("closed");
+    expect(second.stats.mismatchedProjectRows).toBe(0);
+    expect(second.done).toBe(true);
 
     handle.dispose();
   });
 
-  it("treats mounted project chats with data-state=closed as collapsed", () => {
+  it("leaves matching expanded and collapsed project states untouched", async () => {
     const { section } = mountProjectsNav("true");
-
-    const row = addProjectRow(section, "audit", { expanded: false });
-    // Simulate current ChatGPT behavior: chats remain mounted in DOM even when folder is collapsed.
-    if (!row.children.querySelector('a[href*="/c/"]')) {
-      const chat = document.createElement("a");
-      chat.href = "https://chatgpt.com/c/audit-chat";
-      chat.textContent = "audit chat";
-      row.children.appendChild(chat);
-    }
-    row.folderBtn.dataset.state = "closed";
-    row.children.style.height = "0px";
-    row.children.style.opacity = "0";
-    row.children.style.maxHeight = "0px";
+    addProjectRow(section, "orion", { expanded: true });
+    addProjectRow(section, "lynx", { expanded: false });
 
     const ctx = makeTestContext({
       autoExpandProjects: true,
       autoExpandProjectItems: true
     });
-    const handle = initAutoExpandProjectsFeature(ctx);
-    const t = handle.__test as unknown as AutoExpandProjectsTestApi;
+    const { handle, t } = await prepareSelectiveFeature(
+      ctx,
+      makeSelectiveLocalState(
+        [
+          { href: "/project/orion", title: "orion" },
+          { href: "/project/lynx", title: "lynx" }
+        ],
+        {
+          "/project/orion": true,
+          "/project/lynx": false
+        }
+      )
+    );
 
-    const result = t.runOnce(ctx, "test");
+    const result = t.runOnce(ctx, "match");
 
-    expect(result.stats.projectRows).toBeGreaterThanOrEqual(1);
-    expect(result.stats.collapsedProjectRows).toBeGreaterThanOrEqual(1);
-    expect(result.stats.folderClicks).toBe(1);
-    expect(result.done).toBe(false);
-
-    handle.dispose();
-  });
-
-  it("treats data-state=open as already expanded", () => {
-    const { section } = mountProjectsNav("true");
-    addProjectRow(section, "audit", { expanded: true });
-
-    const ctx = makeTestContext({
-      autoExpandProjects: true,
-      autoExpandProjectItems: true
-    });
-    const handle = initAutoExpandProjectsFeature(ctx);
-    const t = handle.__test as unknown as AutoExpandProjectsTestApi;
-
-    const result = t.runOnce(ctx, "test");
-
-    expect(result.stats.projectRows).toBeGreaterThanOrEqual(1);
-    expect(result.stats.collapsedProjectRows).toBe(0);
+    expect(result.stats.mismatchedProjectRows).toBe(0);
     expect(result.stats.folderClicks).toBe(0);
     expect(result.done).toBe(true);
 
     handle.dispose();
   });
 
-  it("falls back to hidden/collapsed signals when folder data-state is absent", () => {
+  it("keeps one-click-per-cycle discipline and prioritizes the bottom-most mismatched row", async () => {
     const { section } = mountProjectsNav("true");
-
-    const row = addProjectRow(section, "audit-fallback", { expanded: false });
-    // Simulate a DOM variant where the folder button does not expose data-state.
-    row.folderBtn.removeAttribute("data-state");
-
-    // Ensure chats are mounted in DOM (presence alone must NOT imply expanded).
-    if (!row.children.querySelector('a[href*="/c/"]')) {
-      const chat = document.createElement("a");
-      chat.href = "https://chatgpt.com/c/audit-fallback-chat";
-      chat.textContent = "audit-fallback chat";
-      row.children.appendChild(chat);
-    }
-
-    row.children.setAttribute("aria-hidden", "true");
-    row.children.style.height = "0px";
-    row.children.style.maxHeight = "0px";
-    row.children.style.opacity = "0";
-
-    const ctx = makeTestContext({
-      autoExpandProjects: true,
-      autoExpandProjectItems: true
-    });
-    const handle = initAutoExpandProjectsFeature(ctx);
-    const t = handle.__test as unknown as AutoExpandProjectsTestApi;
-
-    const result = t.runOnce(ctx, "test");
-
-    expect(result.stats.projectRows).toBeGreaterThanOrEqual(1);
-    expect(result.stats.collapsedProjectRows).toBeGreaterThanOrEqual(1);
-    expect(result.stats.folderClicks).toBe(1);
-    expect(result.done).toBe(false);
-
-    handle.dispose();
-  });
-
-  it("clicks collapsed project folders from bottom to top", () => {
-    const { section } = mountProjectsNav("true");
-
     const clickOrder: string[] = [];
-    addNewProjectRow(section); // ensure non-expandable row is still ignored
+
     addProjectRow(section, "top-project", {
       expanded: false,
       onFolderClick: () => {
@@ -515,39 +514,125 @@ describe("autoExpandProjects", () => {
       autoExpandProjects: true,
       autoExpandProjectItems: true
     });
-    const handle = initAutoExpandProjectsFeature(ctx);
-    const t = handle.__test as unknown as AutoExpandProjectsTestApi;
+    const { handle, t } = await prepareSelectiveFeature(
+      ctx,
+      makeSelectiveLocalState(
+        [
+          { href: "/project/top-project", title: "top-project" },
+          { href: "/project/bottom-project", title: "bottom-project" }
+        ],
+        {
+          "/project/top-project": true,
+          "/project/bottom-project": true
+        }
+      )
+    );
 
-    const result = t.runOnce(ctx, "test");
+    const result = t.runOnce(ctx, "bottom-first");
 
-    // Implementation intentionally clicks at most one folder per run.
-    // This assertion verifies the first attempted click is the bottom-most collapsed project.
     expect(result.stats.folderClicks).toBe(1);
+    expect(result.stats.collapsedProjectRows).toBe(2);
     expect(clickOrder).toEqual(["bottom-project"]);
 
     handle.dispose();
   });
 
-  it("supports project links with /g/g-p- URL format", () => {
+  it("treats mounted project chats with data-state=closed as collapsed when desired state is expanded", async () => {
     const { section } = mountProjectsNav("true");
-
-    let clicks = 0;
-    addProjectRow(section, "rag", {
+    const row = addProjectRow(section, "audit", {
       expanded: false,
-      href: "https://chatgpt.com/g/g-p-6999e22c830881919cdc183a",
-      onFolderClick: () => {
-        clicks += 1;
-      }
+      keepMountedWhenCollapsed: true
     });
+    row.applyExpandedState(false);
+    if (!row.children.querySelector('a[href*="/c/"]')) {
+      const chat = document.createElement("a");
+      chat.href = "https://chatgpt.com/c/audit-chat";
+      chat.textContent = "audit chat";
+      row.children.appendChild(chat);
+    }
 
     const ctx = makeTestContext({
       autoExpandProjects: true,
       autoExpandProjectItems: true
     });
-    const handle = initAutoExpandProjectsFeature(ctx);
-    const t = handle.__test as unknown as AutoExpandProjectsTestApi;
+    const { handle, t } = await prepareSelectiveFeature(
+      ctx,
+      makeSelectiveLocalState([{ href: "/project/audit", title: "audit" }], {
+        "/project/audit": true
+      })
+    );
 
-    const result = t.runOnce(ctx, "test");
+    const result = t.runOnce(ctx, "mounted-collapsed");
+
+    expect(result.stats.collapsedProjectRows).toBe(1);
+    expect(result.stats.folderClicks).toBe(1);
+    expect(result.done).toBe(false);
+
+    handle.dispose();
+  });
+
+  it("falls back to hidden container signals when folder data-state is absent", async () => {
+    const { section } = mountProjectsNav("true");
+    const row = addProjectRow(section, "fallback", {
+      expanded: false,
+      keepMountedWhenCollapsed: true
+    });
+    row.folderBtn.removeAttribute("data-state");
+    row.children.setAttribute("aria-hidden", "true");
+    row.children.style.height = "0px";
+    row.children.style.maxHeight = "0px";
+    row.children.style.opacity = "0";
+    if (!row.children.querySelector('a[href*="/c/"]')) {
+      const chat = document.createElement("a");
+      chat.href = "https://chatgpt.com/c/fallback-chat";
+      chat.textContent = "fallback chat";
+      row.children.appendChild(chat);
+    }
+
+    const ctx = makeTestContext({
+      autoExpandProjects: true,
+      autoExpandProjectItems: true
+    });
+    const { handle, t } = await prepareSelectiveFeature(
+      ctx,
+      makeSelectiveLocalState([{ href: "/project/fallback", title: "fallback" }], {
+        "/project/fallback": true
+      })
+    );
+
+    const result = t.runOnce(ctx, "fallback-collapse");
+
+    expect(result.stats.collapsedProjectRows).toBe(1);
+    expect(result.stats.folderClicks).toBe(1);
+    expect(result.done).toBe(false);
+
+    handle.dispose();
+  });
+
+  it("supports project links with /g/g-p- URL format", async () => {
+    const { section } = mountProjectsNav("true");
+    let clicks = 0;
+    addProjectRow(section, "rag", {
+      expanded: false,
+      href: "https://chatgpt.com/g/g-p-6999e22c830881919cdc183a/project",
+      onFolderClick: () => {
+        clicks += 1;
+      }
+    });
+
+    const href = "/g/g-p-6999e22c830881919cdc183a/project";
+    const ctx = makeTestContext({
+      autoExpandProjects: true,
+      autoExpandProjectItems: true
+    });
+    const { handle, t } = await prepareSelectiveFeature(
+      ctx,
+      makeSelectiveLocalState([{ href, title: "rag" }], {
+        [href]: true
+      })
+    );
+
+    const result = t.runOnce(ctx, "g-p-expand");
 
     expect(result.stats.projectRows).toBe(1);
     expect(result.stats.collapsedProjectRows).toBe(1);
@@ -557,9 +642,8 @@ describe("autoExpandProjects", () => {
     handle.dispose();
   });
 
-  it("treats g-p project as expanded when chats are mounted outside next sibling panel", () => {
+  it("treats detached g-p chats as expanded and only clicks other mismatched rows", async () => {
     const { section } = mountProjectsNav("true");
-
     let vpnClicks = 0;
     addProjectRow(section, "vpn", {
       expanded: false,
@@ -578,32 +662,197 @@ describe("autoExpandProjects", () => {
       }
     });
 
-    // Simulate current ChatGPT behavior where visible child chats for a g-p project
-    // are mounted in a detached section-level overflow container, while the row
-    // button still exposes data-state=\"closed\".
     const detachedVpnChats = document.createElement("div");
     detachedVpnChats.className = "overflow-hidden";
     const vpnChat = document.createElement("a");
     vpnChat.href =
       "https://chatgpt.com/g/g-p-697b0fab9a608191811e75e5de0b52ad/c/69a95070-a2e8-8393-8f05-14a92caf47f5";
-    vpnChat.textContent = "VPS для VPN";
+    vpnChat.textContent = "VPS for VPN";
     detachedVpnChats.appendChild(vpnChat);
     section.appendChild(detachedVpnChats);
 
+    const vpnHref = "/g/g-p-697b0fab9a608191811e75e5de0b52ad-vpn/project";
+    const ragHref = "/g/g-p-6984450a14788191ad819fb327c7e500-rag/project";
     const ctx = makeTestContext({
       autoExpandProjects: true,
       autoExpandProjectItems: true
     });
-    const handle = initAutoExpandProjectsFeature(ctx);
-    const t = handle.__test as unknown as AutoExpandProjectsTestApi;
+    const { handle, t } = await prepareSelectiveFeature(
+      ctx,
+      makeSelectiveLocalState(
+        [
+          { href: vpnHref, title: "vpn" },
+          { href: ragHref, title: "rag" }
+        ],
+        {
+          [vpnHref]: true,
+          [ragHref]: true
+        }
+      )
+    );
 
-    const result = t.runOnce(ctx, "test");
+    const result = t.runOnce(ctx, "detached-g-p");
 
-    // vpn row must not be treated as collapsed only because its button reports
-    // data-state=closed when detached project chats are visible.
     expect(vpnClicks).toBe(0);
     expect(ragClicks).toBe(1);
     expect(result.stats.folderClicks).toBe(1);
+
+    handle.dispose();
+  });
+
+  it("re-enforces stored expanded state after a later route/root rebind", async () => {
+    const localState = makeSelectiveLocalState([{ href: "/project/audit", title: "audit" }], {
+      "/project/audit": true
+    });
+    const ctx = makeDomBusCtx(
+      { autoExpandProjects: true, autoExpandProjectItems: true },
+      localState
+    );
+    const { section } = mountProjectsNav("true");
+
+    let auditClicks = 0;
+    const auditRow = addProjectRow(section, "audit", {
+      expanded: false,
+      onFolderClick: () => {
+        auditClicks += 1;
+        ctx.emitNavDelta();
+      }
+    });
+
+    const handle = initAutoExpandProjectsFeature(ctx);
+
+    ctx.emitNavDelta();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(auditClicks).toBe(1);
+    expect(auditRow.folderBtn.dataset.state).toBe("open");
+
+    auditRow.applyExpandedState(false);
+    ctx.emitRoots({
+      main: null,
+      nav: document.querySelector('nav[aria-label="Chat history"]'),
+      reason: "rebind"
+    });
+    ctx.emitNavDelta();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(auditClicks).toBe(2);
+    expect(auditRow.folderBtn.dataset.state).toBe("open");
+
+    handle.dispose();
+  });
+
+  it("adds newly discovered projects to the registry with default false prefs", async () => {
+    const { section } = mountProjectsNav("true");
+    addProjectRow(section, "orion", { expanded: false });
+
+    const ctx = makeTestContext({
+      autoExpandProjects: false,
+      autoExpandProjectItems: false
+    });
+    const { handle, t } = await prepareSelectiveFeature(ctx, {});
+
+    const result = t.runOnce(ctx, "registry-add");
+    const state = t.getLocalState();
+
+    expect(result.done).toBe(true);
+    expect(state.registry.entriesByHref["/project/orion"]?.title).toBe("orion");
+    expect(state.prefs.expandedByHref["/project/orion"]).toBe(false);
+
+    handle.dispose();
+  });
+
+  it("updates registry titles when the same project href changes label", async () => {
+    const { section } = mountProjectsNav("true");
+    addProjectRow(section, "New Orion", {
+      expanded: false,
+      href: "https://chatgpt.com/project/orion"
+    });
+
+    const ctx = makeTestContext({
+      autoExpandProjects: false,
+      autoExpandProjectItems: false
+    });
+    const { handle, t } = await prepareSelectiveFeature(
+      ctx,
+      makeSelectiveLocalState([{ href: "/project/orion", title: "Old Orion", lastSeenAt: 50 }])
+    );
+
+    t.runOnce(ctx, "registry-title-update");
+    const state = t.getLocalState();
+
+    expect(state.registry.entriesByHref["/project/orion"]?.title).toBe("New Orion");
+
+    handle.dispose();
+  });
+
+  it("does not delete missing registry entries on plain absence alone", async () => {
+    const { section } = mountProjectsNav("true");
+    addProjectRow(section, "orion", {
+      expanded: false,
+      href: "https://chatgpt.com/project/orion"
+    });
+
+    const ctx = makeTestContext({
+      autoExpandProjects: false,
+      autoExpandProjectItems: false
+    });
+    const { handle, t } = await prepareSelectiveFeature(
+      ctx,
+      makeSelectiveLocalState(
+        [
+          { href: "/project/orion", title: "orion", lastSeenAt: 100, lastSeenOrder: 0 },
+          { href: "/project/lynx", title: "lynx", lastSeenAt: 90, lastSeenOrder: 1 }
+        ],
+        {
+          "/project/lynx": true
+        }
+      )
+    );
+
+    t.runOnce(ctx, "registry-absence");
+    const state = t.getLocalState();
+
+    expect(state.registry.entriesByHref["/project/lynx"]?.title).toBe("lynx");
+    expect(state.prefs.expandedByHref["/project/lynx"]).toBe(true);
+
+    handle.dispose();
+  });
+
+  it("removes registry and prefs only after a confident removed-subtree signal", async () => {
+    const { section } = mountProjectsNav("true");
+    addProjectRow(section, "orion", {
+      expanded: false,
+      href: "https://chatgpt.com/project/orion"
+    });
+    const lynxRow = addProjectRow(section, "lynx", {
+      expanded: false,
+      href: "https://chatgpt.com/project/lynx"
+    });
+
+    const ctx = makeTestContext({
+      autoExpandProjects: false,
+      autoExpandProjectItems: false
+    });
+    const { handle, t } = await prepareSelectiveFeature(
+      ctx,
+      makeSelectiveLocalState(
+        [
+          { href: "/project/orion", title: "orion", lastSeenAt: 100, lastSeenOrder: 0 },
+          { href: "/project/lynx", title: "lynx", lastSeenAt: 100, lastSeenOrder: 1 }
+        ],
+        {
+          "/project/lynx": true
+        }
+      )
+    );
+
+    section.removeChild(lynxRow.row);
+    t.captureRemovedProjectCandidates([lynxRow.row]);
+    t.runOnce(ctx, "registry-remove");
+
+    const state = t.getLocalState();
+    expect(state.registry.entriesByHref["/project/lynx"]).toBeUndefined();
+    expect(state.prefs.expandedByHref["/project/lynx"]).toBeUndefined();
 
     handle.dispose();
   });

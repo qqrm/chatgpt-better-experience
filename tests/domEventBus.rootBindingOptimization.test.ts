@@ -16,6 +16,8 @@ function makeCtx(pathWatcher: PathWatcher) {
     storagePort: {
       get: async <T extends Record<string, unknown>>(defaults: T): Promise<T> => defaults,
       set: async () => {},
+      getLocal: async <T extends Record<string, unknown>>(defaults: T): Promise<T> => defaults,
+      setLocal: async () => {},
       onSettingsChange: () => () => {}
     },
     logger: {

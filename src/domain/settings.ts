@@ -1,5 +1,36 @@
 export type DebugTraceTarget = "projects" | "editMessage" | "autoSend" | "timestamps";
 
+export const AUTO_EXPAND_PROJECTS_REGISTRY_KEY = "autoExpandProjectsRegistryV1";
+export const AUTO_EXPAND_PROJECTS_PREFS_KEY = "autoExpandProjectsPrefsV1";
+export const AUTO_EXPAND_PROJECTS_LOCAL_VERSION = 1 as const;
+
+export interface AutoExpandProjectsRegistryEntry {
+  href: string;
+  title: string;
+  lastSeenAt: number;
+  lastSeenOrder: number;
+}
+
+export interface AutoExpandProjectsRegistry {
+  version: typeof AUTO_EXPAND_PROJECTS_LOCAL_VERSION;
+  entriesByHref: Record<string, AutoExpandProjectsRegistryEntry>;
+}
+
+export interface AutoExpandProjectsPrefs {
+  version: typeof AUTO_EXPAND_PROJECTS_LOCAL_VERSION;
+  expandedByHref: Record<string, boolean>;
+}
+
+export const AUTO_EXPAND_PROJECTS_REGISTRY_DEFAULTS: AutoExpandProjectsRegistry = {
+  version: AUTO_EXPAND_PROJECTS_LOCAL_VERSION,
+  entriesByHref: {}
+};
+
+export const AUTO_EXPAND_PROJECTS_PREFS_DEFAULTS: AutoExpandProjectsPrefs = {
+  version: AUTO_EXPAND_PROJECTS_LOCAL_VERSION,
+  expandedByHref: {}
+};
+
 export interface Settings {
   autoSend: boolean;
   allowAutoSendInCodex: boolean;

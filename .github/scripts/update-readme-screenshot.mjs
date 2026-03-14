@@ -36,13 +36,64 @@ const popupDefaults = {
   editLastMessageOnArrowUp: true,
   autoExpandChats: true,
   autoExpandProjects: true,
-  autoExpandProjectItems: false,
+  autoExpandProjectItems: true,
   autoTempChat: false,
   oneClickDelete: true,
   startDictation: false,
   ctrlEnterSends: true,
   trimChatDom: false,
   hideShareButton: false
+};
+const popupPreview = {
+  settings: {
+    autoExpandProjectItems: true
+  },
+  forceAutoExpandProjectsDropdownOpen: true,
+  registry: {
+    version: 1,
+    entriesByHref: {
+      "/project/orion": {
+        href: "/project/orion",
+        title: "Orion",
+        lastSeenAt: 500,
+        lastSeenOrder: 0
+      },
+      "/project/quasar": {
+        href: "/project/quasar",
+        title: "Quasar",
+        lastSeenAt: 500,
+        lastSeenOrder: 1
+      },
+      "/project/lynx": {
+        href: "/project/lynx",
+        title: "Lynx",
+        lastSeenAt: 500,
+        lastSeenOrder: 2
+      },
+      "/project/otter": {
+        href: "/project/otter",
+        title: "Otter",
+        lastSeenAt: 500,
+        lastSeenOrder: 3
+      },
+      "/project/capybara-lab": {
+        href: "/project/capybara-lab",
+        title: "Capybara Lab",
+        lastSeenAt: 500,
+        lastSeenOrder: 4
+      }
+    }
+  },
+  prefs: {
+    version: 1,
+    expandedByHref: {
+      "/project/orion": true,
+      "/project/quasar": false,
+      "/project/lynx": true,
+      "/project/otter": false,
+      "/project/capybara-lab": true
+    }
+  }
 };
 
 const browser = await chromium.launch({ headless: true });
@@ -53,6 +104,9 @@ try {
     colorScheme: "dark"
   });
 
+  await popupPage.addInitScript((preview) => {
+    window.__CBE_POPUP_PREVIEW__ = preview;
+  }, popupPreview);
   await popupPage.goto(`file://${popupPath}`, { waitUntil: "load" });
   await popupPage.evaluate(() => {
     document.documentElement.setAttribute("data-theme", "dark");

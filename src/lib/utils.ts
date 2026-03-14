@@ -1,4 +1,12 @@
-import { SETTINGS_DEFAULTS, Settings } from "../domain/settings";
+import {
+  AUTO_EXPAND_PROJECTS_LOCAL_VERSION,
+  AUTO_EXPAND_PROJECTS_PREFS_DEFAULTS,
+  AUTO_EXPAND_PROJECTS_REGISTRY_DEFAULTS,
+  AutoExpandProjectsPrefs,
+  AutoExpandProjectsRegistry,
+  SETTINGS_DEFAULTS,
+  Settings
+} from "../domain/settings";
 
 export function norm(value: string | null) {
   return String(value || "").toLowerCase();
@@ -182,6 +190,107 @@ export function normalizeSettings(data: Record<string, unknown>): Settings {
       }
       return base.debugTraceTarget;
     })()
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+export function normalizeProjectHref(rawHref: string): string {
+  const raw = String(rawHref || "").trim();
+  if (!raw) return "";
+
+  const origin =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "https://chatgpt.com";
+
+  try {
+    const url = new URL(raw, origin);
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return raw;
+  }
+}
+
+export function isNewProjectHref(rawHref: string): boolean {
+  const href = normalizeProjectHref(rawHref);
+  return href.endsWith("/project/new") || href.includes("/project/new");
+}
+
+export function normalizeAutoExpandProjectsRegistry(value: unknown): AutoExpandProjectsRegistry {
+  if (!isRecord(value) || value.version !== AUTO_EXPAND_PROJECTS_LOCAL_VERSION) {
+    return {
+      ...AUTO_EXPAND_PROJECTS_REGISTRY_DEFAULTS,
+      entriesByHref: { ...AUTO_EXPAND_PROJECTS_REGISTRY_DEFAULTS.entriesByHref }
+    };
+  }
+
+  const entriesSource = isRecord(value.entriesByHref) ? value.entriesByHref : {};
+  const entriesByHref = Object.fromEntries(
+    Object.entries(entriesSource)
+      .map(([rawHref, rawEntry]) => {
+        const href = normalizeProjectHref(rawHref);
+        if (!href || isNewProjectHref(href) || !isRecord(rawEntry)) return null;
+
+        const title =
+          typeof rawEntry.title === "string" && rawEntry.title.trim()
+            ? rawEntry.title.trim()
+            : href;
+        const lastSeenAt =
+          typeof rawEntry.lastSeenAt === "number" && Number.isFinite(rawEntry.lastSeenAt)
+            ? rawEntry.lastSeenAt
+            : 0;
+        const lastSeenOrder =
+          typeof rawEntry.lastSeenOrder === "number" && Number.isFinite(rawEntry.lastSeenOrder)
+            ? rawEntry.lastSeenOrder
+            : 0;
+
+        return [
+          href,
+          {
+            href,
+            title,
+            lastSeenAt,
+            lastSeenOrder
+          }
+        ] as const;
+      })
+      .filter(
+        (entry): entry is readonly [string, AutoExpandProjectsRegistry["entriesByHref"][string]] =>
+          entry !== null
+      )
+  );
+
+  return {
+    version: AUTO_EXPAND_PROJECTS_LOCAL_VERSION,
+    entriesByHref
+  };
+}
+
+export function normalizeAutoExpandProjectsPrefs(value: unknown): AutoExpandProjectsPrefs {
+  if (!isRecord(value) || value.version !== AUTO_EXPAND_PROJECTS_LOCAL_VERSION) {
+    return {
+      ...AUTO_EXPAND_PROJECTS_PREFS_DEFAULTS,
+      expandedByHref: { ...AUTO_EXPAND_PROJECTS_PREFS_DEFAULTS.expandedByHref }
+    };
+  }
+
+  const expandedSource = isRecord(value.expandedByHref) ? value.expandedByHref : {};
+  const expandedByHref = Object.fromEntries(
+    Object.entries(expandedSource)
+      .map(([rawHref, rawExpanded]) => {
+        const href = normalizeProjectHref(rawHref);
+        if (!href || isNewProjectHref(href) || typeof rawExpanded !== "boolean") return null;
+        return [href, rawExpanded] as const;
+      })
+      .filter((entry): entry is readonly [string, boolean] => entry !== null)
+  );
+
+  return {
+    version: AUTO_EXPAND_PROJECTS_LOCAL_VERSION,
+    expandedByHref
   };
 }
 

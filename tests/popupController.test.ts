@@ -15,7 +15,14 @@ function makeMemoryStorage(initial: Record<string, unknown> = {}) {
       ...defaults,
       ...(data as Partial<T>)
     }),
+    getLocal: async <T extends Record<string, unknown>>(defaults: T) => ({
+      ...defaults,
+      ...(data as Partial<T>)
+    }),
     set: async (values) => {
+      Object.assign(data, values);
+    },
+    setLocal: async (values) => {
       Object.assign(data, values);
     }
   };

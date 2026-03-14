@@ -30,7 +30,9 @@ export interface ContentScriptDeps {
 
 const fallbackStoragePort: StoragePort = {
   get: (defaults) => Promise.resolve({ ...defaults }),
-  set: () => Promise.resolve()
+  set: () => Promise.resolve(),
+  getLocal: (defaults) => Promise.resolve({ ...defaults }),
+  setLocal: () => Promise.resolve()
 };
 
 export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {

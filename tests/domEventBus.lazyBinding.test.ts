@@ -8,7 +8,9 @@ function makeCtx(pathWatcher: { active: boolean }): FeatureContext {
     settings: SETTINGS_DEFAULTS,
     storagePort: {
       get: async <T extends Record<string, unknown>>(defaults: T): Promise<T> => defaults,
-      set: async () => {}
+      set: async () => {},
+      getLocal: async <T extends Record<string, unknown>>(defaults: T): Promise<T> => defaults,
+      setLocal: async () => {}
     },
     domBus: null,
     logger: {
