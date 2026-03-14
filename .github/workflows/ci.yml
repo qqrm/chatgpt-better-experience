@@ -4,7 +4,11 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - config/extension/manifest.base.json
   pull_request:
+    paths-ignore:
+      - config/extension/manifest.base.json
 
 concurrency:
   group: ci-${{ github.ref }}
