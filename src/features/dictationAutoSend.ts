@@ -41,6 +41,7 @@ interface WaitForFinalTextResult extends InputReadResult {
 type DictationUiState = "NONE" | "STOP" | "SUBMIT";
 
 const TRANSCRIBE_HOOK_SOURCE = "tm-dictation-transcribe";
+const SVG_NS = "http://www.w3.org/2000/svg";
 
 const DEFAULT_CONFIG: DictationConfig = {
   autoSendEnabled: true,
@@ -57,6 +58,10 @@ const DICTATION_COOLDOWN_MS = 400;
 export function shouldAutoSendFromSubmitClick(e: Pick<MouseEvent, "isTrusted" | "detail"> | null) {
   if (!e?.isTrusted) return false;
   return (e.detail ?? 0) > 0;
+}
+
+function createSvgElement<T extends keyof SVGElementTagNameMap>(tag: T): SVGElementTagNameMap[T] {
+  return document.createElementNS(SVG_NS, tag) as SVGElementTagNameMap[T];
 }
 
 export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle {
@@ -341,13 +346,32 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     root.setAttribute("role", "button");
     root.setAttribute("aria-label", "Cancel pending auto-send");
     root.setAttribute("title", "Cancel pending auto-send");
-    root.innerHTML = `
-      <svg class="tm-autosend-svg" viewBox="0 0 36 36" aria-hidden="true" focusable="false">
-        <circle class="tm-autosend-track" cx="18" cy="18" r="15"></circle>
-        <circle class="tm-autosend-progress" cx="18" cy="18" r="15"></circle>
-      </svg>
-      <div class="tm-autosend-digit">3</div>
-    `;
+
+    const svg = createSvgElement("svg");
+    svg.setAttribute("class", "tm-autosend-svg");
+    svg.setAttribute("viewBox", "0 0 36 36");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+
+    const track = createSvgElement("circle");
+    track.setAttribute("class", "tm-autosend-track");
+    track.setAttribute("cx", "18");
+    track.setAttribute("cy", "18");
+    track.setAttribute("r", "15");
+
+    const progress = createSvgElement("circle");
+    progress.setAttribute("class", "tm-autosend-progress");
+    progress.setAttribute("cx", "18");
+    progress.setAttribute("cy", "18");
+    progress.setAttribute("r", "15");
+
+    svg.append(track, progress);
+
+    const digit = document.createElement("div");
+    digit.className = "tm-autosend-digit";
+    digit.textContent = "3";
+
+    root.append(svg, digit);
 
     if (preferredContainer && container === preferredContainer) {
       container.insertBefore(root, container.firstChild);
@@ -356,8 +380,8 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     }
 
     countdownRoot = root;
-    countdownRing = root.querySelector<SVGCircleElement>(".tm-autosend-progress");
-    countdownDigit = root.querySelector<HTMLElement>(".tm-autosend-digit");
+    countdownRing = progress;
+    countdownDigit = digit;
     return countdownRoot;
   };
 

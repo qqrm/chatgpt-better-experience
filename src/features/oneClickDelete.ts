@@ -7,6 +7,7 @@ const ONE_CLICK_DELETE_PIN_MARK = "data-qqrm-oneclick-pin";
 const ONE_CLICK_DELETE_NATIVE_DOTS_MARK = "data-qqrm-native-dots";
 const ONE_CLICK_DELETE_ROW_MARK = "data-qqrm-oneclick-row";
 const ONE_CLICK_DELETE_X_MARK = "data-qqrm-oneclick-del-x";
+const ONE_CLICK_DELETE_ICON_MARK = "data-qqrm-oneclick-icon";
 const ONE_CLICK_DELETE_STYLE_ID = "cgptbe-silent-delete-style";
 const ONE_CLICK_DELETE_ROOT_FLAG = "data-cgptbe-silent-delete";
 const ONE_CLICK_DELETE_BUTTON_SELECTOR =
@@ -43,35 +44,118 @@ const ONE_CLICK_DELETE_PIN_TOOLTIP = "Pin / unpin";
 const CHAT_CONVERSATION_ID_REGEX = /\/c\/([^/?#]+)/;
 type QuickIconKind = "pin" | "archive" | "delete";
 type QuickPinActionKind = "pin" | "unpin";
+type SvgIconSpec = {
+  width: string;
+  height: string;
+  viewBox: string;
+  fill: string;
+  paths: Array<Record<string, string>>;
+};
 
 const ONE_CLICK_DELETE_PIN_ACTION_MARK = "data-qqrm-oneclick-pin-action";
+const SVG_NS = "http://www.w3.org/2000/svg";
 
-const LOCAL_PIN_ICON_SVGS: Record<QuickPinActionKind, string> = {
-  pin: `
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" fill="currentColor">
-      <path d="M11.835 12.5c0-.793.444-1.487 1.026-1.902l3.551-2.536.09-.073a1.01 1.01 0 0 0 .114-1.377l-.077-.086-3.065-3.065a1.01 1.01 0 0 0-1.463.037l-.073.09-2.536 3.55C8.987 7.72 8.293 8.166 7.5 8.166H5.417c-.434 0-.843.301-1.05.781-.205.476-.143.965.172 1.28l5.234 5.235.126.106c.312.22.739.245 1.155.066.48-.207.78-.616.78-1.05zm1.33 2.083c0 1.09-.743 1.909-1.585 2.272-.793.341-1.817.34-2.595-.314l-.152-.14-2.147-2.147L2.97 17.97a.666.666 0 0 1-.942-.942l3.716-3.716L3.6 11.168c-.792-.792-.818-1.901-.454-2.747.363-.842 1.182-1.585 2.272-1.585H7.5c.288 0 .607-.172.82-.47l2.536-3.55.081-.108a2.34 2.34 0 0 1 3.477-.186l3.065 3.065.093.098a2.34 2.34 0 0 1-.28 3.379l-.107.08-3.55 2.537c-.299.213-.47.532-.47.82z" />
-    </svg>
-  `,
-  unpin: `
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" fill="currentColor">
-      <path d="M5.145 8.207c-.326.097-.615.362-.778.74-.205.475-.143.965.172 1.28l5.234 5.234.126.107c.311.22.739.244 1.154.065.378-.163.643-.452.74-.78l.994.996a2.74 2.74 0 0 1-1.207 1.006c-.793.341-1.818.34-2.595-.314l-.152-.14-2.148-2.147-3.715 3.717a.667.667 0 0 1-.941-.942l3.716-3.715-2.147-2.147c-.791-.791-.817-1.901-.453-2.747.203-.47.55-.912 1.006-1.208zM17.136 16.197a.665.665 0 0 1-.94.94zM2.862 2.863a.67.67 0 0 1 .837-.085l.104.084 13.333 13.334-.47.47-.47.47L2.862 3.805l-.085-.105a.67.67 0 0 1 .085-.836M10.937 2.707a2.34 2.34 0 0 1 3.477-.186l3.065 3.065.093.098a2.34 2.34 0 0 1-.28 3.379l-.107.08-2.905 2.075-.953-.953 3.085-2.203.09-.073a1.01 1.01 0 0 0 .114-1.376l-.077-.086-3.066-3.066a1.01 1.01 0 0 0-1.463.037l-.072.09-2.203 3.084-.954-.953 2.075-2.904z" />
-    </svg>
-  `
+const LOCAL_PIN_ICON_SPECS: Record<QuickPinActionKind, SvgIconSpec> = {
+  pin: {
+    width: "20",
+    height: "20",
+    viewBox: "0 0 20 20",
+    fill: "currentColor",
+    paths: [
+      {
+        d: "M11.835 12.5c0-.793.444-1.487 1.026-1.902l3.551-2.536.09-.073a1.01 1.01 0 0 0 .114-1.377l-.077-.086-3.065-3.065a1.01 1.01 0 0 0-1.463.037l-.073.09-2.536 3.55C8.987 7.72 8.293 8.166 7.5 8.166H5.417c-.434 0-.843.301-1.05.781-.205.476-.143.965.172 1.28l5.234 5.235.126.106c.312.22.739.245 1.155.066.48-.207.78-.616.78-1.05zm1.33 2.083c0 1.09-.743 1.909-1.585 2.272-.793.341-1.817.34-2.595-.314l-.152-.14-2.147-2.147L2.97 17.97a.666.666 0 0 1-.942-.942l3.716-3.716L3.6 11.168c-.792-.792-.818-1.901-.454-2.747.363-.842 1.182-1.585 2.272-1.585H7.5c.288 0 .607-.172.82-.47l2.536-3.55.081-.108a2.34 2.34 0 0 1 3.477-.186l3.065 3.065.093.098a2.34 2.34 0 0 1-.28 3.379l-.107.08-3.55 2.537c-.299.213-.47.532-.47.82z"
+      }
+    ]
+  },
+  unpin: {
+    width: "20",
+    height: "20",
+    viewBox: "0 0 20 20",
+    fill: "currentColor",
+    paths: [
+      {
+        d: "M5.145 8.207c-.326.097-.615.362-.778.74-.205.475-.143.965.172 1.28l5.234 5.234.126.107c.311.22.739.244 1.154.065.378-.163.643-.452.74-.78l.994.996a2.74 2.74 0 0 1-1.207 1.006c-.793.341-1.818.34-2.595-.314l-.152-.14-2.148-2.147-3.715 3.717a.667.667 0 0 1-.941-.942l3.716-3.715-2.147-2.147c-.791-.791-.817-1.901-.453-2.747.203-.47.55-.912 1.006-1.208zM17.136 16.197a.665.665 0 0 1-.94.94zM2.862 2.863a.67.67 0 0 1 .837-.085l.104.084 13.333 13.334-.47.47-.47.47L2.862 3.805l-.085-.105a.67.67 0 0 1 .085-.836M10.937 2.707a2.34 2.34 0 0 1 3.477-.186l3.065 3.065.093.098a2.34 2.34 0 0 1-.28 3.379l-.107.08-2.905 2.075-.953-.953 3.085-2.203.09-.073a1.01 1.01 0 0 0 .114-1.376l-.077-.086-3.066-3.066a1.01 1.01 0 0 0-1.463.037l-.072.09-2.203 3.084-.954-.953 2.075-2.904z"
+      }
+    ]
+  }
 };
 
-const LOCAL_QUICK_ICON_SVGS: Record<Exclude<QuickIconKind, "pin">, string> = {
-  archive: `
-    <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true" fill="currentColor">
-      <path d="M11.8 10.182a.665.665 0 0 1 0 1.302l-.134.014H8.333a.665.665 0 0 1 0-1.33h3.333z" />
-      <path fill-rule="evenodd" clip-rule="evenodd" d="M15.417 2.668A2.333 2.333 0 0 1 17.749 5v.833c0 .499-.159.96-.426 1.339q.006.038.008.078v5.417c0 .689 0 1.246-.036 1.696-.033.4-.098.762-.242 1.098l-.067.143c-.265.52-.67.956-1.165 1.26l-.217.122c-.377.192-.784.271-1.242.309-.45.037-1.007.037-1.696.037H7.333c-.689 0-1.246 0-1.696-.037-.4-.033-.762-.097-1.098-.241l-.143-.068a3.17 3.17 0 0 1-1.261-1.165l-.122-.217c-.192-.377-.271-.783-.309-1.24-.037-.45-.036-1.008-.036-1.697V7.25q.002-.04.008-.08a2.3 2.3 0 0 1-.424-1.337V5a2.333 2.333 0 0 1 2.332-2.332zm.584 5.42a2.3 2.3 0 0 1-.584.077H4.584c-.203 0-.399-.029-.586-.077v4.579c0 .71 0 1.204.032 1.588.031.375.088.587.168.745l.07.126c.177.287.43.522.732.676l.13.055c.144.052.333.09.615.113.384.031.877.032 1.588.032h5.333c.71 0 1.204-.001 1.588-.032.375-.03.587-.088.745-.168l.127-.072c.287-.176.522-.428.676-.73l.055-.13c.052-.144.09-.334.113-.615.031-.384.031-.877.031-1.588zM4.584 3.998c-.553 0-1.002.449-1.002 1.002v.833c0 .553.449 1.002 1.002 1.002h10.833c.553 0 1.002-.449 1.002-1.002V5c0-.553-.45-1.002-1.002-1.002z" />
-    </svg>
-  `,
-  delete: `
-    <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true" fill="currentColor">
-      <path d="M10.63 1.335c1.403 0 2.64.925 3.036 2.271l.215.729H17l.134.014a.665.665 0 0 1 0 1.302L17 5.665h-.346l-.797 9.326a3.165 3.165 0 0 1-3.153 2.897H7.296a3.166 3.166 0 0 1-3.113-2.594l-.04-.303-.796-9.326H3a.665.665 0 0 1 0-1.33h3.12l.214-.729.084-.248A3.165 3.165 0 0 1 9.37 1.335zM5.468 14.878l.023.176a1.835 1.835 0 0 0 1.805 1.504h5.408c.953 0 1.747-.73 1.828-1.68l.787-9.213H4.682zm2.2-2.05V8.66a.665.665 0 0 1 1.33 0v4.167a.665.665 0 0 1-1.33 0m3.334 0V8.66a.665.665 0 1 1 1.33 0v4.167a.665.665 0 0 1-1.33 0M9.37 2.664c-.763 0-1.44.47-1.712 1.173l-.049.143-.103.354h4.988l-.103-.354a1.835 1.835 0 0 0-1.761-1.316z" />
-    </svg>
-  `
+const LOCAL_QUICK_ICON_SPECS: Record<Exclude<QuickIconKind, "pin">, SvgIconSpec> = {
+  archive: {
+    width: "16",
+    height: "16",
+    viewBox: "0 0 20 20",
+    fill: "currentColor",
+    paths: [
+      {
+        d: "M11.8 10.182a.665.665 0 0 1 0 1.302l-.134.014H8.333a.665.665 0 0 1 0-1.33h3.333z"
+      },
+      {
+        "fill-rule": "evenodd",
+        "clip-rule": "evenodd",
+        d: "M15.417 2.668A2.333 2.333 0 0 1 17.749 5v.833c0 .499-.159.96-.426 1.339q.006.038.008.078v5.417c0 .689 0 1.246-.036 1.696-.033.4-.098.762-.242 1.098l-.067.143c-.265.52-.67.956-1.165 1.26l-.217.122c-.377.192-.784.271-1.242.309-.45.037-1.007.037-1.696.037H7.333c-.689 0-1.246 0-1.696-.037-.4-.033-.762-.097-1.098-.241l-.143-.068a3.17 3.17 0 0 1-1.261-1.165l-.122-.217c-.192-.377-.271-.783-.309-1.24-.037-.45-.036-1.008-.036-1.697V7.25q.002-.04.008-.08a2.3 2.3 0 0 1-.424-1.337V5a2.333 2.333 0 0 1 2.332-2.332zm.584 5.42a2.3 2.3 0 0 1-.584.077H4.584c-.203 0-.399-.029-.586-.077v4.579c0 .71 0 1.204.032 1.588.031.375.088.587.168.745l.07.126c.177.287.43.522.732.676l.13.055c.144.052.333.09.615.113.384.031.877.032 1.588.032h5.333c.71 0 1.204-.001 1.588-.032.375-.03.587-.088.745-.168l.127-.072c.287-.176.522-.428.676-.73l.055-.13c.052-.144.09-.334.113-.615.031-.384.031-.877.031-1.588zM4.584 3.998c-.553 0-1.002.449-1.002 1.002v.833c0 .553.449 1.002 1.002 1.002h10.833c.553 0 1.002-.449 1.002-1.002V5c0-.553-.45-1.002-1.002-1.002z"
+      }
+    ]
+  },
+  delete: {
+    width: "16",
+    height: "16",
+    viewBox: "0 0 20 20",
+    fill: "currentColor",
+    paths: [
+      {
+        d: "M10.63 1.335c1.403 0 2.64.925 3.036 2.271l.215.729H17l.134.014a.665.665 0 0 1 0 1.302L17 5.665h-.346l-.797 9.326a3.165 3.165 0 0 1-3.153 2.897H7.296a3.166 3.166 0 0 1-3.113-2.594l-.04-.303-.796-9.326H3a.665.665 0 0 1 0-1.33h3.12l.214-.729.084-.248A3.165 3.165 0 0 1 9.37 1.335zM5.468 14.878l.023.176a1.835 1.835 0 0 0 1.805 1.504h5.408c.953 0 1.747-.73 1.828-1.68l.787-9.213H4.682zm2.2-2.05V8.66a.665.665 0 0 1 1.33 0v4.167a.665.665 0 0 1-1.33 0m3.334 0V8.66a.665.665 0 1 1 1.33 0v4.167a.665.665 0 0 1-1.33 0M9.37 2.664c-.763 0-1.44.47-1.712 1.173l-.049.143-.103.354h4.988l-.103-.354a1.835 1.835 0 0 0-1.761-1.316z"
+      }
+    ]
+  }
 };
+
+function createSvgElement<T extends keyof SVGElementTagNameMap>(tag: T): SVGElementTagNameMap[T] {
+  return document.createElementNS(SVG_NS, tag) as SVGElementTagNameMap[T];
+}
+
+function createSvgIcon(spec: SvgIconSpec) {
+  const svg = createSvgElement("svg");
+  svg.setAttribute("width", spec.width);
+  svg.setAttribute("height", spec.height);
+  svg.setAttribute("viewBox", spec.viewBox);
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("fill", spec.fill);
+
+  for (const pathSpec of spec.paths) {
+    const path = createSvgElement("path");
+    for (const [name, value] of Object.entries(pathSpec)) {
+      path.setAttribute(name, value);
+    }
+    svg.appendChild(path);
+  }
+
+  return svg;
+}
+
+export function createQuickIconSvg(kind: QuickIconKind, pinAction: QuickPinActionKind = "pin") {
+  const spec = kind === "pin" ? LOCAL_PIN_ICON_SPECS[pinAction] : LOCAL_QUICK_ICON_SPECS[kind];
+  return createSvgIcon(spec);
+}
+
+export function createPendingOverlayContent() {
+  const fragment = document.createDocumentFragment();
+
+  const wipe = document.createElement("div");
+  wipe.className = "qqrm-oneclick-wipe";
+  fragment.appendChild(wipe);
+
+  const heat = document.createElement("div");
+  heat.className = "qqrm-oneclick-heat";
+  fragment.appendChild(heat);
+
+  const label = document.createElement("div");
+  label.className = "qqrm-oneclick-undo-label";
+  label.textContent = "Undo";
+  fragment.appendChild(label);
+
+  return fragment;
+}
 
 export const extractConversationIdFromRow = (row: HTMLElement | null): string | null => {
   if (!row) return null;
@@ -850,12 +934,18 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const applyLocalQuickIcon = (span: HTMLElement, kind: QuickIconKind) => {
-    const iconHtml =
-      kind === "pin"
-        ? LOCAL_PIN_ICON_SVGS[inferPinActionFromButton(span.closest<HTMLElement>("button"))]
-        : LOCAL_QUICK_ICON_SVGS[kind];
-    if (!iconHtml) return;
-    if (span.innerHTML !== iconHtml) span.innerHTML = iconHtml;
+    const pinAction =
+      kind === "pin" ? inferPinActionFromButton(span.closest<HTMLElement>("button")) : "pin";
+    const iconMark = kind === "pin" ? `${kind}:${pinAction}` : kind;
+    if (
+      span.getAttribute(ONE_CLICK_DELETE_ICON_MARK) === iconMark &&
+      span.firstElementChild instanceof SVGElement
+    ) {
+      return;
+    }
+
+    span.replaceChildren(createQuickIconSvg(kind, pinAction));
+    span.setAttribute(ONE_CLICK_DELETE_ICON_MARK, iconMark);
   };
 
   const refreshAllHookedIcons = () => {
@@ -1045,12 +1135,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       overlay.classList.add("qqrm-archive");
     }
     overlay.style.setProperty("--qqrm-wipe-ms", `${ONE_CLICK_DELETE_WIPE_MS}ms`);
-
-    overlay.innerHTML = `
-    <div class="qqrm-oneclick-wipe"></div>
-    <div class="qqrm-oneclick-heat"></div>
-    <div class="qqrm-oneclick-undo-label">Undo</div>
-  `;
+    overlay.append(createPendingOverlayContent());
 
     overlay.addEventListener(
       "pointerdown",

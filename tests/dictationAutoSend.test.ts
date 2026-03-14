@@ -266,6 +266,10 @@ describe("dictationAutoSend", () => {
     const countdown = testApi.ensureCountdownUi?.();
     expect(countdown).not.toBeNull();
     expect(countdown?.parentElement?.id).toBe("footer-actions");
+    expect(countdown?.querySelector("script")).toBeNull();
+    expect(countdown?.querySelector("svg.tm-autosend-svg")).not.toBeNull();
+    expect(countdown?.querySelector("circle.tm-autosend-progress")).not.toBeNull();
+    expect(countdown?.querySelector<HTMLElement>(".tm-autosend-digit")?.textContent).toBe("3");
 
     handle.dispose();
   });
@@ -297,6 +301,8 @@ describe("dictationAutoSend", () => {
     const countdown = testApi.ensureCountdownUi?.();
     expect(countdown).not.toBeNull();
     expect(countdown?.parentElement?.id).toBe("codex-composer");
+    expect(countdown?.querySelector("script")).toBeNull();
+    expect(countdown?.querySelector("svg.tm-autosend-svg")).not.toBeNull();
 
     handle.dispose();
   });
