@@ -367,6 +367,147 @@ describe("dictationAutoSend", () => {
     nowSpy.mockRestore();
   });
 
+  it("flushes pending countdown send before navigating to another chat", async () => {
+    vi.useFakeTimers();
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => Date.now());
+
+    window.history.replaceState({}, "", "/c/current-chat");
+    document.body.innerHTML = `
+      <nav aria-label="Chat history">
+        <a id="other-chat" data-sidebar-item="true" href="/c/other-chat">Other chat</a>
+      </nav>
+      <main role="main">
+        <form data-testid="composer">
+          <div id="prompt-textarea" contenteditable="true"></div>
+          <div data-testid="composer-footer-actions">
+            <button
+              id="composer-submit-button"
+              data-testid="send-button"
+              aria-label="Send"
+              title="Send message"
+              type="submit"
+            >
+              Send
+            </button>
+          </div>
+        </form>
+      </main>
+    `;
+
+    let pathChangeHandler: (path: string) => void = () => {};
+    const ctx = makeTestContext({ autoSend: true, allowAutoSendInCodex: true });
+    ctx.helpers.onPathChange = (cb) => {
+      pathChangeHandler = cb;
+      return () => {
+        pathChangeHandler = () => {};
+      };
+    };
+    ctx.helpers.humanClick = () => true;
+
+    const handle = initDictationAutoSendFeature(ctx);
+    const testApi = handle.__test as DictationTestApi;
+    expect(testApi.runAutoSendFlow).toBeTypeOf("function");
+
+    const form = document.querySelector('form[data-testid="composer"]') as HTMLFormElement;
+    const input = document.getElementById("prompt-textarea") as HTMLElement;
+    const requestSubmit = vi.fn(() => {
+      input.textContent = "";
+      input.innerText = "";
+    });
+    (form as unknown as { requestSubmit: unknown }).requestSubmit = requestSubmit;
+
+    const otherChat = document.getElementById("other-chat") as HTMLAnchorElement;
+    otherChat.addEventListener("click", (event) => {
+      if (event.defaultPrevented) return;
+      window.history.pushState({}, "", "/c/other-chat");
+      pathChangeHandler(location.pathname);
+    });
+
+    const flow = testApi.runAutoSendFlow?.("", false);
+    input.textContent = "Текст";
+    input.innerText = "Текст";
+
+    await vi.advanceTimersByTimeAsync(1200);
+
+    const navClick = new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 });
+    otherChat.dispatchEvent(navClick);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(200);
+    await Promise.resolve(flow);
+
+    expect(navClick.defaultPrevented).toBe(true);
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
+    expect(location.pathname).toBe("/c/other-chat");
+
+    handle.dispose();
+    nowSpy.mockRestore();
+  });
+
+  it("cancels pending auto-send when path changes before countdown finishes", async () => {
+    vi.useFakeTimers();
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => Date.now());
+
+    window.history.replaceState({}, "", "/c/current-chat");
+    document.body.innerHTML = `
+      <main role="main">
+        <form data-testid="composer">
+          <div id="prompt-textarea" contenteditable="true"></div>
+          <div data-testid="composer-footer-actions">
+            <button
+              id="composer-submit-button"
+              data-testid="send-button"
+              aria-label="Send"
+              title="Send message"
+              type="submit"
+            >
+              Send
+            </button>
+          </div>
+        </form>
+      </main>
+    `;
+
+    let pathChangeHandler: (path: string) => void = () => {};
+    const ctx = makeTestContext({ autoSend: true, allowAutoSendInCodex: true });
+    ctx.helpers.onPathChange = (cb) => {
+      pathChangeHandler = cb;
+      return () => {
+        pathChangeHandler = () => {};
+      };
+    };
+    ctx.helpers.humanClick = () => true;
+
+    const handle = initDictationAutoSendFeature(ctx);
+    const testApi = handle.__test as DictationTestApi;
+    expect(testApi.runAutoSendFlow).toBeTypeOf("function");
+
+    const form = document.querySelector('form[data-testid="composer"]') as HTMLFormElement;
+    const input = document.getElementById("prompt-textarea") as HTMLElement;
+    const requestSubmit = vi.fn(() => {
+      input.textContent = "";
+      input.innerText = "";
+    });
+    (form as unknown as { requestSubmit: unknown }).requestSubmit = requestSubmit;
+
+    const flow = testApi.runAutoSendFlow?.("", false);
+    input.textContent = "Текст";
+    input.innerText = "Текст";
+
+    await vi.advanceTimersByTimeAsync(1200);
+
+    window.history.pushState({}, "", "/c/other-chat");
+    pathChangeHandler(location.pathname);
+
+    await vi.advanceTimersByTimeAsync(5000);
+    await Promise.resolve(flow);
+
+    expect(requestSubmit).toHaveBeenCalledTimes(0);
+
+    handle.dispose();
+    nowSpy.mockRestore();
+  });
+
   it("auto-send flow reads composer input even if another contenteditable is focused", async () => {
     vi.useFakeTimers();
     const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => Date.now());

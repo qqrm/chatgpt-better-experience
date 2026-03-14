@@ -2,6 +2,7 @@ import { DictationInputKind } from "../domain/dictation";
 import { FeatureContext, FeatureHandle, LogFields } from "../application/featureContext";
 import type { Unsubscribe } from "../application/domEventBus";
 import { isDisabled, isElementVisible, isVisible, norm } from "../lib/utils";
+import { readConversationIdFromHref, readCurrentConversationId } from "./chatgptConversation";
 import {
   Command as AutoSendCommand,
   Event as AutoSendEvent,
@@ -81,6 +82,9 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
   let inFlightStage: "idle" | "await-final-text" | "countdown" | "sending" = "idle";
   let internalAutoSendActionUntil = 0;
   let cancelActiveFlow: ((reason: string) => void) | null = null;
+  let navigationFlushInProgress = false;
+  let navigationBypassAnchor: HTMLAnchorElement | null = null;
+  let navigationBypassUntil = 0;
 
   const tmLog = (scope: string, msg: string, fields?: LogFields) => {
     ctx.logger.trace("autoSend", scope, msg, fields);
@@ -568,6 +572,78 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     return true;
   };
 
+  const stopPointerEvent = (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === "function") {
+      event.stopImmediatePropagation();
+    }
+  };
+
+  const readHrefPath = (href: string) => {
+    try {
+      const url = new URL(href, location.origin);
+      return `${url.pathname}${url.search}${url.hash}`;
+    } catch {
+      return href;
+    }
+  };
+
+  const isSidebarChatAnchor = (anchor: HTMLAnchorElement) => {
+    if (anchor.getAttribute("data-sidebar-item") === "true") return true;
+    if (anchor.closest('[data-sidebar-item="true"]')) return true;
+    if (anchor.closest('nav[aria-label="Chat history"]')) return true;
+    return false;
+  };
+
+  const findChatNavigationAnchor = (target: EventTarget | null): HTMLAnchorElement | null => {
+    if (!(target instanceof Element)) return null;
+    const anchor = target.closest<HTMLAnchorElement>("a[href]");
+    if (!anchor) return null;
+    if (!isSidebarChatAnchor(anchor)) return null;
+    if (anchor.target && anchor.target !== "_self") return null;
+
+    const href = anchor.getAttribute("href");
+    if (!href) return null;
+
+    const nextPath = readHrefPath(href);
+    const currentPath = `${location.pathname}${location.search}${location.hash}`;
+    if (!nextPath || nextPath === currentPath) return null;
+
+    const currentConversationId = readCurrentConversationId();
+    const nextConversationId = readConversationIdFromHref(href);
+    if (
+      currentConversationId &&
+      nextConversationId &&
+      currentConversationId === nextConversationId
+    ) {
+      return null;
+    }
+
+    return anchor;
+  };
+
+  const shouldBypassNavigationInterception = (anchor: HTMLAnchorElement) =>
+    anchor === navigationBypassAnchor && performance.now() < navigationBypassUntil;
+
+  const resumeChatNavigation = (anchor: HTMLAnchorElement) => {
+    navigationBypassAnchor = anchor;
+    navigationBypassUntil = performance.now() + 1500;
+
+    try {
+      anchor.click();
+      return;
+    } catch {
+      // Fall through to hard navigation.
+    }
+
+    try {
+      window.location.assign(anchor.href);
+    } catch {
+      window.location.href = anchor.href;
+    }
+  };
+
   const findStopGeneratingButton = () => {
     const candidates = qsa<HTMLElement>("button, [role='button']").filter((b) => {
       const a = norm(b.getAttribute("aria-label"));
@@ -1031,6 +1107,29 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
       preview: cur
     });
     return false;
+  };
+
+  const flushPendingAutoSendBeforeNavigation = async (anchor: HTMLAnchorElement) => {
+    if (navigationFlushInProgress) return;
+    navigationFlushInProgress = true;
+
+    try {
+      tmLog("FLOW", "pre-navigation flush start", {
+        href: anchor.href,
+        stage: inFlightStage
+      });
+
+      cancelInFlightAutoSend("chat-navigation-flush");
+
+      const ok = await clickSendWithAck(Math.min(cfg.sendAckTimeoutMs, 1200));
+      tmLog("FLOW", "pre-navigation flush result", {
+        ok,
+        href: anchor.href
+      });
+    } finally {
+      resumeChatNavigation(anchor);
+      navigationFlushInProgress = false;
+    }
   };
 
   const runFlowAfterSubmitClick = async (
@@ -1561,14 +1660,38 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
 
     refreshDictationObserver();
     const target = e.target;
+    const chatNavigationAnchor = findChatNavigationAnchor(target);
+    if (chatNavigationAnchor && shouldBypassNavigationInterception(chatNavigationAnchor)) {
+      return;
+    }
+
     const clickedCountdown =
       target instanceof Element && target.closest ? target.closest("#tm-autosend-countdown") : null;
     if (clickedCountdown) {
       if (inFlight && cancelInFlightAutoSend("countdown-click")) {
         tmLog("FLOW", "countdown click: canceled pending auto-send");
-        e.preventDefault();
-        e.stopPropagation();
+        stopPointerEvent(e);
       }
+      return;
+    }
+
+    if (chatNavigationAnchor && navigationFlushInProgress) {
+      stopPointerEvent(e);
+      return;
+    }
+
+    if (
+      chatNavigationAnchor &&
+      cfg.autoSendEnabled &&
+      !isInternalAutoSendAction() &&
+      inFlightStage === "countdown" &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
+      !e.altKey
+    ) {
+      stopPointerEvent(e);
+      void flushPendingAutoSendBeforeNavigation(chatNavigationAnchor);
       return;
     }
 
@@ -1690,6 +1813,13 @@ export function initDictationAutoSendFeature(ctx: FeatureContext): FeatureHandle
     if (enabled) {
       if (unsubscribePath) return;
       unsubscribePath = ctx.helpers.onPathChange(() => {
+        if (inFlight && !isInternalAutoSendAction()) {
+          if (cancelInFlightAutoSend("path-change")) {
+            tmLog("FLOW", "path change detected: canceled pending auto-send", {
+              stage: inFlightStage
+            });
+          }
+        }
         refreshDictationObserver();
       });
       return;
