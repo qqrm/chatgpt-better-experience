@@ -1,5 +1,20 @@
 import { FeatureContext, FeatureHandle } from "../application/featureContext";
-import { isElementVisible, norm } from "../lib/utils";
+import {
+  AUTO_EXPAND_PROJECTS_PREFS_DEFAULTS,
+  AUTO_EXPAND_PROJECTS_PREFS_KEY,
+  AUTO_EXPAND_PROJECTS_REGISTRY_DEFAULTS,
+  AUTO_EXPAND_PROJECTS_REGISTRY_KEY,
+  AutoExpandProjectsPrefs,
+  AutoExpandProjectsRegistry
+} from "../domain/settings";
+import {
+  isElementVisible,
+  isNewProjectHref,
+  norm,
+  normalizeAutoExpandProjectsPrefs,
+  normalizeAutoExpandProjectsRegistry,
+  normalizeProjectHref
+} from "../lib/utils";
 
 const AUTO_EXPAND_START_TIMEOUT_MS = 3500;
 const AUTO_EXPAND_NAV_TIMEOUT_MS = 1500;
@@ -11,11 +26,7 @@ const AUTO_EXPAND_AUTO_CLICK_COOLDOWN_MS = 250;
 const AUTO_EXPAND_MAX_ATTEMPTS = 140;
 const AUTO_EXPAND_REARM_RETRY_MS = 900;
 
-const PROJECT_LINK_SELECTOR = [
-  'a[href*="/project"]',
-  // Newer ChatGPT builds can render project links as /g/g-p-<id>.
-  'a[href*="/g/g-p-"]'
-].join(", ");
+const PROJECT_LINK_SELECTOR = ['a[href*="/project"]', 'a[href*="/g/g-p-"]'].join(", ");
 const PROJECT_SECTION_HINT_SELECTOR = [
   '[class*="sidebar-expando-section"]',
   '[class*="expando-section"]',
@@ -39,7 +50,10 @@ type ExpandStats = {
   projectRows: number;
   expandableProjectRows: number;
   collapsedProjectRows: number;
+  expandedProjectRows: number;
+  mismatchedProjectRows: number;
   folderClicks: number;
+  registryEntries: number;
 };
 
 type RunResult = {
@@ -47,15 +61,46 @@ type RunResult = {
   done: boolean;
 };
 
+type RunOptions = {
+  allowClicks?: boolean;
+};
+
 type ProjectRowsResult = {
   projectRows: number;
   expandableProjectRows: number;
   collapsedProjectRows: number;
+  expandedProjectRows: number;
+  mismatchedProjectRows: number;
   folderClicks: number;
+};
+
+type ProjectSidebarRow = {
+  href: string;
+  title: string;
+  order: number;
+  link: HTMLAnchorElement;
+  toggle: HTMLElement | null;
+  expandable: boolean;
+  expanded: boolean;
+};
+
+type RegistrySyncResult = {
+  visibleRows: ProjectSidebarRow[];
+  processedRemovalCandidates: string[];
+};
+
+type LocalProjectStateCache = {
+  registry: AutoExpandProjectsRegistry;
+  prefs: AutoExpandProjectsPrefs;
+  loaded: boolean;
 };
 
 function isFeatureEnabled(ctx: FeatureContext): boolean {
   return !!ctx.settings.autoExpandProjects || !!ctx.settings.autoExpandProjectItems;
+}
+
+function shouldEnforceProjectItems(ctx: FeatureContext): boolean {
+  return !!ctx.settings.autoExpandProjectItems;
 }
 
 function isProjectsDebugEnabled(ctx: FeatureContext): boolean {
@@ -85,7 +130,6 @@ export function isAutoExpandProjectsRelevantNavDelta(
   added: Element[],
   removed: Element[]
 ): boolean {
-  // Synthetic empty deltas are used in tests and mocked integrations.
   if (added.length === 0 && removed.length === 0) return true;
 
   for (const el of added) {
@@ -210,38 +254,17 @@ function isSectionCollapsed(section: HTMLElement): boolean {
 
 function expandSectionIfNeeded(
   ctx: FeatureContext,
-  section: HTMLElement
+  section: HTMLElement,
+  allowClicks: boolean
 ): { expanded: boolean; clicked: boolean } {
   if (!isSectionCollapsed(section)) return { expanded: true, clicked: false };
+  if (!allowClicks) return { expanded: false, clicked: false };
 
   const header = findProjectsHeaderButton(section);
   if (!header || !canInteract(header)) return { expanded: false, clicked: false };
 
   dispatchSyntheticClick(header);
-  // Keep one-cycle lag by design: treat section as not expanded until the next run.
   return { expanded: false, clicked: true };
-}
-
-function normalizeProjectHref(rawHref: string): string {
-  const raw = String(rawHref || "").trim();
-  if (!raw) return "";
-  try {
-    const url = new URL(raw, window.location.origin);
-    return `${url.pathname}${url.search}${url.hash}`;
-  } catch {
-    return raw;
-  }
-}
-
-function collectProjectHrefs(section: HTMLElement): Set<string> {
-  const out = new Set<string>();
-  for (const link of Array.from(
-    section.querySelectorAll<HTMLAnchorElement>(PROJECT_LINK_SELECTOR)
-  )) {
-    const href = normalizeProjectHref(link.getAttribute("href") ?? link.href ?? "");
-    if (href) out.add(href);
-  }
-  return out;
 }
 
 function isLikelyOptionsButton(el: HTMLElement): boolean {
@@ -275,12 +298,8 @@ function pickLeftmostVisible(els: HTMLElement[]): HTMLElement | null {
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) continue;
 
-    if (!best) {
-      best = { el, left: rect.left, top: rect.top };
-      continue;
-    }
-
     if (
+      !best ||
       rect.left < best.left - 1 ||
       (Math.abs(rect.left - best.left) <= 1 && rect.top < best.top)
     ) {
@@ -376,8 +395,6 @@ function buildProjectChatPrefixes(projectLink: HTMLAnchorElement): string[] {
   const token = m[1]!;
   const out = new Set<string>([`/g/${token}/c/`]);
 
-  // In modern ChatGPT sidebar the row href can include a slug suffix:
-  // /g/g-p-<id>-<name>/project, while child chats use /g/g-p-<id>/c/<chatId>.
   if (token.startsWith("g-p-")) {
     let cursor = token;
     for (let i = 0; i < 4; i += 1) {
@@ -419,8 +436,7 @@ function isProjectExpanded(
 ): boolean {
   const mappedChatContainer = findProjectChatContainer(section, projectLink);
   if (mappedChatContainer) {
-    if (!isCollapsedByContainerSignals(mappedChatContainer)) return true;
-    return false;
+    return !isCollapsedByContainerSignals(mappedChatContainer);
   }
 
   const next = projectLink.nextElementSibling as HTMLElement | null;
@@ -440,126 +456,103 @@ function isProjectExpanded(
   return false;
 }
 
-function expandProjectItems(ctx: FeatureContext, section: HTMLElement): ProjectRowsResult {
-  const projectLinks = Array.from(
-    section.querySelectorAll<HTMLAnchorElement>(PROJECT_LINK_SELECTOR)
-  );
+function extractProjectTitle(projectLink: HTMLAnchorElement, href: string): string {
+  const label =
+    projectLink.textContent?.replace(/\s+/g, " ").trim() ||
+    projectLink.getAttribute("aria-label")?.trim() ||
+    projectLink.getAttribute("title")?.trim() ||
+    href;
 
+  return label || href;
+}
+
+function collectProjectRows(section: HTMLElement): ProjectSidebarRow[] {
+  const rows: ProjectSidebarRow[] = [];
+  let order = 0;
+
+  for (const projectLink of Array.from(
+    section.querySelectorAll<HTMLAnchorElement>(PROJECT_LINK_SELECTOR)
+  )) {
+    const href = normalizeProjectHref(projectLink.getAttribute("href") ?? projectLink.href ?? "");
+    if (!href || isNewProjectHref(href)) continue;
+
+    const toggle = findFolderToggleForProject(projectLink);
+    const expandable = isExpandableProjectRow(projectLink, toggle);
+
+    rows.push({
+      href,
+      title: extractProjectTitle(projectLink, href),
+      order,
+      link: projectLink,
+      toggle,
+      expandable,
+      expanded: expandable ? isProjectExpanded(section, projectLink, toggle) : false
+    });
+
+    order += 1;
+  }
+
+  return rows;
+}
+
+function collectProjectHrefsFromElement(root: Element): Set<string> {
+  const out = new Set<string>();
+
+  const appendHref = (link: HTMLAnchorElement) => {
+    const href = normalizeProjectHref(link.getAttribute("href") ?? link.href ?? "");
+    if (!href || isNewProjectHref(href)) return;
+    out.add(href);
+  };
+
+  if (root instanceof HTMLAnchorElement && root.matches(PROJECT_LINK_SELECTOR)) {
+    appendHref(root);
+  }
+
+  for (const link of Array.from(root.querySelectorAll<HTMLAnchorElement>(PROJECT_LINK_SELECTOR))) {
+    appendHref(link);
+  }
+
+  return out;
+}
+
+function reconcileProjectRows(
+  rows: ProjectSidebarRow[],
+  prefs: AutoExpandProjectsPrefs,
+  allowClicks: boolean
+): ProjectRowsResult {
   let expandableRows = 0;
   let collapsedRows = 0;
+  let expandedRows = 0;
+  let mismatchedRows = 0;
   let folderClicks = 0;
   let clickedThisRun = false;
 
-  for (const projectLink of [...projectLinks].reverse()) {
-    const href = normalizeProjectHref(projectLink.getAttribute("href") ?? projectLink.href ?? "");
-    if (href.endsWith("/project/new") || href.includes("/project/new")) {
-      continue;
-    }
-
-    const toggle = findFolderToggleForProject(projectLink);
-    if (!isExpandableProjectRow(projectLink, toggle)) continue;
-
+  for (const row of [...rows].reverse()) {
+    if (!row.expandable) continue;
     expandableRows += 1;
 
-    if (isProjectExpanded(section, projectLink, toggle)) continue;
+    const desiredExpanded = prefs.expandedByHref[row.href] === true;
+    if (row.expanded === desiredExpanded) continue;
 
-    collapsedRows += 1;
+    mismatchedRows += 1;
+    if (desiredExpanded) collapsedRows += 1;
+    else expandedRows += 1;
 
-    if (clickedThisRun) continue;
-    if (!toggle || !canInteract(toggle)) continue;
+    if (clickedThisRun || !allowClicks || !row.toggle || !canInteract(row.toggle)) continue;
 
-    dispatchSyntheticClick(toggle);
+    dispatchSyntheticClick(row.toggle);
     folderClicks += 1;
     clickedThisRun = true;
   }
 
   return {
-    projectRows: projectLinks.length,
+    projectRows: rows.length,
     expandableProjectRows: expandableRows,
     collapsedProjectRows: collapsedRows,
+    expandedProjectRows: expandedRows,
+    mismatchedProjectRows: mismatchedRows,
     folderClicks
   };
-}
-
-function runOnce(ctx: FeatureContext, reason: string): RunResult {
-  const baseStats: ExpandStats = {
-    projectsExpanded: false,
-    sectionClicked: false,
-    projectRows: 0,
-    expandableProjectRows: 0,
-    collapsedProjectRows: 0,
-    folderClicks: 0
-  };
-
-  if (!isFeatureEnabled(ctx)) return { stats: baseStats, done: true };
-
-  const nav = getChatHistoryNav(ctx);
-  if (!nav) {
-    ctx.logger.debug("autoExpandProjects", `skip (${reason}): nav not found`);
-    traceProjects(ctx, "FLOW", "runOnce no sidebar nav", { reason });
-    return { stats: baseStats, done: false };
-  }
-
-  const section = findProjectsSection(nav);
-  if (!section) {
-    ctx.logger.debug("autoExpandProjects", `skip (${reason}): section not found`);
-    traceProjects(ctx, "FLOW", "runOnce no Projects section", { reason });
-    return { stats: baseStats, done: false };
-  }
-
-  const wantItems = !!ctx.settings.autoExpandProjectItems;
-
-  const sectionResult = expandSectionIfNeeded(ctx, section);
-  const expanded = sectionResult.expanded;
-
-  let rowsResult: ProjectRowsResult = {
-    projectRows: section.querySelectorAll(PROJECT_LINK_SELECTOR).length,
-    expandableProjectRows: 0,
-    collapsedProjectRows: 0,
-    folderClicks: 0
-  };
-
-  if (expanded && wantItems) {
-    rowsResult = expandProjectItems(ctx, section);
-  }
-
-  const stats: ExpandStats = {
-    projectsExpanded: expanded,
-    sectionClicked: sectionResult.clicked,
-    projectRows: rowsResult.projectRows,
-    expandableProjectRows: rowsResult.expandableProjectRows,
-    collapsedProjectRows: rowsResult.collapsedProjectRows,
-    folderClicks: rowsResult.folderClicks
-  };
-
-  const done = wantItems
-    ? expanded &&
-      stats.projectRows > 0 &&
-      stats.expandableProjectRows > 0 &&
-      stats.collapsedProjectRows === 0
-    : expanded;
-
-  traceProjects(ctx, "FLOW", "runOnce rows stats", {
-    reason,
-    rows: stats.projectRows,
-    expandableRows: stats.expandableProjectRows,
-    collapsedRows: stats.collapsedProjectRows,
-    folderClicks: stats.folderClicks
-  });
-  traceProjects(ctx, "FLOW", "runOnce summary", {
-    reason,
-    expanded,
-    done,
-    wantItems,
-    wantProjects: !!ctx.settings.autoExpandProjects
-  });
-
-  ctx.logger.debug(
-    "autoExpandProjects",
-    `${reason}: expanded=${expanded} rows=${stats.projectRows} collapsed=${stats.collapsedProjectRows} clicks=${stats.folderClicks}`
-  );
-
-  return { stats, done };
 }
 
 export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandle {
@@ -568,17 +561,30 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   let retryTimer: number | null = null;
   let startTimer: number | null = null;
   let navReadyTimer: number | null = null;
+  let loadLocalStatePromise: Promise<void> | null = null;
+  let persistLocalStatePromise: Promise<void> | null = null;
+  let persistLocalStateQueued = false;
 
   let attempts = 0;
-  let goalReached = false;
-  let goalSnapshotProjectHrefs = new Set<string>();
-
   let lastUserInteractionAt = 0;
   let lastAutoClickAt = 0;
   let cleanupUserListeners: (() => void) | null = null;
 
   let unsubRoots: (() => void) | null = null;
   let unsubNavDelta: (() => void) | null = null;
+
+  const pendingRemovalCandidates = new Set<string>();
+  const localState: LocalProjectStateCache = {
+    registry: {
+      ...AUTO_EXPAND_PROJECTS_REGISTRY_DEFAULTS,
+      entriesByHref: { ...AUTO_EXPAND_PROJECTS_REGISTRY_DEFAULTS.entriesByHref }
+    },
+    prefs: {
+      ...AUTO_EXPAND_PROJECTS_PREFS_DEFAULTS,
+      expandedByHref: { ...AUTO_EXPAND_PROJECTS_PREFS_DEFAULTS.expandedByHref }
+    },
+    loaded: false
+  };
 
   const cancelTimers = (): void => {
     if (debounceTimer !== null) window.clearTimeout(debounceTimer);
@@ -594,40 +600,264 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
     navReadyTimer = null;
   };
 
-  const stop = (): void => {
-    stopped = true;
-    cancelTimers();
-
-    cleanupUserListeners?.();
-    cleanupUserListeners = null;
-
-    unsubRoots?.();
-    unsubRoots = null;
-
-    unsubNavDelta?.();
-    unsubNavDelta = null;
-  };
-
-  const refreshGoalSnapshot = (): void => {
-    const nav = getChatHistoryNav(ctx);
-    const section = nav ? findProjectsSection(nav) : null;
-    goalSnapshotProjectHrefs = section ? collectProjectHrefs(section) : new Set<string>();
-  };
-
-  const hasNewProjectRowsSinceGoal = (): boolean => {
-    if (!goalReached) return false;
-
-    const nav = getChatHistoryNav(ctx);
-    const section = nav ? findProjectsSection(nav) : null;
-    if (!section) return false;
-
-    const current = collectProjectHrefs(section);
-    if (current.size === 0) return false;
-
-    for (const href of current) {
-      if (!goalSnapshotProjectHrefs.has(href)) return true;
+  const persistLocalState = (): void => {
+    if (persistLocalStatePromise) {
+      persistLocalStateQueued = true;
+      return;
     }
-    return false;
+
+    const payload = {
+      [AUTO_EXPAND_PROJECTS_REGISTRY_KEY]: localState.registry,
+      [AUTO_EXPAND_PROJECTS_PREFS_KEY]: localState.prefs
+    };
+
+    persistLocalStatePromise = ctx.storagePort
+      .setLocal(payload)
+      .catch(() => {})
+      .finally(() => {
+        persistLocalStatePromise = null;
+        if (persistLocalStateQueued) {
+          persistLocalStateQueued = false;
+          persistLocalState();
+        }
+      });
+  };
+
+  const loadLocalState = async (): Promise<void> => {
+    if (localState.loaded) return;
+    if (loadLocalStatePromise) return loadLocalStatePromise;
+
+    loadLocalStatePromise = ctx.storagePort
+      .getLocal({
+        [AUTO_EXPAND_PROJECTS_REGISTRY_KEY]: AUTO_EXPAND_PROJECTS_REGISTRY_DEFAULTS,
+        [AUTO_EXPAND_PROJECTS_PREFS_KEY]: AUTO_EXPAND_PROJECTS_PREFS_DEFAULTS
+      })
+      .then((data) => {
+        localState.registry = normalizeAutoExpandProjectsRegistry(
+          data[AUTO_EXPAND_PROJECTS_REGISTRY_KEY]
+        );
+        localState.prefs = normalizeAutoExpandProjectsPrefs(data[AUTO_EXPAND_PROJECTS_PREFS_KEY]);
+        localState.loaded = true;
+      })
+      .catch(() => {
+        localState.registry = normalizeAutoExpandProjectsRegistry(undefined);
+        localState.prefs = normalizeAutoExpandProjectsPrefs(undefined);
+        localState.loaded = true;
+      })
+      .finally(() => {
+        loadLocalStatePromise = null;
+      });
+
+    return loadLocalStatePromise;
+  };
+
+  const syncRegistryWithSection = (section: HTMLElement): RegistrySyncResult => {
+    const visibleRows = collectProjectRows(section);
+    const visibleHrefs = new Set(visibleRows.map((row) => row.href));
+    const registryEntries = localState.registry.entriesByHref;
+    const prefsExpandedByHref = localState.prefs.expandedByHref;
+
+    const previousVisibleScanAt = Object.values(registryEntries).reduce(
+      (max, entry) => Math.max(max, entry.lastSeenAt),
+      0
+    );
+    const previousVisibleHrefs = new Set(
+      Object.values(registryEntries)
+        .filter((entry) => entry.lastSeenAt === previousVisibleScanAt)
+        .map((entry) => entry.href)
+    );
+
+    const visibleSetChanged =
+      previousVisibleHrefs.size !== visibleRows.length ||
+      visibleRows.some((row) => !previousVisibleHrefs.has(row.href));
+    const visibleMetadataChanged = visibleRows.some((row) => {
+      const prev = registryEntries[row.href];
+      return !prev || prev.title !== row.title || prev.lastSeenOrder !== row.order;
+    });
+    const shouldRefreshVisibleStamp =
+      visibleRows.length > 0 && (visibleSetChanged || visibleMetadataChanged);
+    const refreshedVisibleScanAt = shouldRefreshVisibleStamp
+      ? Math.max(Date.now(), previousVisibleScanAt + 1)
+      : previousVisibleScanAt;
+
+    let nextRegistryEntries = registryEntries;
+    let nextPrefsExpandedByHref = prefsExpandedByHref;
+    let registryChanged = false;
+    let prefsChanged = false;
+
+    for (const row of visibleRows) {
+      const prev = nextRegistryEntries[row.href];
+      const nextEntry = {
+        href: row.href,
+        title: row.title,
+        lastSeenAt: shouldRefreshVisibleStamp || !prev ? refreshedVisibleScanAt : prev.lastSeenAt,
+        lastSeenOrder: row.order
+      };
+
+      if (
+        !prev ||
+        prev.title !== nextEntry.title ||
+        prev.lastSeenAt !== nextEntry.lastSeenAt ||
+        prev.lastSeenOrder !== nextEntry.lastSeenOrder
+      ) {
+        if (!registryChanged) nextRegistryEntries = { ...nextRegistryEntries };
+        nextRegistryEntries[row.href] = nextEntry;
+        registryChanged = true;
+      }
+
+      if (!(row.href in nextPrefsExpandedByHref)) {
+        if (!prefsChanged) nextPrefsExpandedByHref = { ...nextPrefsExpandedByHref };
+        nextPrefsExpandedByHref[row.href] = false;
+        prefsChanged = true;
+      }
+    }
+
+    const processedRemovalCandidates: string[] = [];
+    if (visibleRows.length > 0) {
+      for (const href of pendingRemovalCandidates) {
+        processedRemovalCandidates.push(href);
+        if (visibleHrefs.has(href)) continue;
+
+        const hadRegistryEntry = href in nextRegistryEntries;
+        const hadPrefEntry = href in nextPrefsExpandedByHref;
+        if (!hadRegistryEntry && !hadPrefEntry) continue;
+
+        if (hadRegistryEntry) {
+          if (!registryChanged) nextRegistryEntries = { ...nextRegistryEntries };
+          delete nextRegistryEntries[href];
+          registryChanged = true;
+        }
+
+        if (hadPrefEntry) {
+          if (!prefsChanged) nextPrefsExpandedByHref = { ...nextPrefsExpandedByHref };
+          delete nextPrefsExpandedByHref[href];
+          prefsChanged = true;
+        }
+      }
+    }
+
+    if (registryChanged) {
+      localState.registry = {
+        version: AUTO_EXPAND_PROJECTS_REGISTRY_DEFAULTS.version,
+        entriesByHref: nextRegistryEntries
+      };
+    }
+
+    if (prefsChanged) {
+      localState.prefs = {
+        version: AUTO_EXPAND_PROJECTS_PREFS_DEFAULTS.version,
+        expandedByHref: nextPrefsExpandedByHref
+      };
+    }
+
+    if (registryChanged || prefsChanged) {
+      persistLocalState();
+    }
+
+    return {
+      visibleRows,
+      processedRemovalCandidates
+    };
+  };
+
+  const runOnce = (reason: string, options: RunOptions = {}): RunResult => {
+    const allowClicks = options.allowClicks ?? true;
+    const baseStats: ExpandStats = {
+      projectsExpanded: false,
+      sectionClicked: false,
+      projectRows: 0,
+      expandableProjectRows: 0,
+      collapsedProjectRows: 0,
+      expandedProjectRows: 0,
+      mismatchedProjectRows: 0,
+      folderClicks: 0,
+      registryEntries: Object.keys(localState.registry.entriesByHref).length
+    };
+
+    const nav = getChatHistoryNav(ctx);
+    if (!nav) {
+      ctx.logger.debug("autoExpandProjects", `skip (${reason}): nav not found`);
+      traceProjects(ctx, "FLOW", "runOnce no sidebar nav", { reason });
+      return { stats: baseStats, done: !isFeatureEnabled(ctx) };
+    }
+
+    const section = findProjectsSection(nav);
+    if (!section) {
+      ctx.logger.debug("autoExpandProjects", `skip (${reason}): section not found`);
+      traceProjects(ctx, "FLOW", "runOnce no Projects section", { reason });
+      return { stats: baseStats, done: !isFeatureEnabled(ctx) };
+    }
+
+    const registrySync = syncRegistryWithSection(section);
+    for (const href of registrySync.processedRemovalCandidates) {
+      pendingRemovalCandidates.delete(href);
+    }
+
+    const wantsSectionExpanded = isFeatureEnabled(ctx);
+    const wantsProjectReconciliation = shouldEnforceProjectItems(ctx);
+
+    const sectionResult = wantsSectionExpanded
+      ? expandSectionIfNeeded(ctx, section, allowClicks)
+      : { expanded: !isSectionCollapsed(section), clicked: false };
+
+    let rowsResult: ProjectRowsResult = {
+      projectRows: registrySync.visibleRows.length,
+      expandableProjectRows: registrySync.visibleRows.filter((row) => row.expandable).length,
+      collapsedProjectRows: 0,
+      expandedProjectRows: 0,
+      mismatchedProjectRows: 0,
+      folderClicks: 0
+    };
+
+    if (sectionResult.expanded && wantsProjectReconciliation && localState.loaded) {
+      rowsResult = reconcileProjectRows(registrySync.visibleRows, localState.prefs, allowClicks);
+    }
+
+    const stats: ExpandStats = {
+      projectsExpanded: sectionResult.expanded,
+      sectionClicked: sectionResult.clicked,
+      projectRows: rowsResult.projectRows,
+      expandableProjectRows: rowsResult.expandableProjectRows,
+      collapsedProjectRows: rowsResult.collapsedProjectRows,
+      expandedProjectRows: rowsResult.expandedProjectRows,
+      mismatchedProjectRows: rowsResult.mismatchedProjectRows,
+      folderClicks: rowsResult.folderClicks,
+      registryEntries: Object.keys(localState.registry.entriesByHref).length
+    };
+
+    const done = (() => {
+      if (!wantsSectionExpanded) return true;
+      if (!sectionResult.expanded) return false;
+      if (!wantsProjectReconciliation) return true;
+      if (!localState.loaded) return false;
+      return stats.mismatchedProjectRows === 0;
+    })();
+
+    traceProjects(ctx, "FLOW", "runOnce rows stats", {
+      reason,
+      rows: stats.projectRows,
+      expandableRows: stats.expandableProjectRows,
+      collapsedRows: stats.collapsedProjectRows,
+      expandedRows: stats.expandedProjectRows,
+      mismatchedRows: stats.mismatchedProjectRows,
+      folderClicks: stats.folderClicks,
+      registryEntries: stats.registryEntries
+    });
+    traceProjects(ctx, "FLOW", "runOnce summary", {
+      reason,
+      expanded: stats.projectsExpanded,
+      done,
+      loadedLocalState: localState.loaded,
+      wantItems: wantsProjectReconciliation,
+      wantProjects: !!ctx.settings.autoExpandProjects
+    });
+
+    ctx.logger.debug(
+      "autoExpandProjects",
+      `${reason}: expanded=${stats.projectsExpanded} rows=${stats.projectRows} mismatched=${stats.mismatchedProjectRows} clicks=${stats.folderClicks}`
+    );
+
+    return { stats, done };
   };
 
   const bindUserInteractionGuards = (nav: HTMLElement | null): void => {
@@ -666,70 +896,109 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   };
 
   const schedule = (reason: string): void => {
-    if (stopped || !isFeatureEnabled(ctx)) return;
+    if (stopped) return;
 
     if (debounceTimer !== null) window.clearTimeout(debounceTimer);
 
     debounceTimer = window.setTimeout(() => {
       debounceTimer = null;
-      if (stopped || !isFeatureEnabled(ctx)) return;
+      if (stopped) return;
 
-      if (goalReached && !hasNewProjectRowsSinceGoal()) return;
-      if (goalReached && hasNewProjectRowsSinceGoal()) {
-        goalReached = false;
-        attempts = 0;
-      }
-
+      const wantsAutomation = isFeatureEnabled(ctx);
       const now = Date.now();
-      const cooldownLeft = AUTO_EXPAND_USER_COOLDOWN_MS - (now - lastUserInteractionAt);
-      if (cooldownLeft > 0) {
-        queueRetry("cooldown", cooldownLeft + 60);
-        return;
+      const cooldownLeft = wantsAutomation
+        ? AUTO_EXPAND_USER_COOLDOWN_MS - (now - lastUserInteractionAt)
+        : 0;
+      const autoClickCooldownLeft = wantsAutomation
+        ? AUTO_EXPAND_AUTO_CLICK_COOLDOWN_MS - (now - lastAutoClickAt)
+        : 0;
+      const allowClicks = wantsAutomation ? cooldownLeft <= 0 && autoClickCooldownLeft <= 0 : true;
+
+      if (wantsAutomation && allowClicks) {
+        attempts += 1;
+        if (attempts > AUTO_EXPAND_MAX_ATTEMPTS) {
+          ctx.logger.debug("autoExpandProjects", "max attempts reached; stop retries");
+          return;
+        }
       }
 
-      const autoClickCooldownLeft = AUTO_EXPAND_AUTO_CLICK_COOLDOWN_MS - (now - lastAutoClickAt);
-      if (autoClickCooldownLeft > 0) {
-        queueRetry("auto-click-cooldown", autoClickCooldownLeft + 30);
-        return;
-      }
-
-      attempts += 1;
-      if (attempts > AUTO_EXPAND_MAX_ATTEMPTS) {
-        ctx.logger.debug("autoExpandProjects", "max attempts reached; stop retries");
-        return;
-      }
-
-      const result = runOnce(ctx, reason);
+      const result = runOnce(reason, { allowClicks });
 
       if (result.stats.sectionClicked || result.stats.folderClicks > 0) {
+        attempts = 0;
         lastAutoClickAt = Date.now();
         queueRetry("post-click", AUTO_EXPAND_POST_CLICK_DELAY_MS);
-      } else if (!result.done) {
-        queueRetry("noop-retry", AUTO_EXPAND_NOOP_RETRY_DELAY_MS);
+        return;
       }
 
-      if (result.done) {
-        goalReached = true;
-        attempts = 0;
-        refreshGoalSnapshot();
+      if (!wantsAutomation) return;
+
+      if (!allowClicks) {
+        const delayMs = Math.max(cooldownLeft, autoClickCooldownLeft) + 60;
+        if (!result.done) queueRetry("cooldown", delayMs);
+        return;
       }
+
+      if (!result.done) {
+        queueRetry("noop-retry", AUTO_EXPAND_NOOP_RETRY_DELAY_MS);
+        return;
+      }
+
+      attempts = 0;
     }, AUTO_EXPAND_DEBOUNCE_MS);
   };
 
   const resetAndSchedule = (reason: string): void => {
-    if (!isFeatureEnabled(ctx)) return;
-
-    if (goalReached && !hasNewProjectRowsSinceGoal()) return;
-    if (goalReached && hasNewProjectRowsSinceGoal()) {
-      goalReached = false;
-      attempts = 0;
-    }
-
+    attempts = 0;
     schedule(reason);
   };
 
+  const stop = (): void => {
+    stopped = true;
+    cancelTimers();
+
+    cleanupUserListeners?.();
+    cleanupUserListeners = null;
+
+    unsubRoots?.();
+    unsubRoots = null;
+
+    unsubNavDelta?.();
+    unsubNavDelta = null;
+  };
+
+  ctx.storagePort.onChanged?.((changes, areaName) => {
+    if (stopped || areaName !== "local") return;
+
+    let changed = false;
+
+    if (AUTO_EXPAND_PROJECTS_REGISTRY_KEY in changes) {
+      localState.registry = normalizeAutoExpandProjectsRegistry(
+        changes[AUTO_EXPAND_PROJECTS_REGISTRY_KEY]?.newValue
+      );
+      localState.loaded = true;
+      changed = true;
+    }
+
+    if (AUTO_EXPAND_PROJECTS_PREFS_KEY in changes) {
+      localState.prefs = normalizeAutoExpandProjectsPrefs(
+        changes[AUTO_EXPAND_PROJECTS_PREFS_KEY]?.newValue
+      );
+      localState.loaded = true;
+      changed = true;
+    }
+
+    if (changed) {
+      resetAndSchedule("storage-local");
+    }
+  });
+
   const navNow = getChatHistoryNav(ctx);
   bindUserInteractionGuards(navNow);
+
+  void loadLocalState().then(() => {
+    if (!stopped) resetAndSchedule("local-state-ready");
+  });
 
   startTimer = window.setTimeout(() => {
     startTimer = null;
@@ -750,6 +1019,13 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
   unsubNavDelta =
     ctx.domBus?.onDelta("nav", (delta) => {
       if (!isAutoExpandProjectsRelevantNavDelta(delta.added, delta.removed)) return;
+
+      for (const removed of delta.removed) {
+        for (const href of collectProjectHrefsFromElement(removed)) {
+          pendingRemovalCandidates.add(href);
+        }
+      }
+
       resetAndSchedule("mutation");
     }) ?? null;
 
@@ -763,23 +1039,23 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       const nextMask = (next.autoExpandProjects ? 1 : 0) | (next.autoExpandProjectItems ? 2 : 0);
 
       if (nextMask === 0) {
-        goalReached = true;
-        goalSnapshotProjectHrefs = new Set<string>();
         attempts = 0;
         cancelTimers();
+        schedule("settings-disable-sync");
         return;
       }
 
       const enabledNow = prevMask === 0 && nextMask !== 0;
       const addedCapabilities = prevMask !== 0 && (nextMask & ~prevMask) !== 0;
       if (enabledNow || addedCapabilities) {
-        goalReached = false;
         attempts = 0;
         bindUserInteractionGuards(getChatHistoryNav(ctx));
         queueRetry(
           enabledNow ? "settings-enable" : "settings-enable-added",
           AUTO_EXPAND_REARM_RETRY_MS
         );
+      } else {
+        resetAndSchedule("settings-change");
       }
     },
     getStatus: () => ({ active: isFeatureEnabled(ctx) }),
@@ -787,7 +1063,23 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       getChatHistoryNav,
       findProjectsSection,
       isSectionCollapsed,
-      runOnce
+      runOnce: (testCtx: FeatureContext, reason: string, options?: RunOptions) => {
+        void testCtx;
+        return runOnce(reason, options);
+      },
+      loadLocalState,
+      getLocalState: () => ({
+        registry: localState.registry,
+        prefs: localState.prefs
+      }),
+      captureRemovedProjectCandidates: (removed: Element[]) => {
+        for (const el of removed) {
+          for (const href of collectProjectHrefsFromElement(el)) {
+            pendingRemovalCandidates.add(href);
+          }
+        }
+        return Array.from(pendingRemovalCandidates);
+      }
     }
   };
 }

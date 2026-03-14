@@ -1,16 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { loadPopupSettings, savePopupSettings } from "../src/application/popupUseCases";
+import {
+  buildPopupSelectiveProjectOptions,
+  loadPopupSelectiveProjects,
+  loadPopupSettings,
+  savePopupSelectiveProjectsPrefs,
+  savePopupSettings,
+  upsertPopupSelectiveProjectPref
+} from "../src/application/popupUseCases";
+import { AUTO_EXPAND_PROJECTS_REGISTRY_KEY } from "../src/domain/settings";
 import type { StoragePort } from "../src/domain/ports/storagePort";
 
 function makeMemoryStorage(initial: Record<string, unknown> = {}): StoragePort {
-  const data = { ...initial };
+  const syncData = { ...initial };
+  const localData: Record<string, unknown> = {};
   return {
     get: async <T extends Record<string, unknown>>(defaults: T) => ({
       ...defaults,
-      ...(data as Partial<T>)
+      ...(syncData as Partial<T>)
     }),
     set: async (values) => {
-      Object.assign(data, values);
+      Object.assign(syncData, values);
+    },
+    getLocal: async <T extends Record<string, unknown>>(defaults: T) => ({
+      ...defaults,
+      ...(localData as Partial<T>)
+    }),
+    setLocal: async (values) => {
+      Object.assign(localData, values);
     }
   };
 }
@@ -54,5 +70,53 @@ describe("popup use cases macroRecorderEnabled + debug traces", () => {
     expect(settings.debugTraceTarget).toBe("timestamps");
     expect(settings.showMessageTimestamps).toBe(true);
     expect(settings.preserveReadingPositionOnSend).toBe(true);
+  });
+
+  it("loads and saves local-only selective project state without affecting settings flow", async () => {
+    const storagePort = makeMemoryStorage({ autoExpandProjectItems: true });
+
+    const savedPrefs = upsertPopupSelectiveProjectPref(
+      {
+        version: 1,
+        expandedByHref: {}
+      },
+      "/project/orion",
+      true
+    );
+
+    await storagePort.setLocal({
+      [AUTO_EXPAND_PROJECTS_REGISTRY_KEY]: {
+        version: 1,
+        entriesByHref: {
+          "/project/orion": {
+            href: "/project/orion",
+            title: "Orion",
+            lastSeenAt: 200,
+            lastSeenOrder: 0
+          },
+          "/project/lynx": {
+            href: "/project/lynx",
+            title: "Lynx",
+            lastSeenAt: 100,
+            lastSeenOrder: 1
+          }
+        }
+      }
+    });
+    await savePopupSelectiveProjectsPrefs({ storagePort }, savedPrefs);
+
+    const { settings } = await loadPopupSettings({ storagePort });
+    const selectiveProjects = await loadPopupSelectiveProjects({ storagePort });
+    const options = buildPopupSelectiveProjectOptions(
+      selectiveProjects.registry,
+      selectiveProjects.prefs
+    );
+
+    expect(settings.autoExpandProjectItems).toBe(true);
+    expect(selectiveProjects.registry.entriesByHref["/project/orion"]?.title).toBe("Orion");
+    expect(selectiveProjects.prefs.expandedByHref["/project/orion"]).toBe(true);
+    expect(selectiveProjects.prefs.expandedByHref["/project/lynx"]).toBeUndefined();
+    expect(options.map((option) => option.title)).toEqual(["Orion", "Lynx"]);
+    expect(options.map((option) => option.expanded)).toEqual([true, false]);
   });
 });

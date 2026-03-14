@@ -1,5 +1,24 @@
-import { loadPopupSettings, savePopupSettings } from "../application/popupUseCases";
+import {
+  buildPopupSelectiveProjectOptions,
+  loadPopupSelectiveProjects,
+  loadPopupSettings,
+  savePopupSelectiveProjectsPrefs,
+  savePopupSettings,
+  upsertPopupSelectiveProjectPref
+} from "../application/popupUseCases";
+import {
+  AUTO_EXPAND_PROJECTS_PREFS_KEY,
+  AUTO_EXPAND_PROJECTS_REGISTRY_KEY,
+  AutoExpandProjectsPrefs,
+  AutoExpandProjectsRegistry,
+  Settings
+} from "../domain/settings";
 import { StoragePort } from "../domain/ports/storagePort";
+import {
+  normalizeAutoExpandProjectsPrefs,
+  normalizeAutoExpandProjectsRegistry,
+  normalizeSettings
+} from "../lib/utils";
 
 function mustGetElement<T extends HTMLElement>(doc: Document, id: string) {
   const el = doc.getElementById(id);
@@ -11,12 +30,37 @@ type ThemeMode = "auto" | "dark" | "light";
 type PopupTab = "automation" | "input" | "sidebar" | "performance" | "codex" | "dev";
 type DrawerId = "trimChatDom" | "wideChat";
 type MacroRecorderRuntimeStatus = "off" | "armed" | "recording" | "ready";
+type PopupPreviewState = {
+  settings?: Partial<Settings>;
+  registry?: AutoExpandProjectsRegistry;
+  prefs?: AutoExpandProjectsPrefs;
+  popupThemeMode?: ThemeMode;
+  popupActiveTab?: PopupTab;
+  forceAutoExpandProjectsDropdownOpen?: boolean;
+};
 
 const DRAWER_AUTO_CLOSE_MS = 5 * 60 * 1000;
+const SELECTIVE_PROJECTS_DROPDOWN_AUTO_HIDE_MS = 5 * 60 * 1000;
+const SELECTIVE_PROJECTS_ACTIVITY_EVENTS = [
+  "click",
+  "pointerdown",
+  "input",
+  "change",
+  "focusin",
+  "keydown",
+  "wheel",
+  "scroll"
+] as const;
 const DRAWER_STORAGE_KEYS = {
   trimChatDom: "popupTrimChatDomDetailsOpenUntil",
   wideChat: "popupWideChatDetailsOpenUntil"
 } as const;
+
+declare global {
+  interface Window {
+    __CBE_POPUP_PREVIEW__?: PopupPreviewState;
+  }
+}
 
 export interface PopupControllerDeps {
   storagePort: StoragePort;
@@ -40,6 +84,9 @@ interface PopupElements {
   autoExpandEl: HTMLInputElement;
   autoExpandProjectsEl: HTMLInputElement;
   autoExpandProjectItemsEl: HTMLInputElement;
+  autoExpandProjectItemsRevealEl: HTMLButtonElement;
+  autoExpandProjectItemsDropdownEl: HTMLElement;
+  autoExpandProjectItemsListEl: HTMLElement;
   autoTempChatEl: HTMLInputElement;
   oneClickDeleteEl: HTMLInputElement;
   startDictationEl: HTMLInputElement;
@@ -98,6 +145,15 @@ const getPopupElements = (doc: Document): PopupElements => ({
   autoExpandEl: mustGetElement<HTMLInputElement>(doc, "autoExpandChats"),
   autoExpandProjectsEl: mustGetElement<HTMLInputElement>(doc, "autoExpandProjects"),
   autoExpandProjectItemsEl: mustGetElement<HTMLInputElement>(doc, "autoExpandProjectItems"),
+  autoExpandProjectItemsRevealEl: mustGetElement<HTMLButtonElement>(
+    doc,
+    "autoExpandProjectItemsReveal"
+  ),
+  autoExpandProjectItemsDropdownEl: mustGetElement<HTMLElement>(
+    doc,
+    "autoExpandProjectItemsDropdown"
+  ),
+  autoExpandProjectItemsListEl: mustGetElement<HTMLElement>(doc, "autoExpandProjectItemsList"),
   autoTempChatEl: mustGetElement<HTMLInputElement>(doc, "autoTempChat"),
   oneClickDeleteEl: mustGetElement<HTMLInputElement>(doc, "oneClickDelete"),
   startDictationEl: mustGetElement<HTMLInputElement>(doc, "startDictation"),
@@ -152,12 +208,22 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
     trimChatDom: 0,
     wideChat: 0
   };
+  const popupPreview =
+    win.__CBE_POPUP_PREVIEW__ && typeof win.__CBE_POPUP_PREVIEW__ === "object"
+      ? win.__CBE_POPUP_PREVIEW__
+      : null;
 
   let themeMode: ThemeMode = "auto";
   let themeMediaQuery =
     typeof win.matchMedia === "function" ? win.matchMedia("(prefers-color-scheme: dark)") : null;
   let themeMediaListener: ((event: MediaQueryListEvent) => void) | null = null;
   let panelHeightMeasureRafId: number | null = null;
+  let selectiveProjectsRegistry: AutoExpandProjectsRegistry = normalizeAutoExpandProjectsRegistry(
+    {}
+  );
+  let selectiveProjectsPrefs: AutoExpandProjectsPrefs = normalizeAutoExpandProjectsPrefs({});
+  let selectiveProjectsDropdownOpen = false;
+  let selectiveProjectsDropdownTimerId: number | null = null;
   let disposed = false;
 
   const listen = <T extends EventTarget>(
@@ -172,6 +238,132 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
 
   const setThemeToggleState = (mode: ThemeMode) => {
     els.themeToggleEl.dataset.mode = mode;
+  };
+
+  const clearSelectiveProjectsDropdownTimer = () => {
+    if (selectiveProjectsDropdownTimerId !== null) {
+      win.clearTimeout(selectiveProjectsDropdownTimerId);
+      selectiveProjectsDropdownTimerId = null;
+    }
+  };
+
+  const setSelectiveProjectsDropdownOpen = (open: boolean) => {
+    const nextOpen = !!els.autoExpandProjectItemsEl.checked && open;
+    selectiveProjectsDropdownOpen = nextOpen;
+    els.autoExpandProjectItemsRevealEl.dataset.open = nextOpen ? "true" : "false";
+    els.autoExpandProjectItemsRevealEl.setAttribute("aria-expanded", nextOpen ? "true" : "false");
+    els.autoExpandProjectItemsDropdownEl.hidden = !nextOpen;
+    els.autoExpandProjectItemsDropdownEl.setAttribute("aria-hidden", nextOpen ? "false" : "true");
+
+    if (nextOpen) {
+      clearSelectiveProjectsDropdownTimer();
+      selectiveProjectsDropdownTimerId = win.setTimeout(() => {
+        selectiveProjectsDropdownTimerId = null;
+        setSelectiveProjectsDropdownOpen(false);
+      }, SELECTIVE_PROJECTS_DROPDOWN_AUTO_HIDE_MS);
+    } else {
+      clearSelectiveProjectsDropdownTimer();
+    }
+
+    schedulePanelHeightLock();
+  };
+
+  const resetSelectiveProjectsDropdownTimer = () => {
+    if (!selectiveProjectsDropdownOpen) return;
+    setSelectiveProjectsDropdownOpen(true);
+  };
+
+  const applyPreviewSettings = (settings: Settings): Settings => {
+    if (!popupPreview?.settings) return settings;
+    return normalizeSettings({ ...settings, ...popupPreview.settings });
+  };
+
+  const applyPreviewRegistry = (
+    registry: AutoExpandProjectsRegistry
+  ): AutoExpandProjectsRegistry =>
+    popupPreview?.registry ? normalizeAutoExpandProjectsRegistry(popupPreview.registry) : registry;
+
+  const applyPreviewPrefs = (prefs: AutoExpandProjectsPrefs): AutoExpandProjectsPrefs =>
+    popupPreview?.prefs ? normalizeAutoExpandProjectsPrefs(popupPreview.prefs) : prefs;
+
+  const renderSelectiveProjectsList = () => {
+    els.autoExpandProjectItemsListEl.replaceChildren();
+
+    const options = buildPopupSelectiveProjectOptions(
+      selectiveProjectsRegistry,
+      selectiveProjectsPrefs
+    );
+    if (!options.length) {
+      const emptyEl = doc.createElement("div");
+      emptyEl.className = "projectPrefsEmpty";
+      emptyEl.textContent = "Projects appear here after ChatGPT renders them in the sidebar.";
+      els.autoExpandProjectItemsListEl.appendChild(emptyEl);
+      schedulePanelHeightLock();
+      return;
+    }
+
+    for (const option of options) {
+      const rowEl = doc.createElement("div");
+      rowEl.className = "projectPrefsRow";
+
+      const titleEl = doc.createElement("span");
+      titleEl.className = "projectPrefsTitle";
+      titleEl.textContent = option.title;
+      titleEl.title = option.title;
+
+      const switchLabelEl = doc.createElement("label");
+      switchLabelEl.className = "tinySwitch";
+
+      const inputEl = doc.createElement("input");
+      inputEl.type = "checkbox";
+      inputEl.checked = option.expanded;
+      inputEl.dataset.projectHref = option.href;
+      inputEl.setAttribute("aria-label", `Keep ${option.title} expanded`);
+      inputEl.addEventListener("change", () => {
+        selectiveProjectsPrefs = upsertPopupSelectiveProjectPref(
+          selectiveProjectsPrefs,
+          option.href,
+          inputEl.checked
+        );
+        resetSelectiveProjectsDropdownTimer();
+        void savePopupSelectiveProjectsPrefs(popupDeps, selectiveProjectsPrefs).catch(() => {});
+      });
+
+      const trackEl = doc.createElement("span");
+      trackEl.className = "tinySwitchTrack";
+      trackEl.setAttribute("aria-hidden", "true");
+
+      switchLabelEl.append(inputEl, trackEl);
+      rowEl.append(titleEl, switchLabelEl);
+      els.autoExpandProjectItemsListEl.appendChild(rowEl);
+    }
+
+    schedulePanelHeightLock();
+  };
+
+  const syncSelectiveProjectsControls = () => {
+    const enabled = !!els.autoExpandProjectItemsEl.checked;
+    els.autoExpandProjectItemsRevealEl.hidden = !enabled;
+
+    if (!enabled) {
+      setSelectiveProjectsDropdownOpen(false);
+      return;
+    }
+
+    renderSelectiveProjectsList();
+    els.autoExpandProjectItemsRevealEl.dataset.open = selectiveProjectsDropdownOpen
+      ? "true"
+      : "false";
+    els.autoExpandProjectItemsRevealEl.setAttribute(
+      "aria-expanded",
+      selectiveProjectsDropdownOpen ? "true" : "false"
+    );
+    els.autoExpandProjectItemsDropdownEl.hidden = !selectiveProjectsDropdownOpen;
+    els.autoExpandProjectItemsDropdownEl.setAttribute(
+      "aria-hidden",
+      selectiveProjectsDropdownOpen ? "false" : "true"
+    );
+    schedulePanelHeightLock();
   };
 
   const clearDrawerTimer = (drawer: DrawerId) => {
@@ -454,8 +646,17 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
   };
 
   const load = async () => {
-    const [{ settings }, themeData, macroData, devData, tabData, drawerData] = await Promise.all([
+    const [
+      { settings: loadedSettings },
+      selectiveProjectsState,
+      themeData,
+      macroData,
+      devData,
+      tabData,
+      drawerData
+    ] = await Promise.all([
       loadPopupSettings(popupDeps),
+      loadPopupSelectiveProjects(popupDeps),
       deps.storagePort.get({ popupThemeMode: "auto" as ThemeMode }),
       deps.storagePort.get({ macroRecorderStatus: "off", macroRecorderLastExportAt: 0 }),
       deps.storagePort.get({ popupDevPanelEnabled: false }),
@@ -465,6 +666,11 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
         popupWideChatDetailsOpenUntil: 0
       })
     ]);
+    const settings = applyPreviewSettings(loadedSettings);
+    selectiveProjectsRegistry = applyPreviewRegistry(selectiveProjectsState.registry);
+    selectiveProjectsPrefs = applyPreviewPrefs(selectiveProjectsState.prefs);
+    selectiveProjectsDropdownOpen =
+      !!settings.autoExpandProjectItems && !!popupPreview?.forceAutoExpandProjectsDropdownOpen;
 
     els.autoSendEl.checked = settings.autoSend;
     els.allowCodexEl.checked = settings.allowAutoSendInCodex;
@@ -494,6 +700,7 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
       await forceDisableHiddenDevFeatures();
     }
 
+    syncSelectiveProjectsControls();
     const nowValue = now();
     drawerDeadlines.trimChatDom = settings.trimChatDom
       ? normalizeDrawerDeadline(drawerData.popupTrimChatDomDetailsOpenUntil, nowValue)
@@ -525,8 +732,11 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
 
     updateDeveloperControlsVisibility();
     renderMacroRecorderStatus(macroData.macroRecorderStatus, macroData.macroRecorderLastExportAt);
-    applyThemeMode(normalizeThemeMode(themeData.popupThemeMode));
-    await setActiveTab(normalizePopupTab(tabData.popupActiveTab), false);
+    applyThemeMode(normalizeThemeMode(popupPreview?.popupThemeMode ?? themeData.popupThemeMode));
+    await setActiveTab(
+      normalizePopupTab(popupPreview?.popupActiveTab ?? tabData.popupActiveTab),
+      false
+    );
     schedulePanelHeightLock();
   };
 
@@ -558,7 +768,17 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
   listen(els.renameChatOnF2El, "change", () => void save().catch(() => {}));
   listen(els.autoExpandEl, "change", () => void save().catch(() => {}));
   listen(els.autoExpandProjectsEl, "change", () => void save().catch(() => {}));
-  listen(els.autoExpandProjectItemsEl, "change", () => void save().catch(() => {}));
+  listen(els.autoExpandProjectItemsEl, "change", () => {
+    if (!els.autoExpandProjectItemsEl.checked) {
+      setSelectiveProjectsDropdownOpen(false);
+    }
+    syncSelectiveProjectsControls();
+    void save().catch(() => {});
+  });
+  listen(els.autoExpandProjectItemsRevealEl, "click", () => {
+    if (!els.autoExpandProjectItemsEl.checked) return;
+    setSelectiveProjectsDropdownOpen(!selectiveProjectsDropdownOpen);
+  });
   listen(els.autoTempChatEl, "change", () => void save().catch(() => {}));
   listen(els.oneClickDeleteEl, "change", () => void save().catch(() => {}));
   listen(els.startDictationEl, "change", () => void save().catch(() => {}));
@@ -635,9 +855,40 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
     void save().catch(() => {});
   });
   listen(win, "resize", schedulePanelHeightLock);
+  for (const eventName of SELECTIVE_PROJECTS_ACTIVITY_EVENTS) {
+    listen(els.autoExpandProjectItemsDropdownEl, eventName, () => {
+      if (!selectiveProjectsDropdownOpen) return;
+      resetSelectiveProjectsDropdownTimer();
+    });
+  }
 
   deps.storagePort.onChanged?.((changes) => {
     if (disposed) return;
+
+    if ("autoExpandProjectItems" in changes) {
+      const next = changes.autoExpandProjectItems?.newValue;
+      if (typeof next === "boolean") {
+        els.autoExpandProjectItemsEl.checked = next;
+        if (!next) {
+          setSelectiveProjectsDropdownOpen(false);
+        }
+        syncSelectiveProjectsControls();
+      }
+    }
+
+    if (AUTO_EXPAND_PROJECTS_REGISTRY_KEY in changes) {
+      selectiveProjectsRegistry = normalizeAutoExpandProjectsRegistry(
+        changes[AUTO_EXPAND_PROJECTS_REGISTRY_KEY]?.newValue
+      );
+      syncSelectiveProjectsControls();
+    }
+
+    if (AUTO_EXPAND_PROJECTS_PREFS_KEY in changes) {
+      selectiveProjectsPrefs = normalizeAutoExpandProjectsPrefs(
+        changes[AUTO_EXPAND_PROJECTS_PREFS_KEY]?.newValue
+      );
+      syncSelectiveProjectsControls();
+    }
 
     if ("macroRecorderStatus" in changes || "macroRecorderLastExportAt" in changes) {
       renderMacroRecorderStatus(
@@ -730,6 +981,7 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
       disposed = true;
       clearDrawerTimer("trimChatDom");
       clearDrawerTimer("wideChat");
+      clearSelectiveProjectsDropdownTimer();
       if (panelHeightMeasureRafId !== null) {
         win.cancelAnimationFrame(panelHeightMeasureRafId);
         panelHeightMeasureRafId = null;

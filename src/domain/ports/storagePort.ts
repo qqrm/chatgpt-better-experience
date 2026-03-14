@@ -4,5 +4,7 @@ export type StorageChangeHandler = (changes: StorageChangeSet, areaName: string)
 export interface StoragePort {
   get<T extends Record<string, unknown>>(defaults: T): Promise<T>;
   set(values: Record<string, unknown>): Promise<void>;
+  getLocal<T extends Record<string, unknown>>(defaults: T): Promise<T>;
+  setLocal(values: Record<string, unknown>): Promise<void>;
   onChanged?: (handler: StorageChangeHandler) => void;
 }

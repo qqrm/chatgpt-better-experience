@@ -13,7 +13,9 @@ const noopLogger: Logger = {
 
 const noopStoragePort: StoragePort = {
   get: async <T extends Record<string, unknown>>(defaults: T): Promise<T> => defaults,
-  set: async () => {}
+  set: async () => {},
+  getLocal: async <T extends Record<string, unknown>>(defaults: T): Promise<T> => defaults,
+  setLocal: async () => {}
 };
 
 export function makeTestContext(settings: Partial<Settings> = {}): FeatureContext {

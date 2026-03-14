@@ -4,7 +4,9 @@ import { SETTINGS_DEFAULTS, Settings } from "../src/domain/settings";
 
 const storagePort = {
   get: async <T extends Record<string, unknown>>(defaults: T): Promise<T> => defaults,
-  set: async () => {}
+  set: async () => {},
+  getLocal: async <T extends Record<string, unknown>>(defaults: T): Promise<T> => defaults,
+  setLocal: async () => {}
 };
 
 const makeCtx = (patch: Partial<Settings>) =>
