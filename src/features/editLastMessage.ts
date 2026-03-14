@@ -309,6 +309,43 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
     return null;
   };
 
+  const isStopGeneratingButton = (btn: HTMLElement | null) => {
+    if (!btn) return false;
+    const a = norm(btn.getAttribute("aria-label"));
+    const t = norm(btn.getAttribute("title"));
+    const dt = norm(btn.getAttribute("data-testid"));
+    const txt = norm(btn.textContent);
+
+    if (a.includes("stop generating")) return true;
+    if (t.includes("stop generating")) return true;
+    if (dt.includes("stop-generating")) return true;
+    if (a.includes("останов")) return true;
+    if (t.includes("останов")) return true;
+    if (txt.includes("останов")) return true;
+    return false;
+  };
+
+  const findStopGeneratingButton = () => {
+    const buttons = qsa<HTMLElement>("button, [role='button']");
+    for (const btn of buttons) {
+      if (!isElementVisible(btn)) continue;
+      if (isStopGeneratingButton(btn)) return btn;
+    }
+    return null;
+  };
+
+  const isAutoSendCountdownVisible = () => {
+    const countdown = document.getElementById("tm-autosend-countdown");
+    if (!(countdown instanceof HTMLElement)) return false;
+    return isElementVisible(countdown);
+  };
+
+  const getEditBlockedReason = () => {
+    if (findStopGeneratingButton()) return "stop-generating";
+    if (isAutoSendCountdownVisible()) return "auto-send-countdown";
+    return null;
+  };
+
   const placeCursorAtEnd = (input: HTMLElement | HTMLTextAreaElement) => {
     if (input instanceof HTMLTextAreaElement) {
       const end = input.value.length;
@@ -434,6 +471,13 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
       }) &&
       (isTextboxTarget(e.target) || triggeredFromConversation)
     ) {
+      const blockedReason = getEditBlockedReason();
+      if (blockedReason) {
+        traceEdit("arrow up edit blocked", { reason: blockedReason });
+        traceEditContract({ phase: "edit-blocked", reason: blockedReason });
+        return;
+      }
+
       void (async () => {
         const ok = await triggerEditLastMessage();
         ctx.logger.debug("KEY", "arrow up edit last message", { ok });
