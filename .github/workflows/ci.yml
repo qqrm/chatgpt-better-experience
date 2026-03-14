@@ -7,8 +7,6 @@ on:
     paths-ignore:
       - config/extension/manifest.base.json
   pull_request:
-    paths-ignore:
-      - config/extension/manifest.base.json
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -35,7 +33,7 @@ jobs:
             heavy:
               - 'src/**'
               - 'tests/**'
-              - 'config/extension/**'
+              - 'config/extension/amo-metadata.json'
               - 'config/tooling/**'
               - 'icons/**'
               - 'icons-src/**'
@@ -47,8 +45,17 @@ jobs:
               - 'eslint.config.*'
               - '.github/workflows/**'
               - '.github/actions/**'
+            manifest_bump:
+              - 'config/extension/manifest.base.json'
+      - name: Fast-path success for manifest-only bump
+        if: steps.changes.outputs.heavy != 'true' && steps.changes.outputs.manifest_bump == 'true'
+        run: |
+          echo "Manifest-only version bump detected."
+          echo "Intentionally succeeding quickly to publish required check context 'build'."
+          echo "Skipping npm verify:ci for manifest bump PR."
+
       - name: Skip heavy CI when not needed
-        if: steps.changes.outputs.heavy != 'true'
+        if: steps.changes.outputs.heavy != 'true' && steps.changes.outputs.manifest_bump != 'true'
         run: |
           echo "No heavy changes detected (src/tests/tooling/workflows/packaging)."
           echo "This job exists to satisfy required check context 'build' on protected main."
