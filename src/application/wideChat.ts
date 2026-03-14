@@ -1,3 +1,5 @@
+import { WIDE_CHAT_COLLISION_STYLE_TEXT } from "./wideChatOverlap";
+
 export const WIDE_CHAT_FULL_WIDTH_PCT = 0.95;
 
 export interface WideChatStyleInputs {
@@ -33,6 +35,8 @@ export const buildWideChatStyleText = ({
       --thread-content-max-width: var(--wide-chat-target-max-width) !important;
       max-width: min(var(--wide-chat-target-max-width), var(--wide-chat-max-allowed)) !important;
     }
+
+    ${WIDE_CHAT_COLLISION_STYLE_TEXT}
   `.trim();
 };
 
