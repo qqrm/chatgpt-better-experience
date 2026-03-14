@@ -7,6 +7,9 @@ on:
     paths-ignore:
       - config/extension/manifest.base.json
   pull_request:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "32 3 * * 1"
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -18,6 +21,7 @@ permissions:
 
 jobs:
   build:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -77,3 +81,76 @@ jobs:
           path: dist
           if-no-files-found: error
           retention-days: 7
+
+  codeql:
+    name: CodeQL
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+
+  supply-chain:
+    name: Supply Chain
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Setup Node and install dependencies
+        uses: ./.github/actions/setup-node-npm
+
+      - name: Build extension assets
+        run: npm run build
+
+      - name: Build package (AMO)
+        run: npm run build:amo
+
+      - name: Verify packaged artifact exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -1 web-ext-artifacts/*.zip
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+          upload-artifact: true
+          artifact-name: cyclonedx-sbom
+
+      - name: Upload AMO package artifact
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: amo-package
+          path: web-ext-artifacts/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: web-ext-artifacts/*.zip
