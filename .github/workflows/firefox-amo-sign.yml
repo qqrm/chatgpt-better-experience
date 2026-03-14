@@ -26,12 +26,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      release_sha: ${{ steps.ensure-version.outputs.release_sha }}
-      release_version: ${{ steps.ensure-version.outputs.release_version }}
-      bumped: ${{ steps.ensure-version.outputs.bumped }}
-      checkout_ref: ${{ steps.ensure-version.outputs.checkout_ref }}
-      bump_branch: ${{ steps.ensure-version.outputs.bump_branch }}
-      bump_pr_url: ${{ steps.ensure-version.outputs.bump_pr_url }}
+      release_sha: ${{ steps.finalize.outputs.release_sha }}
+      release_version: ${{ steps.finalize.outputs.release_version }}
+      bumped: ${{ steps.finalize.outputs.bumped }}
+      checkout_ref: ${{ steps.finalize.outputs.checkout_ref }}
+      bump_branch: ${{ steps.finalize.outputs.bump_branch }}
+      bump_pr_url: ${{ steps.finalize.outputs.bump_pr_url }}
 
     steps:
       - name: Checkout main
@@ -44,8 +44,6 @@ jobs:
       - name: Ensure manifest version bumped on main merge
         id: ensure-version
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.AUTOMATION_BOT_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -56,10 +54,8 @@ jobs:
           fi
 
           release_version="$(node scripts/manifest-version.mjs print "$manifest_path")"
+          release_sha="$(git rev-parse HEAD)"
           bumped="false"
-          checkout_ref=""
-          bump_branch=""
-          bump_pr_url=""
 
           if git rev-parse --verify HEAD^ >/dev/null 2>&1 && git cat-file -e HEAD^:"$manifest_path" >/dev/null 2>&1; then
             prev_manifest="$(mktemp)"
@@ -71,66 +67,94 @@ jobs:
               echo "$manifest_path version unchanged on main push; auto-bumping patch version"
               release_version="$(node scripts/manifest-version.mjs bump-patch "$manifest_path")"
 
-              git config user.name "github-actions[bot]"
-              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git add "$manifest_path"
-              git commit -m "chore(version): bump manifest to ${release_version} [amo-auto-bump]"
-
-              release_sha="$(git rev-parse HEAD)"
-              bump_branch="amo-auto-bump/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-              git push origin "HEAD:refs/heads/${bump_branch}"
-
-              # Create (or reuse) a PR so branch protection and required checks still apply.
-              # If PR creation fails (repo setting, permissions, transient API error), continue publishing from the bump commit anyway.
-              pr_create_out=""
-              pr_create_err_file="$(mktemp)"
-              if pr_create_out="$(gh pr create \
-                  --base main \
-                  --head "${bump_branch}" \
-                  --title "[amo-auto-bump] chore(version): bump manifest to ${release_version}" \
-                  --body "Automated patch bump for AMO release ${release_version}. Run: ${GITHUB_RUN_ID}." 2>"$pr_create_err_file")"; then
-                bump_pr_url="$pr_create_out"
-              else
-                pr_create_err="$(cat "$pr_create_err_file" 2>/dev/null || true)"
-                echo "::warning::gh pr create failed. stderr: ${pr_create_err}"
-                bump_pr_url="$(gh pr list --base main --head "${bump_branch}" --state open --json url --jq '.[0].url // empty' 2>/dev/null || true)"
-              fi
-              rm -f "$pr_create_err_file"
-
-              if [[ -n "$bump_pr_url" ]]; then
-                gh pr merge --auto --squash "$bump_pr_url" || echo "Could not enable auto-merge for ${bump_pr_url}; merge manually if needed."
-
-                # Keep only the latest AMO auto-bump PR open to avoid stale manifest conflicts.
-                current_pr_number="$(gh pr view "$bump_pr_url" --json number --jq '.number' 2>/dev/null || true)"
-                if [[ -n "$current_pr_number" ]]; then
-                  CURRENT_PR="$current_pr_number" gh pr list \
-                    --repo "${GITHUB_REPOSITORY}" \
-                    --state open \
-                    --base main \
-                    --json number,headRefName \
-                    --jq '.[] | select(.headRefName | startswith("amo-auto-bump/")) | select((.number | tostring) != env.CURRENT_PR) | .number' \
-                  | while read -r stale_pr; do
-                      if [[ -n "$stale_pr" ]]; then
-                        gh pr close "$stale_pr" \
-                          --repo "${GITHUB_REPOSITORY}" \
-                          --comment "Superseded by #${current_pr_number}: keeping only the latest AMO auto-bump PR."
-                      fi
-                    done
-                fi
-              else
-                echo "::warning::Auto-bump branch pushed (${bump_branch}) but PR was not created. Create PR manually to sync main."
-              fi
-
               bumped="true"
-              checkout_ref="$bump_branch"
             fi
           fi
 
-          if [[ -z "${release_sha:-}" ]]; then
-            release_sha="$(git rev-parse HEAD)"
+          {
+            echo "release_sha=$release_sha"
+            echo "release_version=$release_version"
+            echo "bumped=$bumped"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create or update AMO auto-bump PR
+        id: create_pr
+        if: steps.ensure-version.outputs.bumped == 'true'
+        uses: peter-evans/create-pull-request@v8.1.0
+        with:
+          token: ${{ secrets.AUTOMATION_BOT_TOKEN }}
+          branch: ci/amo-auto-bump
+          delete-branch: true
+          base: main
+          add-paths: |
+            config/extension/manifest.base.json
+          title: "[amo-auto-bump] chore(version): bump manifest to ${{ steps.ensure-version.outputs.release_version }}"
+          commit-message: "chore(version): bump manifest to ${{ steps.ensure-version.outputs.release_version }} [amo-auto-bump]"
+          body: |
+            Automated patch bump for AMO release.
+
+            - Release version: `${{ steps.ensure-version.outputs.release_version }}`
+            - Workflow run id: `${{ github.run_id }}`
+          labels: |
+            automation/amo
+          enable-automerge: true
+          merge-method: squash
+
+      - name: Validate repository auto-merge setting
+        if: steps.create_pr.outputs.pull-request-operation == 'created' || steps.create_pr.outputs.pull-request-operation == 'updated'
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_BOT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          allow_auto_merge="$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.allow_auto_merge')"
+          if [ "${allow_auto_merge}" != "true" ]; then
+            echo "Repository setting 'Allow auto-merge' is disabled. Enable it in Settings > General > Pull Requests."
+            exit 1
           fi
-          if [[ -z "$checkout_ref" ]]; then
-            checkout_ref="$release_sha"
+
+      - name: Enforce auto-merge (with merge-now fallback)
+        if: steps.create_pr.outputs.pull-request-operation == 'created' || steps.create_pr.outputs.pull-request-operation == 'updated'
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_BOT_TOKEN }}
+          PR_NUMBER: ${{ steps.create_pr.outputs.pull-request-number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh pr merge "${PR_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --squash \
+            --auto
+
+          state="$(gh pr view "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --json state --jq '.state')"
+          merge_state="$(gh pr view "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --json mergeStateStatus --jq '.mergeStateStatus')"
+
+          if [ "${state}" != "MERGED" ] && [ "${merge_state}" = "CLEAN" ]; then
+            gh pr merge "${PR_NUMBER}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --squash \
+              --delete-branch
+          fi
+
+      - name: Finalize prepare-version outputs
+        id: finalize
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_sha="${{ steps.ensure-version.outputs.release_sha }}"
+          release_version="${{ steps.ensure-version.outputs.release_version }}"
+          bumped="${{ steps.ensure-version.outputs.bumped }}"
+          checkout_ref="$release_sha"
+          bump_branch=""
+          bump_pr_url=""
+
+          if [ "${bumped}" = "true" ]; then
+            checkout_ref="ci/amo-auto-bump"
+            bump_branch="ci/amo-auto-bump"
+            bump_pr_url="${{ steps.create_pr.outputs.pull-request-url }}"
           fi
 
           {
