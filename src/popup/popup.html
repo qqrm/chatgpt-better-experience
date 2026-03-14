@@ -301,11 +301,6 @@
         font-weight: 400;
       }
 
-      #wideChatWidthValue {
-        font-variant-numeric: tabular-nums;
-        color: var(--fg);
-      }
-
       .hint {
         margin-top: 8px;
         font-size: 12px;
@@ -545,6 +540,98 @@
         outline: none;
         box-shadow: 0 0 0 3px var(--focus);
       }
+
+      .rowActions {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex: 0 0 auto;
+      }
+
+      .detailToggleButton {
+        width: 28px;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        border: 1px solid var(--control-border);
+        background: var(--control-bg);
+        color: var(--muted);
+        cursor: pointer;
+        flex: 0 0 auto;
+        transition:
+          background 140ms ease,
+          border-color 140ms ease,
+          color 140ms ease,
+          box-shadow 140ms ease,
+          transform 140ms ease;
+      }
+
+      .detailToggleButton[hidden] {
+        display: none;
+      }
+
+      .detailToggleButton:hover {
+        background: var(--control-hover);
+        color: var(--fg);
+      }
+
+      .detailToggleButton[data-state="open"] {
+        color: var(--accent);
+        border-color: color-mix(in srgb, var(--accent) 30%, var(--control-border));
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+      }
+
+      .detailToggleButton:active {
+        transform: scale(0.98);
+      }
+
+      .detailToggleButton:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--focus);
+      }
+
+      .detailDrawer {
+        margin-top: 8px;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--surface) 82%, transparent);
+      }
+
+      .detailDrawer[hidden] {
+        display: none;
+      }
+
+      .detailDrawerLabelRow {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .detailDrawerLabel {
+        color: var(--fg);
+        font-weight: 600;
+      }
+
+      .detailDrawerValue {
+        color: var(--fg);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .rangeEndpoints {
+        margin-top: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
     </style>
   </head>
 
@@ -710,19 +797,35 @@
               <input id="trimChatDom" type="checkbox" />
               <label for="trimChatDom">
                 <span>Trim chat DOM</span>
-                <span class="note">Keeps only last N messages in the page DOM</span>
+                <span class="note">Keeps only last N messages</span>
               </label>
             </div>
+            <button
+              id="trimChatDomDetailsButton"
+              class="detailToggleButton"
+              type="button"
+              aria-controls="trimChatDomDetails"
+              aria-expanded="false"
+              aria-label="Show Trim chat DOM details"
+              data-state="closed"
+              hidden
+            >
+              <svg class="tabIcon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 6h16" />
+                <path d="M7 12h10" />
+                <path d="M10 18h4" />
+              </svg>
+            </button>
           </div>
-          <div class="row" id="trimChatDomKeepRowLabel" style="display: none">
-            <label for="trimChatDomKeep">Keep messages</label>
-            <span id="trimChatDomKeepValue">10</span>
-          </div>
-          <div class="row" id="trimChatDomKeepRowRange" style="display: none">
+          <div id="trimChatDomDetails" class="detailDrawer" hidden aria-hidden="true">
+            <div class="detailDrawerLabelRow">
+              <label class="detailDrawerLabel" for="trimChatDomKeep">Keep messages</label>
+              <span id="trimChatDomKeepValue" class="detailDrawerValue">10</span>
+            </div>
             <input id="trimChatDomKeep" type="range" min="5" max="50" step="1" />
-          </div>
-          <div class="hint" id="trimChatDomHint" style="display: none">
-            Older messages are hidden in-page; use the restore buttons shown in the chat.
+            <div class="hint" id="trimChatDomHint">
+              Older messages are hidden; restore buttons appear in chat.
+            </div>
           </div>
           <div class="row">
             <div class="check">
@@ -732,12 +835,31 @@
           </div>
           <div class="row">
             <label for="wideChatWidth">Chat width</label>
-            <span id="wideChatWidthValue">0%</span>
+            <div class="rowActions">
+              <button
+                id="wideChatDetailsButton"
+                class="detailToggleButton"
+                type="button"
+                aria-controls="wideChatDetails"
+                aria-expanded="false"
+                aria-label="Show chat width controls"
+                data-state="closed"
+              >
+                <svg class="tabIcon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 7h14" />
+                  <path d="M8 12h8" />
+                  <path d="M11 17h2" />
+                </svg>
+              </button>
+            </div>
           </div>
-          <div class="row">
+          <div id="wideChatDetails" class="detailDrawer" hidden aria-hidden="true">
             <input id="wideChatWidth" type="range" min="0" max="100" step="1" />
+            <div class="rangeEndpoints">
+              <span>Base width</span>
+              <span>Max width</span>
+            </div>
           </div>
-          <div class="hint">0 = base width · 100 = 95% of the viewport</div>
         </section>
 
         <section id="panel-codex" class="tabPanel" role="tabpanel" aria-labelledby="tab-codex">
