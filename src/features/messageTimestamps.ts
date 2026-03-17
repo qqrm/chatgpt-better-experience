@@ -3,6 +3,7 @@ import type { DomDelta } from "../application/domEventBus";
 import { fetchConversationTimestampRecords } from "./chatgptApi";
 import {
   collectMessageElementsFromNode,
+  findConversationScrollRoot,
   findMainComposerForm,
   findMainRoot,
   findMainSendButton,
@@ -26,6 +27,7 @@ const API_SYNC_DEBOUNCE_MS = 400;
 const ASSISTANT_COMPLETION_QUIET_MS = 1500;
 const USER_SEND_CAPTURE_DEDUPE_MS = 750;
 const MAX_PENDING_USER_SENDS = 12;
+const VIEWPORT_STICK_BOTTOM_THRESHOLD_PX = 96;
 
 type AssistantTracker = {
   messageId: string;
@@ -207,12 +209,38 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
   });
 
   const removeRenderedTimestamp = (messageEl: HTMLElement) => {
-    const bubble = findUserMessageBubble(messageEl);
-    bubble?.removeAttribute(USER_BUBBLE_ATTR);
-    bubble?.querySelector<HTMLElement>(`[${TIMESTAMP_ATTR}]`)?.remove();
-    messageEl
-      .querySelector<HTMLElement>(`[${TIMESTAMP_ATTR}][${ASSISTANT_TIMESTAMP_ATTR}="assistant"]`)
-      ?.remove();
+    preserveViewportNearBottom(() => {
+      const bubble = findUserMessageBubble(messageEl);
+      bubble?.removeAttribute(USER_BUBBLE_ATTR);
+      bubble?.querySelector<HTMLElement>(`[${TIMESTAMP_ATTR}]`)?.remove();
+      messageEl
+        .querySelector<HTMLElement>(`[${TIMESTAMP_ATTR}][${ASSISTANT_TIMESTAMP_ATTR}="assistant"]`)
+        ?.remove();
+    });
+  };
+
+  const preserveViewportNearBottom = <T>(mutate: () => T): T => {
+    const root = findConversationScrollRoot();
+    if (!root) return mutate();
+
+    const distanceFromBottom = Math.max(0, root.scrollHeight - root.clientHeight - root.scrollTop);
+    const shouldStickToBottom = distanceFromBottom <= VIEWPORT_STICK_BOTTOM_THRESHOLD_PX;
+    const result = mutate();
+
+    if (shouldStickToBottom && root.isConnected) {
+      root.scrollTop = Math.max(0, root.scrollHeight - root.clientHeight - distanceFromBottom);
+    }
+
+    return result;
+  };
+
+  const syncStampContent = (stamp: HTMLElement, text: string, title: string) => {
+    if (stamp.textContent !== text) {
+      stamp.textContent = text;
+    }
+    if (stamp.title !== title) {
+      stamp.title = title;
+    }
   };
 
   const renderUserTimestamp = (messageEl: HTMLElement, text: string, title: string) => {
@@ -223,36 +251,40 @@ export function initMessageTimestampsFeature(ctx: FeatureContext): FeatureHandle
       return;
     }
 
-    bubble.setAttribute(USER_BUBBLE_ATTR, "1");
+    preserveViewportNearBottom(() => {
+      if (!bubble.hasAttribute(USER_BUBBLE_ATTR)) {
+        bubble.setAttribute(USER_BUBBLE_ATTR, "1");
+      }
 
-    let stamp = bubble.querySelector<HTMLElement>(`[${TIMESTAMP_ATTR}]`);
-    if (!stamp) {
-      stamp = document.createElement("span");
-      stamp.setAttribute(TIMESTAMP_ATTR, "1");
-      stamp.setAttribute("data-qqrm-message-time-variant", "user");
-      bubble.appendChild(stamp);
-    }
+      let stamp = bubble.querySelector<HTMLElement>(`[${TIMESTAMP_ATTR}]`);
+      if (!stamp) {
+        stamp = document.createElement("span");
+        stamp.setAttribute(TIMESTAMP_ATTR, "1");
+        stamp.setAttribute("data-qqrm-message-time-variant", "user");
+        bubble.appendChild(stamp);
+      }
 
-    stamp.textContent = text;
-    stamp.title = title;
+      syncStampContent(stamp, text, title);
+    });
     trace("TS/RENDER", "rendered user timestamp", { messageId, text, title });
   };
 
   const renderAssistantTimestamp = (messageEl: HTMLElement, text: string, title: string) => {
     const messageId = messageEl.getAttribute("data-message-id") ?? "";
-    let stamp = messageEl.querySelector<HTMLElement>(
-      `[${TIMESTAMP_ATTR}][${ASSISTANT_TIMESTAMP_ATTR}="assistant"]`
-    );
-    if (!stamp) {
-      stamp = document.createElement("div");
-      stamp.setAttribute(TIMESTAMP_ATTR, "1");
-      stamp.setAttribute(ASSISTANT_TIMESTAMP_ATTR, "assistant");
-      stamp.setAttribute("data-qqrm-message-time-variant", "assistant");
-      messageEl.appendChild(stamp);
-    }
+    preserveViewportNearBottom(() => {
+      let stamp = messageEl.querySelector<HTMLElement>(
+        `[${TIMESTAMP_ATTR}][${ASSISTANT_TIMESTAMP_ATTR}="assistant"]`
+      );
+      if (!stamp) {
+        stamp = document.createElement("div");
+        stamp.setAttribute(TIMESTAMP_ATTR, "1");
+        stamp.setAttribute(ASSISTANT_TIMESTAMP_ATTR, "assistant");
+        stamp.setAttribute("data-qqrm-message-time-variant", "assistant");
+        messageEl.appendChild(stamp);
+      }
 
-    stamp.textContent = text;
-    stamp.title = title;
+      syncStampContent(stamp, text, title);
+    });
     trace("TS/RENDER", "rendered assistant timestamp", { messageId, text, title });
   };
 

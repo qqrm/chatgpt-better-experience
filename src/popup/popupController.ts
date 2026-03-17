@@ -250,7 +250,7 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
   const setSelectiveProjectsDropdownOpen = (open: boolean) => {
     const nextOpen = !!els.autoExpandProjectItemsEl.checked && open;
     selectiveProjectsDropdownOpen = nextOpen;
-    els.autoExpandProjectItemsRevealEl.dataset.open = nextOpen ? "true" : "false";
+    els.autoExpandProjectItemsRevealEl.dataset.state = nextOpen ? "open" : "closed";
     els.autoExpandProjectItemsRevealEl.setAttribute("aria-expanded", nextOpen ? "true" : "false");
     els.autoExpandProjectItemsDropdownEl.hidden = !nextOpen;
     els.autoExpandProjectItemsDropdownEl.setAttribute("aria-hidden", nextOpen ? "false" : "true");
@@ -351,9 +351,9 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
     }
 
     renderSelectiveProjectsList();
-    els.autoExpandProjectItemsRevealEl.dataset.open = selectiveProjectsDropdownOpen
-      ? "true"
-      : "false";
+    els.autoExpandProjectItemsRevealEl.dataset.state = selectiveProjectsDropdownOpen
+      ? "open"
+      : "closed";
     els.autoExpandProjectItemsRevealEl.setAttribute(
       "aria-expanded",
       selectiveProjectsDropdownOpen ? "true" : "false"
