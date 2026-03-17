@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "chat-gpt-better-experience",
-  "version": "1.0.228",
+  "version": "1.0.229",
   "description": "Auto-sends ChatGPT dictation transcripts, with optional Temporary Chat auto-enable and chat list auto-expand.",
   "permissions": ["storage", "downloads"],
   "background": {
