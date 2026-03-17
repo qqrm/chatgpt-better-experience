@@ -15,7 +15,44 @@ import {
 const WIDE_CHAT_CONTENT_SELECTOR = 'main div[class*="max-w-(--thread-content-max-width)"]';
 const WIDE_CHAT_STYLE_ID = "tm-wide-chat-style";
 const WIDE_CHAT_RELEVANT_SELECTOR =
-  "article, [data-message-author-role], button, [role='button'], .markdown";
+  "[data-message-author-role], button, [role='button'], .markdown";
+
+const findConversationTurn = (candidate: Element | null): HTMLElement | null => {
+  const turn = candidate?.closest<HTMLElement>("article") ?? null;
+  return turn?.querySelector("[data-message-author-role]") ? turn : null;
+};
+
+const isRelevantConversationElement = (candidate: Element): boolean => {
+  if (!candidate.matches(WIDE_CHAT_RELEVANT_SELECTOR)) return false;
+  return findConversationTurn(candidate) !== null;
+};
+
+const containsRelevantSelector = (node: Node): boolean => {
+  if (!(node instanceof Element)) return false;
+  if (node.matches(WIDE_CHAT_CONTENT_SELECTOR) || node.querySelector(WIDE_CHAT_CONTENT_SELECTOR)) {
+    return true;
+  }
+  if (node.matches("article")) {
+    return node.querySelector("[data-message-author-role]") !== null;
+  }
+  if (isRelevantConversationElement(node)) return true;
+  return Array.from(node.querySelectorAll(WIDE_CHAT_RELEVANT_SELECTOR)).some((candidate) =>
+    isRelevantConversationElement(candidate)
+  );
+};
+
+export function isWideChatRelevantMainDelta(
+  added: ReadonlyArray<Node>,
+  removed: ReadonlyArray<Node>
+): boolean {
+  for (const node of added) {
+    if (containsRelevantSelector(node)) return true;
+  }
+  for (const node of removed) {
+    if (containsRelevantSelector(node)) return true;
+  }
+  return false;
+}
 
 export function initWideChatFeature(ctx: FeatureContext): FeatureHandle {
   const state = {
@@ -32,17 +69,6 @@ export function initWideChatFeature(ctx: FeatureContext): FeatureHandle {
       applyRuns: 0,
       nodesProcessed: 0
     }
-  };
-
-  const containsRelevantSelector = (node: Node): boolean => {
-    if (node.nodeType !== Node.ELEMENT_NODE) return false;
-    const el = node as Element;
-    if (el.matches(WIDE_CHAT_CONTENT_SELECTOR) || el.matches(WIDE_CHAT_RELEVANT_SELECTOR)) {
-      return true;
-    }
-    return (
-      el.querySelector(`${WIDE_CHAT_CONTENT_SELECTOR}, ${WIDE_CHAT_RELEVANT_SELECTOR}`) !== null
-    );
   };
 
   const findWideChatContentEl = () => ctx.helpers.safeQuery(WIDE_CHAT_CONTENT_SELECTOR);
@@ -170,20 +196,9 @@ export function initWideChatFeature(ctx: FeatureContext): FeatureHandle {
       return;
     }
 
-    for (const node of delta.added) {
-      state.stats.nodesProcessed += 1;
-      if (containsRelevantSelector(node)) {
-        scheduleApply();
-        return;
-      }
-    }
-
-    for (const node of delta.removed) {
-      state.stats.nodesProcessed += 1;
-      if (containsRelevantSelector(node)) {
-        scheduleApply();
-        return;
-      }
+    state.stats.nodesProcessed += delta.added.length + delta.removed.length;
+    if (isWideChatRelevantMainDelta(delta.added, delta.removed)) {
+      scheduleApply();
     }
   };
 
