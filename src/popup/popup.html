@@ -317,54 +317,8 @@
         border-top: none;
       }
 
-      .projectPrefsReveal {
-        width: 28px;
-        height: 28px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border: 1px solid var(--control-border);
-        border-radius: 8px;
-        background: var(--control-bg);
-        color: var(--control-fg);
-        cursor: pointer;
-        transition:
-          background 140ms ease,
-          border-color 140ms ease,
-          box-shadow 140ms ease,
-          transform 140ms ease;
-      }
-
-      .projectPrefsReveal:hover {
-        background: var(--control-hover);
-      }
-
-      .projectPrefsReveal:active {
-        transform: scale(0.98);
-      }
-
-      .projectPrefsReveal:focus-visible {
-        outline: none;
-        box-shadow: 0 0 0 3px var(--focus);
-      }
-
-      .projectPrefsReveal svg {
-        width: 16px;
-        height: 16px;
-      }
-
-      .projectPrefsReveal[hidden],
       .projectPrefsDropdown[hidden] {
         display: none;
-      }
-
-      .projectPrefsReveal[data-open="true"] .projectPrefsRevealChevron {
-        transform: translateY(0.5px) rotate(180deg);
-      }
-
-      .projectPrefsRevealChevron {
-        transform-origin: center;
-        transition: transform 140ms ease;
       }
 
       .projectPrefsDropdown {
@@ -844,10 +798,7 @@
           <div class="row">
             <div class="check">
               <input id="renameChatOnF2" type="checkbox" checked />
-              <label for="renameChatOnF2">
-                <span>F2 renames current chat</span>
-                <span class="note">Press F2 to rename current chat</span>
-              </label>
+              <label for="renameChatOnF2">F2 renames current chat</label>
             </div>
           </div>
         </section>
@@ -880,31 +831,18 @@
               </div>
               <button
                 id="autoExpandProjectItemsReveal"
-                class="projectPrefsReveal rowAction"
+                class="detailToggleButton rowAction"
                 type="button"
                 aria-expanded="false"
                 aria-controls="autoExpandProjectItemsDropdown"
                 aria-label="Show project auto-expand list"
+                data-state="closed"
                 hidden
               >
-                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <rect
-                    x="2.25"
-                    y="2.25"
-                    width="11.5"
-                    height="11.5"
-                    rx="2.25"
-                    stroke="currentColor"
-                  />
-                  <path d="M4.5 5.5H8" stroke="currentColor" stroke-linecap="round" />
-                  <path d="M4.5 8H8" stroke="currentColor" stroke-linecap="round" />
-                  <path
-                    d="M9.5 6.5 11.5 8.5 13.5 6.5"
-                    stroke="currentColor"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    class="projectPrefsRevealChevron"
-                  />
+                <svg class="tabIcon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 6h16" />
+                  <path d="M7 12h10" />
+                  <path d="M10 18h4" />
                 </svg>
               </button>
             </div>
