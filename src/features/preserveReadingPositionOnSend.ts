@@ -26,6 +26,7 @@ export function initPreserveReadingPositionOnSendFeature(ctx: FeatureContext): F
     baselineTop: 0,
     lockStartedAt: 0,
     manualIntentAt: 0,
+    pointerScrollActive: false,
     rafId: null as number | null,
     timeoutId: null as number | null,
     scrollRoot: null as HTMLElement | null,
@@ -47,6 +48,7 @@ export function initPreserveReadingPositionOnSendFeature(ctx: FeatureContext): F
   const deactivateLock = () => {
     state.lockActive = false;
     state.manualIntentAt = 0;
+    state.pointerScrollActive = false;
     if (state.rafId !== null) {
       window.cancelAnimationFrame(state.rafId);
       state.rafId = null;
@@ -77,7 +79,7 @@ export function initPreserveReadingPositionOnSendFeature(ctx: FeatureContext): F
     }
 
     if (Math.abs(root.scrollTop - state.baselineTop) > 1) {
-      if (performance.now() - state.manualIntentAt < 450) {
+      if (state.pointerScrollActive || performance.now() - state.manualIntentAt < 450) {
         deactivateLock();
         return;
       }
@@ -138,6 +140,7 @@ export function initPreserveReadingPositionOnSendFeature(ctx: FeatureContext): F
     state.baselineTop = root.scrollTop;
     state.lockStartedAt = performance.now();
     state.manualIntentAt = 0;
+    state.pointerScrollActive = false;
     state.lockActive = true;
     clearAssistantTracker();
 
@@ -186,7 +189,12 @@ export function initPreserveReadingPositionOnSendFeature(ctx: FeatureContext): F
   const handlePointerDown = (event: Event) => {
     if (!(event.target instanceof Element)) return;
     const root = state.scrollRoot;
-    if (root?.contains(event.target)) markManualIntent();
+    if (!root?.contains(event.target)) return;
+    state.pointerScrollActive = true;
+    markManualIntent();
+  };
+  const handlePointerUp = () => {
+    state.pointerScrollActive = false;
   };
   const handleKeyDown = (event: KeyboardEvent) => {
     if (isScrollKey(event)) markManualIntent();
@@ -201,6 +209,8 @@ export function initPreserveReadingPositionOnSendFeature(ctx: FeatureContext): F
     window.addEventListener("wheel", handleWheel, { capture: true, passive: true });
     window.addEventListener("touchstart", handleTouchStart, { capture: true, passive: true });
     window.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("pointerup", handlePointerUp, true);
+    window.addEventListener("pointercancel", handlePointerUp, true);
     window.addEventListener("keydown", handleKeyDown, true);
 
     state.unsubRoots =
@@ -231,6 +241,8 @@ export function initPreserveReadingPositionOnSendFeature(ctx: FeatureContext): F
     window.removeEventListener("wheel", handleWheel, true);
     window.removeEventListener("touchstart", handleTouchStart, true);
     window.removeEventListener("pointerdown", handlePointerDown, true);
+    window.removeEventListener("pointerup", handlePointerUp, true);
+    window.removeEventListener("pointercancel", handlePointerUp, true);
     window.removeEventListener("keydown", handleKeyDown, true);
 
     state.unsubMainDelta?.();
