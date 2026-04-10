@@ -247,10 +247,25 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
     });
   };
 
+  const readContentEditableText = (el: HTMLElement) => {
+    const clone = el.cloneNode(true);
+    if (!(clone instanceof HTMLElement)) {
+      return String(el.innerText || el.textContent || "").replace(/\u00A0/g, " ");
+    }
+
+    for (const placeholder of qsa<HTMLElement>("[data-placeholder], .placeholder", clone)) {
+      placeholder.remove();
+    }
+
+    return String(clone.innerText || clone.textContent || "")
+      .replace(/\u00A0/g, " ")
+      .replace(/\u200B/g, "");
+  };
+
   const readTextboxText = (el: HTMLTextAreaElement | HTMLElement | null) => {
     if (!el) return "";
     if (el instanceof HTMLTextAreaElement) return el.value || "";
-    return String(el.innerText || el.textContent || "").replace(/\u00A0/g, " ");
+    return readContentEditableText(el);
   };
 
   const readInputText = (): InputReadResult => {
@@ -404,7 +419,6 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
       message.parentElement;
 
     const searchRoot = article instanceof HTMLElement ? article : message;
-
     const buttons = qsa<HTMLElement>("button, [role='button']", searchRoot);
 
     const editBtn =
