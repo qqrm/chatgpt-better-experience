@@ -39,6 +39,13 @@ The repo is mounted into the guest at `/home/ubuntu/cbe`.
   avoid snap-specific profile locking in automated runs.
 - The Firefox profile lives inside the VM at `/home/ubuntu/.cbe-firefox-profile`, so login state
   and cookies survive normal `stop` / `start` cycles.
+- When a host-local proxy is available, the start script now prefers an explicit reverse SSH tunnel
+  from the guest back into the host instead of relying on Hyper-V routing or `allow-lan`. This
+  keeps ChatGPT traffic on the same VPN/proxy path as the host even when the guest cannot reach the
+  host proxy port directly.
+- Proxy selection order is: `CBE_FIREFOX_VM_PROXY`, then host `HTTPS_PROXY` / `ALL_PROXY` /
+  `HTTP_PROXY`, then Clash Verge's generated `config.yaml` `mixed-port` / `port` when present.
+- Use `CBE_FIREFOX_VM_PROXY=http://127.0.0.1:7897 npm run firefox:vm` to override auto-detection.
 - Use `npm run firefox:vm:reset-profile` only when a task needs a clean browser state or the saved
   profile becomes unusable.
 - Live ChatGPT checks still need an authenticated browser session inside the guest if the broken

@@ -29,12 +29,16 @@ $imageDir = Join-Path $runtimeRoot "images"
 $cloudInitPath = Join-Path $runtimeRoot "cloud-init.yaml"
 $imagePath = Join-Path $imageDir "ubuntu-24.04-server-cloudimg-amd64.img"
 $screenshotPath = Join-Path $runtimeRoot "firefox-screen.png"
+$proxyTunnelPidPath = Join-Path $runtimeRoot "host-proxy-tunnel.pid"
+$proxyTunnelInfoPath = Join-Path $runtimeRoot "host-proxy-tunnel.json"
 
 $instanceName = "cbe-debug-generic"
 $guestRepoPath = "/home/ubuntu/cbe"
 $guestDisplay = ":101"
 $guestVncPort = 5902
 $guestNoVncPort = 6082
+$guestProxyListenHost = "127.0.0.1"
+$guestProxyListenPort = 17897
 $imageUrl = "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img"
 $legacySshDirs = @(
   (Join-Path $repoRoot ".runtime\hyperv\ssh"),
@@ -73,6 +77,193 @@ $multipassPath = Resolve-CommandPath -Command "multipass" -Fallback "C:\Program 
 $sshPath = Resolve-CommandPath -Command "ssh"
 $scpPath = Resolve-CommandPath -Command "scp"
 $sshKeygenPath = Resolve-CommandPath -Command "ssh-keygen"
+
+function Resolve-ProxyConfigFromUri {
+  param(
+    [Parameter(Mandatory = $true)][string]$Value,
+    [Parameter(Mandatory = $true)][string]$Source
+  )
+
+  try {
+    $uri = [System.Uri]$Value
+  }
+  catch {
+    throw "Invalid proxy URI from ${Source}: $Value"
+  }
+
+  if (-not $uri.IsAbsoluteUri) {
+    throw "Proxy URI from ${Source} must be absolute: $Value"
+  }
+  if ($uri.Port -lt 1) {
+    throw "Proxy URI from ${Source} must include an explicit port: $Value"
+  }
+
+  $scheme = $uri.Scheme.ToLowerInvariant()
+  if ($scheme -notin @("http", "https", "socks5", "socks")) {
+    throw "Unsupported proxy scheme from ${Source}: $($uri.Scheme)"
+  }
+
+  return [pscustomobject]@{
+    Source = $Source
+    Scheme = $scheme
+    Host = $uri.Host
+    Port = $uri.Port
+  }
+}
+
+function Resolve-HostProxyConfig {
+  if (-not [string]::IsNullOrWhiteSpace($env:CBE_FIREFOX_VM_PROXY)) {
+    return Resolve-ProxyConfigFromUri -Value $env:CBE_FIREFOX_VM_PROXY -Source "CBE_FIREFOX_VM_PROXY"
+  }
+
+  foreach ($name in @("HTTPS_PROXY", "ALL_PROXY", "HTTP_PROXY")) {
+    $value = [Environment]::GetEnvironmentVariable($name)
+    if (-not [string]::IsNullOrWhiteSpace($value)) {
+      return Resolve-ProxyConfigFromUri -Value $value -Source $name
+    }
+  }
+
+  $clashConfigPath = Join-Path $env:APPDATA "io.github.clash-verge-rev.clash-verge-rev\config.yaml"
+  if (Test-Path -LiteralPath $clashConfigPath) {
+    $raw = Get-Content -LiteralPath $clashConfigPath -Raw
+    if ($raw -match "(?m)^\s*mixed-port:\s*(\d+)\s*$") {
+      return [pscustomobject]@{
+        Source = "Clash Verge config"
+        Scheme = "http"
+        Host = "127.0.0.1"
+        Port = [int]$Matches[1]
+      }
+    }
+    if ($raw -match "(?m)^\s*port:\s*(\d+)\s*$") {
+      return [pscustomobject]@{
+        Source = "Clash Verge config"
+        Scheme = "http"
+        Host = "127.0.0.1"
+        Port = [int]$Matches[1]
+      }
+    }
+  }
+
+  return $null
+}
+
+function Get-ActiveProxyTunnelInfo {
+  if (-not (Test-Path -LiteralPath $proxyTunnelPidPath) -or -not (Test-Path -LiteralPath $proxyTunnelInfoPath)) {
+    return $null
+  }
+
+  $pidText = (Get-Content -LiteralPath $proxyTunnelPidPath -Raw).Trim()
+  $processIdValue = 0
+  if (-not [int]::TryParse($pidText, [ref]$processIdValue)) {
+    Remove-Item -LiteralPath $proxyTunnelPidPath, $proxyTunnelInfoPath -Force -ErrorAction SilentlyContinue
+    return $null
+  }
+
+  $process = Get-Process -Id $processIdValue -ErrorAction SilentlyContinue
+  if (-not $process) {
+    Remove-Item -LiteralPath $proxyTunnelPidPath, $proxyTunnelInfoPath -Force -ErrorAction SilentlyContinue
+    return $null
+  }
+
+  try {
+    return Get-Content -LiteralPath $proxyTunnelInfoPath -Raw | ConvertFrom-Json
+  }
+  catch {
+    return $null
+  }
+}
+
+function Stop-GuestProxyTunnel {
+  $pidText = if (Test-Path -LiteralPath $proxyTunnelPidPath) {
+    (Get-Content -LiteralPath $proxyTunnelPidPath -Raw).Trim()
+  } else {
+    ""
+  }
+
+  $processIdValue = 0
+  if ([int]::TryParse($pidText, [ref]$processIdValue)) {
+    Stop-Process -Id $processIdValue -Force -ErrorAction SilentlyContinue
+  }
+
+  $staleSshProcesses = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.Name -match "^ssh(?:\.exe)?$" -and
+      $_.CommandLine -match "(?:^|\s)-R\s+$($guestProxyListenPort):" -and
+      $_.CommandLine -match [regex]::Escape("ubuntu@")
+    }
+  foreach ($staleProcess in $staleSshProcesses) {
+    Stop-Process -Id $staleProcess.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+
+  Remove-Item -LiteralPath $proxyTunnelPidPath, $proxyTunnelInfoPath -Force -ErrorAction SilentlyContinue
+}
+
+function Ensure-GuestProxyTunnel {
+  param([Parameter(Mandatory = $true)][string]$Ip)
+
+  $proxyConfig = Resolve-HostProxyConfig
+  if (-not $proxyConfig) {
+    Stop-GuestProxyTunnel
+    return $null
+  }
+
+  New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
+  Stop-GuestProxyTunnel
+
+  $remoteSpec = "${guestProxyListenPort}:$($proxyConfig.Host):$($proxyConfig.Port)"
+  $args = @(
+    "-f",
+    "-N",
+    "-o", "ExitOnForwardFailure=yes",
+    "-o", "StrictHostKeyChecking=no",
+    "-o", "UserKnownHostsFile=NUL",
+    "-o", "LogLevel=ERROR",
+    "-o", "ServerAliveInterval=30",
+    "-o", "ServerAliveCountMax=3",
+    "-i", $sshKeyPath,
+    "-R", $remoteSpec,
+    "ubuntu@$Ip"
+  )
+
+  $cmdArgs = $args | ForEach-Object {
+    '"' + ($_ -replace '"', '\"') + '"'
+  }
+  $cmdLine = 'start "" /b "{0}" {1}' -f $sshPath, ($cmdArgs -join ' ')
+  & cmd.exe /c $cmdLine | Out-Null
+  Start-Sleep -Seconds 3
+
+  $process = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.Name -match "^ssh(?:\.exe)?$" -and
+      $_.CommandLine -match [regex]::Escape($remoteSpec) -and
+      $_.CommandLine -match [regex]::Escape("ubuntu@$Ip")
+    } |
+    Select-Object -First 1
+  if (-not $process) {
+    throw "Failed to resolve the background ssh process for VM proxy tunnel $remoteSpec."
+  }
+
+  $script = @"
+set -euo pipefail
+ss -ltn | grep -F '$($guestProxyListenHost):$guestProxyListenPort' >/dev/null
+"@
+  Invoke-GuestScript -Script $script
+
+  $info = [pscustomobject]@{
+    Source = $proxyConfig.Source
+    Scheme = $proxyConfig.Scheme
+    Host = $proxyConfig.Host
+    Port = $proxyConfig.Port
+    GuestHost = $guestProxyListenHost
+    GuestPort = $guestProxyListenPort
+    ProcessId = $process.ProcessId
+  }
+
+  Set-Content -LiteralPath $proxyTunnelPidPath -Value $process.ProcessId -NoNewline
+  Set-Content -LiteralPath $proxyTunnelInfoPath -Value ($info | ConvertTo-Json -Compress) -NoNewline
+
+  return $info
+}
 
 function Ensure-MultipassService {
   $service = Get-Service -Name "Multipass" -ErrorAction SilentlyContinue
@@ -337,8 +528,22 @@ function Copy-FromGuest {
 }
 
 function Ensure-GuestFirefox {
+  param($ProxyConfig)
+
+  $proxyEnvBlock = ""
+  if ($ProxyConfig -and $ProxyConfig.Scheme -in @("http", "https")) {
+    $proxyUri = "$($ProxyConfig.Scheme)://$($ProxyConfig.GuestHost):$($ProxyConfig.GuestPort)"
+    $proxyEnvBlock = @"
+export http_proxy='$proxyUri'
+export https_proxy='$proxyUri'
+export HTTP_PROXY='$proxyUri'
+export HTTPS_PROXY='$proxyUri'
+"@
+  }
+
   $script = @'
 set -euo pipefail
+__PROXY_ENV__
 sudo apt-get update -qq
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb x11vnc fluxbox scrot xdotool git curl jq nodejs npm novnc websockify libgtk-3-0 libdbus-glib-1-2 libasound2t64 libxt6 libx11-xcb1 libxcb-shm0 libxcb-render0 libxrandr2 libxi6 >/tmp/cbe-vm-apt.log 2>&1
 
@@ -349,11 +554,52 @@ if [ ! -x /home/ubuntu/.local/opt/firefox/firefox ]; then
   tar -xJf /tmp/firefox.tar.xz -C /home/ubuntu/.local/opt
 fi
 '@
+  $script = $script.Replace("__PROXY_ENV__", $proxyEnvBlock)
 
   Invoke-GuestScript -Script $script
 }
 
 function Start-GuestBrowser {
+  param($ProxyConfig)
+
+  $proxySetup = "rm -f `"`$profile_dir/user.js`""
+  if ($ProxyConfig) {
+    $userPrefs = switch ($ProxyConfig.Scheme) {
+      { $_ -in @("http", "https") } {
+        @(
+          'user_pref("network.proxy.type", 1);',
+          'user_pref("network.proxy.share_proxy_settings", true);',
+          "user_pref(`"network.proxy.http`", `"$($ProxyConfig.GuestHost)`");",
+          "user_pref(`"network.proxy.http_port`", $($ProxyConfig.GuestPort));",
+          "user_pref(`"network.proxy.ssl`", `"$($ProxyConfig.GuestHost)`");",
+          "user_pref(`"network.proxy.ssl_port`", $($ProxyConfig.GuestPort));",
+          'user_pref("network.proxy.no_proxies_on", "localhost, 127.0.0.1");'
+        ) -join "`n"
+        break
+      }
+      { $_ -in @("socks", "socks5") } {
+        @(
+          'user_pref("network.proxy.type", 1);',
+          "user_pref(`"network.proxy.socks`", `"$($ProxyConfig.GuestHost)`");",
+          "user_pref(`"network.proxy.socks_port`", $($ProxyConfig.GuestPort));",
+          'user_pref("network.proxy.socks_version", 5);',
+          'user_pref("network.proxy.socks_remote_dns", true);',
+          'user_pref("network.proxy.no_proxies_on", "localhost, 127.0.0.1");'
+        ) -join "`n"
+        break
+      }
+      default {
+        throw "Unsupported guest proxy scheme: $($ProxyConfig.Scheme)"
+      }
+    }
+
+    $proxySetup = @"
+cat > "`$profile_dir/user.js" <<'EOF'
+$userPrefs
+EOF
+"@
+  }
+
   $script = @'
 set -euo pipefail
 pkill -9 -f 'Xvfb __DISPLAY__' || true
@@ -363,6 +609,7 @@ pkill -9 -f '/home/ubuntu/.local/opt/firefox/firefox' || true
 rm -f /tmp/cbe-vm-*.log /tmp/cbe-vm-firefox.png
 profile_dir=/home/ubuntu/.cbe-firefox-profile
 mkdir -p "$profile_dir"
+__PROXY_SETUP__
 nohup Xvfb __DISPLAY__ -screen 0 1600x1000x24 >/tmp/cbe-vm-xvfb.log 2>&1 &
 sleep 2
 DISPLAY=__DISPLAY__ nohup fluxbox >/tmp/cbe-vm-fluxbox.log 2>&1 &
@@ -375,7 +622,7 @@ DISPLAY=__DISPLAY__ nohup /home/ubuntu/.local/opt/firefox/firefox --new-instance
 sleep 20
 DISPLAY=__DISPLAY__ scrot /tmp/cbe-vm-firefox.png
 '@
-  $script = $script.Replace("__DISPLAY__", $guestDisplay).Replace("__VNC_PORT__", [string]$guestVncPort).Replace("__NOVNC_PORT__", [string]$guestNoVncPort)
+  $script = $script.Replace("__DISPLAY__", $guestDisplay).Replace("__VNC_PORT__", [string]$guestVncPort).Replace("__NOVNC_PORT__", [string]$guestNoVncPort).Replace("__PROXY_SETUP__", $proxySetup)
 
   Invoke-GuestScript -Script $script
 }
@@ -394,6 +641,7 @@ function Show-Status {
   $list = Get-InstanceListText
   $info = Get-InstanceInfoText
   $ip = Get-InstanceIp
+  $proxyInfo = Get-ActiveProxyTunnelInfo
 
   Write-Host $list.Trim()
   Write-Host ""
@@ -403,16 +651,20 @@ function Show-Status {
     Write-Host "SSH     : ssh -i `"$sshKeyPath`" ubuntu@$ip"
     Write-Host "noVNC   : http://${ip}:$guestNoVncPort/vnc.html?autoconnect=true&resize=scale"
     Write-Host "Repo VM : $guestRepoPath"
+    if ($proxyInfo) {
+      Write-Host "Proxy   : ${guestProxyListenHost}:$($proxyInfo.GuestPort) -> $($proxyInfo.Host):$($proxyInfo.Port) ($($proxyInfo.Source))"
+    }
   }
 }
 
 switch ($Action) {
   "start" {
     Ensure-Instance
-    Wait-ForSsh | Out-Null
+    $ip = Wait-ForSsh
     Ensure-RepoMount
-    Ensure-GuestFirefox
-    Start-GuestBrowser
+    $proxyInfo = Ensure-GuestProxyTunnel -Ip $ip
+    Ensure-GuestFirefox -ProxyConfig $proxyInfo
+    Start-GuestBrowser -ProxyConfig $proxyInfo
     Show-Status
     Write-Host ""
     Write-Host "Screenshot: npm run firefox:vm:screenshot"
@@ -457,6 +709,7 @@ DISPLAY=$guestDisplay scrot /tmp/cbe-vm-firefox.png
     return
   }
   "stop" {
+    Stop-GuestProxyTunnel
     if (-not (Test-InstanceExists)) {
       Write-Host "Multipass instance not created yet."
       return
