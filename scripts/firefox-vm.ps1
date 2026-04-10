@@ -39,6 +39,8 @@ $guestVncPort = 5902
 $guestNoVncPort = 6082
 $guestProxyListenHost = "127.0.0.1"
 $guestProxyListenPort = 17897
+$defaultVmCpuCount = 2
+$defaultVmMemory = "3G"
 $imageUrl = "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img"
 $legacySshDirs = @(
   (Join-Path $repoRoot ".runtime\hyperv\ssh"),
@@ -77,6 +79,41 @@ $multipassPath = Resolve-CommandPath -Command "multipass" -Fallback "C:\Program 
 $sshPath = Resolve-CommandPath -Command "ssh"
 $scpPath = Resolve-CommandPath -Command "scp"
 $sshKeygenPath = Resolve-CommandPath -Command "ssh-keygen"
+
+function Resolve-PositiveIntSetting {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][int]$DefaultValue
+  )
+
+  $raw = [Environment]::GetEnvironmentVariable($Name)
+  if ([string]::IsNullOrWhiteSpace($raw)) {
+    return $DefaultValue
+  }
+
+  $value = 0
+  if (-not [int]::TryParse($raw, [ref]$value) -or $value -lt 1) {
+    throw "$Name must be a positive integer. Current value: $raw"
+  }
+
+  return $value
+}
+
+function Resolve-MemorySetting {
+  $raw = [Environment]::GetEnvironmentVariable("CBE_FIREFOX_VM_MEMORY")
+  if ([string]::IsNullOrWhiteSpace($raw)) {
+    return $defaultVmMemory
+  }
+
+  if ($raw -notmatch '^\d+(?:[KMGTP](?:i?B)?|B)$') {
+    throw "CBE_FIREFOX_VM_MEMORY must look like 3G, 3072M, or 3GiB. Current value: $raw"
+  }
+
+  return $raw.ToUpperInvariant()
+}
+
+$vmCpuCount = Resolve-PositiveIntSetting -Name "CBE_FIREFOX_VM_CPUS" -DefaultValue $defaultVmCpuCount
+$vmMemory = Resolve-MemorySetting
 
 function Resolve-ProxyConfigFromUri {
   param(
@@ -401,6 +438,11 @@ function Ensure-BaseImage {
   Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
 }
 
+function Apply-InstanceResourceConfig {
+  Invoke-Multipass -Args @("set", "local.${instanceName}.cpus=$vmCpuCount") | Out-Null
+  Invoke-Multipass -Args @("set", "local.${instanceName}.memory=$vmMemory") | Out-Null
+}
+
 function Ensure-Instance {
   New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
   Ensure-SshKey
@@ -414,14 +456,15 @@ function Ensure-Instance {
       "launch",
       $imageUri,
       "--name", $instanceName,
-      "--cpus", "2",
-      "--memory", "4G",
+      "--cpus", "$vmCpuCount",
+      "--memory", $vmMemory,
       "--disk", "20G",
       "--cloud-init", $cloudInitPath,
       "--timeout", "600"
     ) | Out-Null
   }
   elseif ((Get-InstanceState) -ne "Running") {
+    Apply-InstanceResourceConfig
     Invoke-Multipass -Args @("start", $instanceName) | Out-Null
   }
 }
@@ -642,11 +685,14 @@ function Show-Status {
   $info = Get-InstanceInfoText
   $ip = Get-InstanceIp
   $proxyInfo = Get-ActiveProxyTunnelInfo
+  $configuredCpuCount = (Invoke-Multipass -Args @("get", "local.${instanceName}.cpus") -AllowFailure:$false | Out-String).Trim()
+  $configuredMemory = (Invoke-Multipass -Args @("get", "local.${instanceName}.memory") -AllowFailure:$false | Out-String).Trim()
 
   Write-Host $list.Trim()
   Write-Host ""
   Write-Host $info.Trim()
   Write-Host ""
+  Write-Host "Configured: CPUs=$configuredCpuCount Memory=$configuredMemory"
   if ($ip) {
     Write-Host "SSH     : ssh -i `"$sshKeyPath`" ubuntu@$ip"
     Write-Host "noVNC   : http://${ip}:$guestNoVncPort/vnc.html?autoconnect=true&resize=scale"
