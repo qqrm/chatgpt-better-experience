@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [ValidateSet("start", "stop", "status", "logs", "screenshot")]
+  [ValidateSet("start", "stop", "status", "logs", "screenshot", "reset-profile")]
   [string]$Action = "start"
 )
 
@@ -12,6 +12,17 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($repoRoot)) {
   throw "Unable to resolve repository root. Run this script inside the repository."
 }
 $repoRoot = $repoRoot.Trim()
+
+$gitCommonDir = (& git rev-parse --path-format=absolute --git-common-dir 2>$null)
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitCommonDir)) {
+  $gitCommonDir = Join-Path $repoRoot ".git"
+}
+$gitCommonDir = $gitCommonDir.Trim()
+$commonRepoRoot = Split-Path -Parent $gitCommonDir
+if ([string]::IsNullOrWhiteSpace($commonRepoRoot)) {
+  $commonRepoRoot = $repoRoot
+}
+$commonRepoRoot = $commonRepoRoot.Trim()
 
 $runtimeRoot = Join-Path $repoRoot ".runtime\multipass"
 $imageDir = Join-Path $runtimeRoot "images"
@@ -25,8 +36,20 @@ $guestDisplay = ":101"
 $guestVncPort = 5902
 $guestNoVncPort = 6082
 $imageUrl = "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img"
-$legacySshDir = Join-Path $repoRoot ".runtime\hyperv\ssh"
-$sshDir = if (Test-Path -LiteralPath (Join-Path $legacySshDir "id_ed25519")) { $legacySshDir } else { Join-Path $runtimeRoot "ssh" }
+$legacySshDirs = @(
+  (Join-Path $repoRoot ".runtime\hyperv\ssh"),
+  (Join-Path $commonRepoRoot ".runtime\hyperv\ssh"),
+  (Join-Path $repoRoot ".runtime\multipass\ssh"),
+  (Join-Path $commonRepoRoot ".runtime\multipass\ssh")
+)
+$sharedSshDir = Join-Path $commonRepoRoot ".runtime\multipass-shared\ssh"
+$sshDir = $sharedSshDir
+foreach ($candidate in $legacySshDirs) {
+  if (Test-Path -LiteralPath (Join-Path $candidate "id_ed25519")) {
+    $sshDir = $candidate
+    break
+  }
+}
 $sshKeyPath = Join-Path $sshDir "id_ed25519"
 $sshPubPath = "$sshKeyPath.pub"
 
@@ -138,6 +161,23 @@ function Ensure-SshKey {
   }
 }
 
+function Ensure-GuestAuthorizedKey {
+  Ensure-SshKey
+  $pubKey = (Get-Content -LiteralPath $sshPubPath -Raw).Trim()
+  $script = @"
+set -euo pipefail
+mkdir -p /home/ubuntu/.ssh
+touch /home/ubuntu/.ssh/authorized_keys
+if ! grep -qxF '$pubKey' /home/ubuntu/.ssh/authorized_keys; then
+  printf '%s\n' '$pubKey' >> /home/ubuntu/.ssh/authorized_keys
+fi
+chmod 700 /home/ubuntu/.ssh
+chmod 600 /home/ubuntu/.ssh/authorized_keys
+"@
+
+  Invoke-Multipass -Args @("exec", $instanceName, "--", "bash", "-lc", $script) | Out-Null
+}
+
 function Write-CloudInit {
   $pubKey = (Get-Content -LiteralPath $sshPubPath -Raw).Trim()
   $cloudInit = @"
@@ -196,6 +236,7 @@ function Ensure-Instance {
 }
 
 function Wait-ForSsh {
+  Ensure-GuestAuthorizedKey
   $deadline = (Get-Date).AddMinutes(5)
   do {
     $ip = Get-InstanceIp
@@ -222,6 +263,11 @@ function Ensure-RepoMount {
   $info = Get-InstanceInfoText
   if ($info -match [regex]::Escape("$repoRoot => $guestRepoPath")) {
     return
+  }
+
+  $mountPattern = "(?m)^\s*(.+?)\s+=>\s+$([regex]::Escape($guestRepoPath))\s*$"
+  if ($info -match $mountPattern) {
+    Invoke-Multipass -Args @("umount", "${instanceName}:$guestRepoPath") | Out-Null
   }
 
   $output = Invoke-Multipass -Args @("mount", $repoRoot, "${instanceName}:$guestRepoPath") -AllowFailure
@@ -316,7 +362,6 @@ pkill -9 -f 'novnc_proxy.*__NOVNC_PORT__' || true
 pkill -9 -f '/home/ubuntu/.local/opt/firefox/firefox' || true
 rm -f /tmp/cbe-vm-*.log /tmp/cbe-vm-firefox.png
 profile_dir=/home/ubuntu/.cbe-firefox-profile
-rm -rf "$profile_dir"
 mkdir -p "$profile_dir"
 nohup Xvfb __DISPLAY__ -screen 0 1600x1000x24 >/tmp/cbe-vm-xvfb.log 2>&1 &
 sleep 2
@@ -331,6 +376,16 @@ sleep 20
 DISPLAY=__DISPLAY__ scrot /tmp/cbe-vm-firefox.png
 '@
   $script = $script.Replace("__DISPLAY__", $guestDisplay).Replace("__VNC_PORT__", [string]$guestVncPort).Replace("__NOVNC_PORT__", [string]$guestNoVncPort)
+
+  Invoke-GuestScript -Script $script
+}
+
+function Reset-GuestBrowserProfile {
+  $script = @'
+set -euo pipefail
+pkill -9 -f '/home/ubuntu/.local/opt/firefox/firefox' || true
+rm -rf /home/ubuntu/.cbe-firefox-profile
+'@
 
   Invoke-GuestScript -Script $script
 }
@@ -408,6 +463,18 @@ DISPLAY=$guestDisplay scrot /tmp/cbe-vm-firefox.png
     }
     Invoke-Multipass -Args @("stop", $instanceName) | Out-Null
     Write-Host "Firefox VM stopped."
+    return
+  }
+  "reset-profile" {
+    if (-not (Test-InstanceExists)) {
+      throw "Multipass instance not created yet."
+    }
+    if ((Get-InstanceState) -ne "Running") {
+      Invoke-Multipass -Args @("start", $instanceName) | Out-Null
+    }
+    Wait-ForSsh | Out-Null
+    Reset-GuestBrowserProfile
+    Write-Host "Firefox VM profile reset."
     return
   }
 }
