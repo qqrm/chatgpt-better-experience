@@ -39,6 +39,11 @@ The repo is mounted into the guest at `/home/ubuntu/cbe`.
   avoid snap-specific profile locking in automated runs.
 - The Firefox profile lives inside the VM at `/home/ubuntu/.cbe-firefox-profile`, so login state
   and cookies survive normal `stop` / `start` cycles.
+- The default VM footprint is intentionally small for a single Firefox session: `2` vCPU and `3G`
+  RAM. When the instance already exists and is stopped, the start script reapplies those limits
+  before boot.
+- Use `CBE_FIREFOX_VM_CPUS=<n>` or `CBE_FIREFOX_VM_MEMORY=<size>` to override the defaults for a
+  heavier session. Example: `CBE_FIREFOX_VM_MEMORY=4G npm run firefox:vm`.
 - When a host-local proxy is available, the start script now prefers an explicit reverse SSH tunnel
   from the guest back into the host instead of relying on Hyper-V routing or `allow-lan`. This
   keeps ChatGPT traffic on the same VPN/proxy path as the host even when the guest cannot reach the
