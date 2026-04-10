@@ -47,6 +47,17 @@
 - Include the exact command list and outcomes in PR notes.
 - CI must confirm local validation; CI should not be the first place packaging/lint regressions are discovered.
 
+## Isolated Firefox Validation Stand
+
+- This repository has a built-in isolated Firefox validation stand for live extension checks. Use it by default for browser validation instead of opening or controlling Firefox on the host desktop.
+- Prefer the VM-based stand first: `npm run firefox:vm`. It launches an Ubuntu guest on Hyper-V through Multipass, mounts the repo into the guest, and runs Firefox there.
+- Use `npm run firefox:vm:status` to obtain the current SSH command, noVNC URL, and guest mount path. Do not hardcode IP addresses or assume a previous VM is still running.
+- Use `npm run firefox:vm:screenshot` when a visual checkpoint is enough and avoid taking over the host desktop.
+- Use the container stand only as a fallback or for narrower runtime checks: `npm run firefox:dev`, `npm run firefox:dev:status`, `npm run firefox:dev:screenshot`.
+- Docs for the stand live in `docs/multipass-firefox-debug.md` and `docs/container-firefox-debug.md`. Follow those command paths instead of inventing a new local browser setup.
+- Do not launch or automate the user's main browser profile when the isolated stand can cover the task.
+- Live ChatGPT validation may still require a logged-in session inside the isolated browser. If the site is blocked externally in the stand (for example `Unable to load site` or a Cloudflare challenge), state that explicitly instead of silently switching to the host browser.
+
 ## Shared Local RAG (CBE)
 
 - Use only the external multi-repo RAG service at `B:\repos\multi-repo-rag`.
