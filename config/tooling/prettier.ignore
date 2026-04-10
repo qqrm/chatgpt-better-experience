@@ -3,4 +3,5 @@ dist-chrome/
 dist-firefox/
 coverage/
 test-results/
+.runtime/
 README.md

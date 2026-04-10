@@ -6,7 +6,7 @@ import globals from "globals";
 
 export default [
   {
-    ignores: ["node_modules/**", "dist/**", "dist-chrome/**", "dist-firefox/**"]
+    ignores: ["node_modules/**", "dist/**", "dist-chrome/**", "dist-firefox/**", ".runtime/**"]
   },
 
   // JS core recommended

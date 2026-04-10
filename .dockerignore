@@ -1,0 +1,11 @@
+.git
+.github
+.runtime
+.rag
+.rag-service
+node_modules
+dist
+coverage
+test-results
+web-ext-artifacts
+*.zip
