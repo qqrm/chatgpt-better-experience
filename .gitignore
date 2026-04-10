@@ -28,3 +28,4 @@
 # local rag data
 /.rag/
 /.rag-service/
+/.runtime/

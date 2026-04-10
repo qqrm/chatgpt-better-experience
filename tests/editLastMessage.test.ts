@@ -96,4 +96,40 @@ describe("editLastMessage", () => {
 
     handle.dispose();
   });
+
+  it("ArrowUp still starts edit mode when an empty contenteditable contains placeholder DOM", async () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <article id="turn">
+          <div data-message-author-role="user" id="last-user-message">Hello</div>
+          <button id="edit-message-button" aria-label="Edit message">Edit</button>
+          <textarea id="edit-input"></textarea>
+        </article>
+        <footer>
+          <form data-testid="composer">
+            <div id="prompt-textarea" contenteditable="true" role="textbox" aria-multiline="true">
+              <p data-placeholder="Ask anything" class="placeholder">Ask anything</p>
+            </div>
+          </form>
+        </footer>
+      </main>
+    `;
+
+    const calls: string[] = [];
+    const ctx = makeTestContext({ editLastMessageOnArrowUp: true });
+    ctx.helpers.humanClick = (_el, why) => {
+      calls.push(why);
+      return true;
+    };
+
+    const handle = initEditLastMessageFeature(ctx);
+    const composer = document.getElementById("prompt-textarea") as HTMLElement;
+
+    await dispatchArrowUp(composer);
+
+    expect(calls).toContain("edit last message");
+    expect(document.activeElement?.id).toBe("edit-input");
+
+    handle.dispose();
+  });
 });

@@ -11,6 +11,8 @@ Dev:
 - `npm ci`
 - `npm run verify`
 - `npm run build`
+- `npm run firefox:dev` for isolated containerized Firefox extension debugging
+- `npm run firefox:vm` for isolated Firefox debugging inside a Hyper-V Ubuntu VM via Multipass
 
 ## UI preview
 

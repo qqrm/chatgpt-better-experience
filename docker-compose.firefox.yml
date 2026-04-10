@@ -1,0 +1,20 @@
+services:
+  firefox-dev:
+    build:
+      context: .
+      dockerfile: docker/firefox-dev/Dockerfile
+    working_dir: /workspace
+    shm_size: 2gb
+    environment:
+      START_URL: ${START_URL:-https://chatgpt.com/}
+      DISPLAY_WIDTH: ${DISPLAY_WIDTH:-1440}
+      DISPLAY_HEIGHT: ${DISPLAY_HEIGHT:-900}
+      DISPLAY_DPI: ${DISPLAY_DPI:-96}
+    ports:
+      - "127.0.0.1:6080:6080"
+    volumes:
+      - ./:/workspace
+      - firefox-dev-node-modules:/workspace/node_modules
+
+volumes:
+  firefox-dev-node-modules:
