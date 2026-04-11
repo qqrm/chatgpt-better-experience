@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { hrtime } from "node:process";
 import { fileURLToPath } from "node:url";
 
 const DEFAULT_VERBOSE = process.env.CBE_VERBOSE === "1";
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-const windowsShell = process.env.ComSpec ?? "cmd.exe";
+const npmCommand = "npm";
 
 const formatDuration = (durationMs) => {
   if (durationMs < 1000) {
@@ -32,6 +33,66 @@ const printCapturedOutput = (logger, streamName, content) => {
 
   logger.error(`${streamName}:`);
   logger.error(trimmed);
+};
+
+const normalizeScript = (script) => {
+  const normalized = String(script).trim();
+  if (!normalized) {
+    throw new Error("npm script name is required.");
+  }
+
+  return normalized;
+};
+
+const resolveWindowsNpmCliPath = ({
+  env = process.env,
+  execPath = process.execPath,
+  fileExists = existsSync
+} = {}) => {
+  const nodeDir = path.dirname(execPath);
+  const candidates = [
+    env.npm_execpath,
+    path.join(nodeDir, "node_modules", "npm", "bin", "npm-cli.js"),
+    path.join(nodeDir, "..", "node_modules", "npm", "bin", "npm-cli.js")
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = typeof candidate === "string" ? candidate.trim() : "";
+    if (!normalized || !normalized.toLowerCase().endsWith(".js")) {
+      continue;
+    }
+
+    if (fileExists(normalized)) {
+      return normalized;
+    }
+  }
+
+  throw new Error("Unable to locate npm-cli.js for a shell-free Windows npm invocation.");
+};
+
+export const buildNpmRunCommand = ({
+  script,
+  extraArgs = [],
+  env = process.env,
+  platform = process.platform,
+  execPath = process.execPath
+}) => {
+  const npmArgs = ["run", "--silent", normalizeScript(script)];
+  if (extraArgs.length > 0) {
+    npmArgs.push("--", ...extraArgs);
+  }
+
+  if (platform === "win32") {
+    return {
+      command: execPath,
+      args: [resolveWindowsNpmCliPath({ env, execPath }), ...npmArgs]
+    };
+  }
+
+  return {
+    command: npmCommand,
+    args: npmArgs
+  };
 };
 
 export class QuietRunError extends Error {
@@ -138,27 +199,17 @@ export const runCommandQuiet = ({
   });
 
 export const runNpmScriptQuiet = ({ script, label = script, extraArgs = [], ...options }) => {
-  if (process.platform === "win32") {
-    const forwardedArgs = extraArgs.length > 0 ? ` -- ${extraArgs.map(quoteArg).join(" ")}` : "";
-
-    return runCommandQuiet({
-      ...options,
-      label,
-      command: windowsShell,
-      args: ["/d", "/s", "/c", `${npmCommand} run --silent ${script}${forwardedArgs}`]
-    });
-  }
-
-  const npmArgs = ["run", "--silent", script];
-  if (extraArgs.length > 0) {
-    npmArgs.push("--", ...extraArgs);
-  }
+  const { command, args } = buildNpmRunCommand({
+    script,
+    extraArgs,
+    env: options.env
+  });
 
   return runCommandQuiet({
     ...options,
     label,
-    command: npmCommand,
-    args: npmArgs
+    command,
+    args
   });
 };
 

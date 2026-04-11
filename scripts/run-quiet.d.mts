@@ -15,6 +15,17 @@ export class QuietRunError extends Error {
   result: QuietRunResult;
 }
 
+export function buildNpmRunCommand(options: {
+  script: string;
+  extraArgs?: string[];
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  execPath?: string;
+}): {
+  command: string;
+  args: string[];
+};
+
 export function runCommandQuiet(options: {
   label: string;
   command: string;
