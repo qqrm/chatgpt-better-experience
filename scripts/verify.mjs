@@ -1,6 +1,7 @@
-import { spawn } from "node:child_process";
+import { findCheckStep, verifySteps } from "./check-steps.mjs";
+import { QuietRunError, runNpmScriptQuiet } from "./run-quiet.mjs";
 
-const steps = ["format:check", "lint", "typecheck", "build"];
+const steps = verifySteps.map((stepDefinition) => stepDefinition.name);
 
 const args = process.argv.slice(2);
 
@@ -16,26 +17,24 @@ const parseStep = (argv) => {
 const step = parseStep(args);
 const stepsToRun = step ? [step] : steps;
 
-const run = (command) =>
-  new Promise((resolve, reject) => {
-    const child = spawn(command, { shell: true, stdio: "inherit" });
-    child.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`Command failed: ${command}`));
-    });
-  });
-
 try {
-  for (const script of stepsToRun) {
-    if (!steps.includes(script)) {
+  for (const stepName of stepsToRun) {
+    const stepDefinition = findCheckStep(verifySteps, stepName);
+    if (!stepDefinition) {
       throw new Error(
-        `Unknown verify step: ${script}. Allowed: ${steps.join(", ")}. ` +
+        `Unknown verify step: ${stepName}. Allowed: ${steps.join(", ")}. ` +
           `Example: npm run verify -- --step=${steps[0]}`
       );
     }
-    await run(`npm run ${script}`);
+
+    await runNpmScriptQuiet({
+      label: stepDefinition.name,
+      script: stepDefinition.script
+    });
   }
 } catch (error) {
-  console.error(error instanceof Error ? error.message : error);
+  if (!(error instanceof QuietRunError)) {
+    console.error(error instanceof Error ? error.message : error);
+  }
   process.exit(1);
 }
