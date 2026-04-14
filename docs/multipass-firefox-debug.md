@@ -7,6 +7,7 @@ guest instead of touching the host browser session.
 
 - Keep Firefox and ChatGPT off the host desktop.
 - Give the agent a real browser that can be inspected through screenshots or noVNC.
+- Allow an alternative remote-control path through RustDesk when noVNC is too fragile.
 - Keep extension debugging reproducible from the repo with a single command path.
 
 ## Commands
@@ -14,10 +15,15 @@ guest instead of touching the host browser session.
 - `npm run firefox:vm`
   Creates or starts the VM, mounts the repo into the guest, installs Firefox runtime dependencies,
   and launches ChatGPT in guest Firefox using the persistent guest profile.
+- `npm run firefox:vm:rustdesk`
+  Creates or starts the same VM, launches Firefox, installs RustDesk in the guest, and prints the
+  RustDesk ID plus unattended password for connecting from a host RustDesk client without noVNC.
 - `npm run firefox:vm:status`
   Shows VM status, SSH target, noVNC URL, and the guest mount path.
+- `npm run firefox:vm:rustdesk:status`
+  Shows the same VM status plus RustDesk ID/password when RustDesk is installed in the guest.
 - `npm run firefox:vm:logs`
-  Prints recent guest logs for Firefox, x11vnc, noVNC, and Xvfb.
+  Prints recent guest logs for Firefox, RustDesk, x11vnc, noVNC, and Xvfb.
 - `npm run firefox:vm:reset-profile`
   Deletes the guest Firefox profile so the next launch starts from a clean state.
 - `npm run firefox:vm:screenshot`
@@ -29,6 +35,8 @@ guest instead of touching the host browser session.
 
 - SSH: the status command prints the exact `ssh -i ... ubuntu@<ip>` command.
 - noVNC: the status command prints `http://<guest-ip>:6082/vnc.html?autoconnect=true&resize=scale`
+- RustDesk: `npm run firefox:vm:rustdesk` prints the guest RustDesk ID and unattended password;
+  connect to that ID from a host RustDesk client.
 
 The repo is mounted into the guest at `/home/ubuntu/cbe`.
 
@@ -37,8 +45,13 @@ The repo is mounted into the guest at `/home/ubuntu/cbe`.
 - This workflow uses a generic Ubuntu 24.04 cloud image plus cloud-init for SSH access.
 - The guest browser uses the official Mozilla Linux tarball instead of the Ubuntu snap package to
   avoid snap-specific profile locking in automated runs.
+- RustDesk is installed from the official GitHub release `.deb` for Ubuntu x86-64 and is only
+  started when you use the explicit RustDesk command path.
 - The Firefox profile lives inside the VM at `/home/ubuntu/.cbe-firefox-profile`, so login state
   and cookies survive normal `stop` / `start` cycles.
+- The RustDesk unattended password is stored locally at `.runtime/multipass/rustdesk-password.txt`.
+  Override it with `CBE_FIREFOX_VM_RUSTDESK_PASSWORD=<password>` before running
+  `npm run firefox:vm:rustdesk`.
 - The default VM footprint is intentionally small for a single Firefox session: `2` vCPU and `3G`
   RAM. When the instance already exists and is stopped, the start script reapplies those limits
   before boot.

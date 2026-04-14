@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [ValidateSet("start", "stop", "status", "logs", "screenshot", "reset-profile")]
+  [ValidateSet("start", "rustdesk-start", "stop", "status", "rustdesk-status", "logs", "screenshot", "reset-profile")]
   [string]$Action = "start"
 )
 
@@ -31,12 +31,18 @@ $imagePath = Join-Path $imageDir "ubuntu-24.04-server-cloudimg-amd64.img"
 $screenshotPath = Join-Path $runtimeRoot "firefox-screen.png"
 $proxyTunnelPidPath = Join-Path $runtimeRoot "host-proxy-tunnel.pid"
 $proxyTunnelInfoPath = Join-Path $runtimeRoot "host-proxy-tunnel.json"
+$noVncTunnelPidPath = Join-Path $runtimeRoot "host-novnc-tunnel.pid"
+$debugTunnelPidPath = Join-Path $runtimeRoot "host-firefox-debug-tunnel.pid"
+$rustDeskPasswordPath = Join-Path $runtimeRoot "rustdesk-password.txt"
 
 $instanceName = "cbe-debug-generic"
 $guestRepoPath = "/home/ubuntu/cbe"
 $guestDisplay = ":101"
 $guestVncPort = 5902
 $guestNoVncPort = 6082
+$guestFirefoxDebugPort = 6000
+$rustDeskVersion = "1.4.6"
+$rustDeskDebUrl = "https://github.com/rustdesk/rustdesk/releases/download/$rustDeskVersion/rustdesk-$rustDeskVersion-x86_64.deb"
 $guestProxyListenHost = "127.0.0.1"
 $guestProxyListenPort = 17897
 $defaultVmCpuCount = 2
@@ -48,7 +54,13 @@ $legacySshDirs = @(
   (Join-Path $repoRoot ".runtime\multipass\ssh"),
   (Join-Path $commonRepoRoot ".runtime\multipass\ssh")
 )
-$sharedSshDir = Join-Path $commonRepoRoot ".runtime\multipass-shared\ssh"
+$defaultSharedSshDir = Join-Path $commonRepoRoot ".runtime\multipass-shared\ssh"
+$windowsSharedSshDir = Join-Path $env:LOCALAPPDATA "cbe\multipass-shared\ssh"
+$sharedSshDir = if ($defaultSharedSshDir -like "\\*") {
+  $windowsSharedSshDir
+} else {
+  $defaultSharedSshDir
+}
 $sshDir = $sharedSshDir
 foreach ($candidate in $legacySshDirs) {
   if (Test-Path -LiteralPath (Join-Path $candidate "id_ed25519")) {
@@ -75,10 +87,38 @@ function Resolve-CommandPath {
   throw "Unable to find required executable: $Command"
 }
 
+function Resolve-ShortWindowsPath {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  if ($Path -notmatch '^[A-Za-z]:\\') {
+    return $Path
+  }
+
+  $escaped = $Path.Replace('"', '""')
+  Push-Location "C:\"
+  try {
+    $short = & cmd.exe /d /c "for %I in (""$escaped"") do @echo %~sI" 2>$null
+  }
+  finally {
+    Pop-Location
+  }
+  if ($LASTEXITCODE -ne 0) {
+    return $Path
+  }
+
+  $value = ($short | Out-String).Trim()
+  if ([string]::IsNullOrWhiteSpace($value)) {
+    return $Path
+  }
+
+  return $value
+}
+
 $multipassPath = Resolve-CommandPath -Command "multipass" -Fallback "C:\Program Files\Multipass\bin\multipass.exe"
 $sshPath = Resolve-CommandPath -Command "ssh"
 $scpPath = Resolve-CommandPath -Command "scp"
 $sshKeygenPath = Resolve-CommandPath -Command "ssh-keygen"
+$sshKeyCliPath = Resolve-ShortWindowsPath -Path $sshKeyPath
 
 function Resolve-PositiveIntSetting {
   param(
@@ -114,6 +154,46 @@ function Resolve-MemorySetting {
 
 $vmCpuCount = Resolve-PositiveIntSetting -Name "CBE_FIREFOX_VM_CPUS" -DefaultValue $defaultVmCpuCount
 $vmMemory = Resolve-MemorySetting
+
+function New-RandomSecret {
+  param([int]$Length = 16)
+
+  $alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+  $bytes = New-Object byte[] $Length
+  $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+  try {
+    $rng.GetBytes($bytes)
+  }
+  finally {
+    $rng.Dispose()
+  }
+  $chars = for ($i = 0; $i -lt $Length; $i++) {
+    $alphabet[$bytes[$i] % $alphabet.Length]
+  }
+  return -join $chars
+}
+
+function Get-RustDeskPassword {
+  New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
+
+  $explicitPassword = [Environment]::GetEnvironmentVariable("CBE_FIREFOX_VM_RUSTDESK_PASSWORD")
+  if (-not [string]::IsNullOrWhiteSpace($explicitPassword)) {
+    $password = $explicitPassword.Trim()
+    Set-Content -LiteralPath $rustDeskPasswordPath -Value $password -NoNewline
+    return $password
+  }
+
+  if (Test-Path -LiteralPath $rustDeskPasswordPath) {
+    $password = (Get-Content -LiteralPath $rustDeskPasswordPath -Raw).Trim()
+    if (-not [string]::IsNullOrWhiteSpace($password)) {
+      return $password
+    }
+  }
+
+  $generated = New-RandomSecret -Length 16
+  Set-Content -LiteralPath $rustDeskPasswordPath -Value $generated -NoNewline
+  return $generated
+}
 
 function Resolve-ProxyConfigFromUri {
   param(
@@ -235,6 +315,56 @@ function Stop-GuestProxyTunnel {
   Remove-Item -LiteralPath $proxyTunnelPidPath, $proxyTunnelInfoPath -Force -ErrorAction SilentlyContinue
 }
 
+function Stop-GuestNoVncTunnel {
+  $pidText = if (Test-Path -LiteralPath $noVncTunnelPidPath) {
+    (Get-Content -LiteralPath $noVncTunnelPidPath -Raw).Trim()
+  } else {
+    ""
+  }
+
+  $processIdValue = 0
+  if ([int]::TryParse($pidText, [ref]$processIdValue)) {
+    Stop-Process -Id $processIdValue -Force -ErrorAction SilentlyContinue
+  }
+
+  $staleSshProcesses = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.Name -match "^ssh(?:\.exe)?$" -and
+      $_.CommandLine -match [regex]::Escape("${guestNoVncPort}:127.0.0.1:${guestNoVncPort}") -and
+      $_.CommandLine -match [regex]::Escape("ubuntu@")
+    }
+  foreach ($staleProcess in $staleSshProcesses) {
+    Stop-Process -Id $staleProcess.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+
+  Remove-Item -LiteralPath $noVncTunnelPidPath -Force -ErrorAction SilentlyContinue
+}
+
+function Stop-GuestFirefoxDebugTunnel {
+  $pidText = if (Test-Path -LiteralPath $debugTunnelPidPath) {
+    (Get-Content -LiteralPath $debugTunnelPidPath -Raw).Trim()
+  } else {
+    ""
+  }
+
+  $processIdValue = 0
+  if ([int]::TryParse($pidText, [ref]$processIdValue)) {
+    Stop-Process -Id $processIdValue -Force -ErrorAction SilentlyContinue
+  }
+
+  $staleSshProcesses = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.Name -match "^ssh(?:\.exe)?$" -and
+      $_.CommandLine -match [regex]::Escape("${guestFirefoxDebugPort}:127.0.0.1:${guestFirefoxDebugPort}") -and
+      $_.CommandLine -match [regex]::Escape("ubuntu@")
+    }
+  foreach ($staleProcess in $staleSshProcesses) {
+    Stop-Process -Id $staleProcess.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+
+  Remove-Item -LiteralPath $debugTunnelPidPath -Force -ErrorAction SilentlyContinue
+}
+
 function Ensure-GuestProxyTunnel {
   param([Parameter(Mandatory = $true)][string]$Ip)
 
@@ -249,7 +379,6 @@ function Ensure-GuestProxyTunnel {
 
   $remoteSpec = "${guestProxyListenPort}:$($proxyConfig.Host):$($proxyConfig.Port)"
   $args = @(
-    "-f",
     "-N",
     "-o", "ExitOnForwardFailure=yes",
     "-o", "StrictHostKeyChecking=no",
@@ -257,27 +386,14 @@ function Ensure-GuestProxyTunnel {
     "-o", "LogLevel=ERROR",
     "-o", "ServerAliveInterval=30",
     "-o", "ServerAliveCountMax=3",
-    "-i", $sshKeyPath,
+    "-i", $sshKeyCliPath,
     "-R", $remoteSpec,
     "ubuntu@$Ip"
   )
-
-  $cmdArgs = $args | ForEach-Object {
-    '"' + ($_ -replace '"', '\"') + '"'
-  }
-  $cmdLine = 'start "" /b "{0}" {1}' -f $sshPath, ($cmdArgs -join ' ')
-  & cmd.exe /c $cmdLine | Out-Null
+  $process = Start-Process -FilePath $sshPath -ArgumentList $args -PassThru -WindowStyle Hidden
   Start-Sleep -Seconds 3
-
-  $process = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-    Where-Object {
-      $_.Name -match "^ssh(?:\.exe)?$" -and
-      $_.CommandLine -match [regex]::Escape($remoteSpec) -and
-      $_.CommandLine -match [regex]::Escape("ubuntu@$Ip")
-    } |
-    Select-Object -First 1
   if (-not $process) {
-    throw "Failed to resolve the background ssh process for VM proxy tunnel $remoteSpec."
+    throw "Failed to start the background ssh process for VM proxy tunnel $remoteSpec."
   }
 
   $script = @"
@@ -293,13 +409,95 @@ ss -ltn | grep -F '$($guestProxyListenHost):$guestProxyListenPort' >/dev/null
     Port = $proxyConfig.Port
     GuestHost = $guestProxyListenHost
     GuestPort = $guestProxyListenPort
-    ProcessId = $process.ProcessId
+    ProcessId = $process.Id
   }
 
-  Set-Content -LiteralPath $proxyTunnelPidPath -Value $process.ProcessId -NoNewline
+  Set-Content -LiteralPath $proxyTunnelPidPath -Value $process.Id -NoNewline
   Set-Content -LiteralPath $proxyTunnelInfoPath -Value ($info | ConvertTo-Json -Compress) -NoNewline
 
   return $info
+}
+
+function Ensure-GuestNoVncTunnel {
+  param([Parameter(Mandatory = $true)][string]$Ip)
+
+  New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
+  Stop-GuestNoVncTunnel
+
+  $forwardSpec = "${guestNoVncPort}:127.0.0.1:${guestNoVncPort}"
+  $args = @(
+    "-N",
+    "-o", "ExitOnForwardFailure=yes",
+    "-o", "StrictHostKeyChecking=no",
+    "-o", "UserKnownHostsFile=NUL",
+    "-o", "LogLevel=ERROR",
+    "-o", "ServerAliveInterval=30",
+    "-o", "ServerAliveCountMax=3",
+    "-i", $sshKeyCliPath,
+    "-L", $forwardSpec,
+    "ubuntu@$Ip"
+  )
+
+  $process = Start-Process -FilePath $sshPath -ArgumentList $args -PassThru -WindowStyle Hidden
+  Start-Sleep -Seconds 2
+  if (-not $process) {
+    throw "Failed to start the background ssh process for VM noVNC tunnel $forwardSpec."
+  }
+
+  $probeOk = $false
+  for ($i = 0; $i -lt 10; $i++) {
+    if (Test-NetConnection -ComputerName "127.0.0.1" -Port $guestNoVncPort -InformationLevel Quiet -WarningAction SilentlyContinue) {
+      $probeOk = $true
+      break
+    }
+    Start-Sleep -Seconds 1
+  }
+  if (-not $probeOk) {
+    throw "Failed to establish localhost noVNC tunnel on port $guestNoVncPort."
+  }
+
+  Set-Content -LiteralPath $noVncTunnelPidPath -Value $process.Id -NoNewline
+}
+
+function Ensure-GuestFirefoxDebugTunnel {
+  param([Parameter(Mandatory = $true)][string]$Ip)
+
+  New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
+  Stop-GuestFirefoxDebugTunnel
+
+  $forwardSpec = "${guestFirefoxDebugPort}:127.0.0.1:${guestFirefoxDebugPort}"
+  $args = @(
+    "-N",
+    "-o", "ExitOnForwardFailure=yes",
+    "-o", "StrictHostKeyChecking=no",
+    "-o", "UserKnownHostsFile=NUL",
+    "-o", "LogLevel=ERROR",
+    "-o", "ServerAliveInterval=30",
+    "-o", "ServerAliveCountMax=3",
+    "-i", $sshKeyCliPath,
+    "-L", $forwardSpec,
+    "ubuntu@$Ip"
+  )
+
+  $process = Start-Process -FilePath $sshPath -ArgumentList $args -PassThru -WindowStyle Hidden
+  Start-Sleep -Seconds 2
+  if (-not $process) {
+    throw "Failed to start the background ssh process for Firefox debug tunnel $forwardSpec."
+  }
+
+  $probeOk = $false
+  for ($i = 0; $i -lt 10; $i++) {
+    if (Test-NetConnection -ComputerName "127.0.0.1" -Port $guestFirefoxDebugPort -InformationLevel Quiet -WarningAction SilentlyContinue) {
+      $probeOk = $true
+      break
+    }
+    Start-Sleep -Seconds 1
+  }
+  if (-not $probeOk) {
+    throw "Failed to establish localhost Firefox debug tunnel on port $guestFirefoxDebugPort."
+  }
+
+  Set-Content -LiteralPath $debugTunnelPidPath -Value $process.Id -NoNewline
 }
 
 function Ensure-MultipassService {
@@ -321,17 +519,28 @@ function Invoke-Multipass {
   Ensure-MultipassService
 
   $attempts = 0
+  $maxAttempts = 10
   do {
     $attempts++
-    $output = & $multipassPath @Args 2>&1
-    if ($LASTEXITCODE -eq 0) {
+    $output = @()
+    $exitCode = 0
+    try {
+      $output = & $multipassPath @Args 2>&1
+      $exitCode = $LASTEXITCODE
+    }
+    catch {
+      $output = @($_.ToString())
+      $exitCode = if ($LASTEXITCODE -ne $null) { $LASTEXITCODE } else { 1 }
+    }
+
+    if ($exitCode -eq 0) {
       return $output
     }
 
     $message = ($output | Out-String).Trim()
     $shouldRetry = $message -match "cannot connect to the multipass socket|grpc_wait_for_shutdown_with_timeout"
-    if ($shouldRetry -and $attempts -lt 4) {
-      Start-Sleep -Seconds 2
+    if ($shouldRetry -and $attempts -lt $maxAttempts) {
+      Start-Sleep -Seconds ([Math]::Min($attempts * 2, 10))
       continue
     }
 
@@ -383,7 +592,8 @@ function Ensure-SshKey {
     return
   }
 
-  & $sshKeygenPath -q -t ed25519 -N "" -f $sshKeyPath
+  $args = @("-q", "-t", "ed25519", "-N", "", "-f", $sshKeyCliPath)
+  & $sshKeygenPath @args
   if ($LASTEXITCODE -ne 0) {
     throw "Failed to generate SSH key at $sshKeyPath"
   }
@@ -439,8 +649,20 @@ function Ensure-BaseImage {
 }
 
 function Apply-InstanceResourceConfig {
-  Invoke-Multipass -Args @("set", "local.${instanceName}.cpus=$vmCpuCount") | Out-Null
-  Invoke-Multipass -Args @("set", "local.${instanceName}.memory=$vmMemory") | Out-Null
+  foreach ($setting in @("local.${instanceName}.cpus=$vmCpuCount", "local.${instanceName}.memory=$vmMemory")) {
+    $output = Invoke-Multipass -Args @("set", $setting) -AllowFailure
+    if ($LASTEXITCODE -eq 0) {
+      continue
+    }
+
+    $message = ($output | Out-String).Trim()
+    if ($message -match "Instance must be stopped for modification") {
+      Write-Warning "Skipping live VM resource update for '$setting' because the instance is already running."
+      continue
+    }
+
+    throw "Failed to apply Multipass setting '$setting'.`n$message"
+  }
 }
 
 function Ensure-Instance {
@@ -463,7 +685,11 @@ function Ensure-Instance {
       "--timeout", "600"
     ) | Out-Null
   }
-  elseif ((Get-InstanceState) -ne "Running") {
+  else {
+    $state = Get-InstanceState
+    if ($state -eq "Running" -or $state -eq "Starting") {
+      return
+    }
     Apply-InstanceResourceConfig
     Invoke-Multipass -Args @("start", $instanceName) | Out-Null
   }
@@ -480,7 +706,7 @@ function Wait-ForSsh {
         -o UserKnownHostsFile=NUL `
         -o LogLevel=ERROR `
         -o ConnectTimeout=10 `
-        -i $sshKeyPath `
+        -i $sshKeyCliPath `
         "ubuntu@$ip" `
         "true" | Out-Null
       if ($LASTEXITCODE -eq 0) {
@@ -507,6 +733,13 @@ function Ensure-RepoMount {
   $output = Invoke-Multipass -Args @("mount", $repoRoot, "${instanceName}:$guestRepoPath") -AllowFailure
   if ($LASTEXITCODE -ne 0) {
     $message = ($output | Out-String)
+    $isWslUncMountFailure =
+      ($repoRoot -match '^[\\/]{2}wsl\.localhost[\\/]') -and
+      $message -match "weakly_canonical: The network name cannot be found"
+    if ($isWslUncMountFailure) {
+      Write-Warning "Skipping VM repo mount for WSL worktree path '$repoRoot'. Firefox/noVNC will still start, but the guest repo mount is unavailable from this path."
+      return
+    }
     if ($message -notmatch "already mounted") {
       throw "Failed to mount repository into guest.`n$message"
     }
@@ -527,7 +760,7 @@ function Invoke-GuestScript {
       -o StrictHostKeyChecking=no `
       -o UserKnownHostsFile=NUL `
       -o LogLevel=ERROR `
-      -i $sshKeyPath `
+      -i $sshKeyCliPath `
       $tempPath `
       "ubuntu@${ip}:$guestTempPath"
     if ($LASTEXITCODE -ne 0) {
@@ -539,7 +772,7 @@ function Invoke-GuestScript {
       -o UserKnownHostsFile=NUL `
       -o LogLevel=ERROR `
       -o ConnectTimeout=10 `
-      -i $sshKeyPath `
+      -i $sshKeyCliPath `
       "ubuntu@$ip" `
       "bash $guestTempPath"
     if ($LASTEXITCODE -ne 0) {
@@ -562,7 +795,7 @@ function Copy-FromGuest {
     -o StrictHostKeyChecking=no `
     -o UserKnownHostsFile=NUL `
     -o LogLevel=ERROR `
-    -i $sshKeyPath `
+    -i $sshKeyCliPath `
     "ubuntu@${ip}:$GuestPath" `
     $HostPath
   if ($LASTEXITCODE -ne 0) {
@@ -602,12 +835,34 @@ fi
   Invoke-GuestScript -Script $script
 }
 
-function Start-GuestBrowser {
-  param($ProxyConfig)
+function Ensure-GuestRustDesk {
+  $script = @"
+set -euo pipefail
+target_version='$rustDeskVersion'
+installed_version=`$(dpkg-query -W -f='`${Version}' rustdesk 2>/dev/null || true)
+if [ "`$installed_version" != "`$target_version" ]; then
+  curl -L '$rustDeskDebUrl' -o /tmp/rustdesk.deb
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/rustdesk.deb >/tmp/cbe-vm-rustdesk-install.log 2>&1
+fi
+"@
 
-  $proxySetup = "rm -f `"`$profile_dir/user.js`""
+  Invoke-GuestScript -Script $script
+}
+
+function Start-GuestBrowser {
+  param(
+    $ProxyConfig,
+    [bool]$EnableNoVnc = $true
+  )
+
+  $userPrefsLines = @(
+    'user_pref("devtools.debugger.remote-enabled", true);',
+    'user_pref("devtools.chrome.enabled", true);',
+    'user_pref("devtools.debugger.prompt-connection", false);'
+  )
+
   if ($ProxyConfig) {
-    $userPrefs = switch ($ProxyConfig.Scheme) {
+    $proxyPrefs = switch ($ProxyConfig.Scheme) {
       { $_ -in @("http", "https") } {
         @(
           'user_pref("network.proxy.type", 1);',
@@ -635,12 +890,32 @@ function Start-GuestBrowser {
         throw "Unsupported guest proxy scheme: $($ProxyConfig.Scheme)"
       }
     }
+    $userPrefsLines += $proxyPrefs
+  }
 
-    $proxySetup = @"
+  $userPrefs = $userPrefsLines -join "`n"
+  $proxySetup = @"
 cat > "`$profile_dir/user.js" <<'EOF'
 $userPrefs
 EOF
 "@
+
+  $remoteDesktopSetup = @'
+DISPLAY=__DISPLAY__ nohup x11vnc -forever -shared -rfbport __VNC_PORT__ -nopw >/tmp/cbe-vm-x11vnc.log 2>&1 &
+sleep 1
+if [ -x /usr/share/novnc/utils/novnc_proxy ]; then
+  nohup /usr/share/novnc/utils/novnc_proxy --listen __NOVNC_PORT__ --vnc localhost:__VNC_PORT__ >/tmp/cbe-vm-novnc.log 2>&1 &
+elif command -v websockify >/dev/null 2>&1 && [ -d /usr/share/novnc ]; then
+  nohup websockify --web=/usr/share/novnc/ __NOVNC_PORT__ localhost:__VNC_PORT__ >/tmp/cbe-vm-novnc.log 2>&1 &
+else
+  echo "no noVNC launcher found" >/tmp/cbe-vm-novnc.log
+  exit 1
+fi
+sleep 2
+'@
+
+  if (-not $EnableNoVnc) {
+    $remoteDesktopSetup = "rm -f /tmp/cbe-vm-novnc.log /tmp/cbe-vm-x11vnc.log"
   }
 
   $script = @'
@@ -648,6 +923,8 @@ set -euo pipefail
 pkill -9 -f 'Xvfb __DISPLAY__' || true
 pkill -9 -f 'x11vnc.*__VNC_PORT__' || true
 pkill -9 -f 'novnc_proxy.*__NOVNC_PORT__' || true
+pkill -9 -f 'websockify.*__NOVNC_PORT__' || true
+pkill -9 -f 'firefox.*--start-debugger-server __DEBUG_PORT__' || true
 pkill -9 -f '/home/ubuntu/.local/opt/firefox/firefox' || true
 rm -f /tmp/cbe-vm-*.log /tmp/cbe-vm-firefox.png
 profile_dir=/home/ubuntu/.cbe-firefox-profile
@@ -657,17 +934,52 @@ nohup Xvfb __DISPLAY__ -screen 0 1600x1000x24 >/tmp/cbe-vm-xvfb.log 2>&1 &
 sleep 2
 DISPLAY=__DISPLAY__ nohup fluxbox >/tmp/cbe-vm-fluxbox.log 2>&1 &
 sleep 1
-DISPLAY=__DISPLAY__ nohup x11vnc -forever -shared -rfbport __VNC_PORT__ -nopw >/tmp/cbe-vm-x11vnc.log 2>&1 &
-sleep 1
-nohup /usr/share/novnc/utils/novnc_proxy --listen __NOVNC_PORT__ --vnc localhost:__VNC_PORT__ >/tmp/cbe-vm-novnc.log 2>&1 &
-sleep 2
-DISPLAY=__DISPLAY__ nohup /home/ubuntu/.local/opt/firefox/firefox --new-instance --no-remote --profile "$profile_dir" 'https://chatgpt.com/' >/tmp/cbe-vm-firefox.log 2>&1 &
+__REMOTE_DESKTOP_SETUP__
+DISPLAY=__DISPLAY__ nohup /home/ubuntu/.local/opt/firefox/firefox --new-instance --no-remote --start-debugger-server __DEBUG_PORT__ --profile "$profile_dir" 'https://chatgpt.com/' >/tmp/cbe-vm-firefox.log 2>&1 &
 sleep 20
 DISPLAY=__DISPLAY__ scrot /tmp/cbe-vm-firefox.png
+ss -ltn | grep -F ':__DEBUG_PORT__' >/dev/null
+if [ "__ENABLE_NOVNC__" = "1" ]; then
+  ss -ltn | grep -F ':__NOVNC_PORT__' >/dev/null
+fi
 '@
-  $script = $script.Replace("__DISPLAY__", $guestDisplay).Replace("__VNC_PORT__", [string]$guestVncPort).Replace("__NOVNC_PORT__", [string]$guestNoVncPort).Replace("__PROXY_SETUP__", $proxySetup)
+  $script = $script.Replace("__DISPLAY__", $guestDisplay).Replace("__VNC_PORT__", [string]$guestVncPort).Replace("__NOVNC_PORT__", [string]$guestNoVncPort).Replace("__DEBUG_PORT__", [string]$guestFirefoxDebugPort).Replace("__PROXY_SETUP__", $proxySetup).Replace("__REMOTE_DESKTOP_SETUP__", $remoteDesktopSetup).Replace("__ENABLE_NOVNC__", $(if ($EnableNoVnc) { "1" } else { "0" }))
 
   Invoke-GuestScript -Script $script
+}
+
+function Start-GuestRustDesk {
+  param([Parameter(Mandatory = $true)][string]$Password)
+
+  $script = @"
+set -euo pipefail
+if command -v rustdesk >/dev/null 2>&1; then
+  rustdesk --password '$Password' >/tmp/cbe-vm-rustdesk-password.log 2>&1 || sudo rustdesk --password '$Password' >/tmp/cbe-vm-rustdesk-password.log 2>&1 || true
+  sudo rustdesk --option allow-linux-headless Y >/tmp/cbe-vm-rustdesk-option.log 2>&1 || true
+  pkill -9 -f '(^|/)rustdesk($| )' || true
+  DISPLAY=$guestDisplay nohup rustdesk >/tmp/cbe-vm-rustdesk.log 2>&1 &
+  sleep 8
+fi
+"@
+
+  Invoke-GuestScript -Script $script
+}
+
+function Get-GuestRustDeskId {
+  if (-not (Test-InstanceExists)) {
+    return ""
+  }
+  if ((Get-InstanceState) -ne "Running") {
+    return ""
+  }
+
+  try {
+    $id = Invoke-Multipass -Args @("exec", $instanceName, "--", "bash", "-lc", "command -v rustdesk >/dev/null 2>&1 && rustdesk --get-id 2>/dev/null || true") -AllowFailure:$true | Out-String
+    return $id.Trim()
+  }
+  catch {
+    return ""
+  }
 }
 
 function Reset-GuestBrowserProfile {
@@ -685,6 +997,7 @@ function Show-Status {
   $info = Get-InstanceInfoText
   $ip = Get-InstanceIp
   $proxyInfo = Get-ActiveProxyTunnelInfo
+  $rustDeskId = Get-GuestRustDeskId
   $configuredCpuCount = (Invoke-Multipass -Args @("get", "local.${instanceName}.cpus") -AllowFailure:$false | Out-String).Trim()
   $configuredMemory = (Invoke-Multipass -Args @("get", "local.${instanceName}.memory") -AllowFailure:$false | Out-String).Trim()
 
@@ -695,10 +1008,18 @@ function Show-Status {
   Write-Host "Configured: CPUs=$configuredCpuCount Memory=$configuredMemory"
   if ($ip) {
     Write-Host "SSH     : ssh -i `"$sshKeyPath`" ubuntu@$ip"
-    Write-Host "noVNC   : http://${ip}:$guestNoVncPort/vnc.html?autoconnect=true&resize=scale"
+    Write-Host "Debug   : localhost:$guestFirefoxDebugPort"
     Write-Host "Repo VM : $guestRepoPath"
+    if (Test-Path -LiteralPath $noVncTunnelPidPath) {
+      Write-Host "noVNC   : http://127.0.0.1:$guestNoVncPort/vnc.html?autoconnect=true&resize=scale"
+      Write-Host "noVNC VM: http://${ip}:$guestNoVncPort/vnc.html?autoconnect=true&resize=scale"
+    }
     if ($proxyInfo) {
       Write-Host "Proxy   : ${guestProxyListenHost}:$($proxyInfo.GuestPort) -> $($proxyInfo.Host):$($proxyInfo.Port) ($($proxyInfo.Source))"
+    }
+    if ($rustDeskId) {
+      Write-Host "RustDesk: ID $rustDeskId"
+      Write-Host "Password: $(Get-RustDeskPassword)"
     }
   }
 }
@@ -710,14 +1031,41 @@ switch ($Action) {
     Ensure-RepoMount
     $proxyInfo = Ensure-GuestProxyTunnel -Ip $ip
     Ensure-GuestFirefox -ProxyConfig $proxyInfo
-    Start-GuestBrowser -ProxyConfig $proxyInfo
+    Start-GuestBrowser -ProxyConfig $proxyInfo -EnableNoVnc $true
+    Ensure-GuestNoVncTunnel -Ip $ip
+    Ensure-GuestFirefoxDebugTunnel -Ip $ip
     Show-Status
     Write-Host ""
     Write-Host "Screenshot: npm run firefox:vm:screenshot"
     Write-Host "Logs      : npm run firefox:vm:logs"
     return
   }
+  "rustdesk-start" {
+    Ensure-Instance
+    $ip = Wait-ForSsh
+    Ensure-RepoMount
+    $proxyInfo = Ensure-GuestProxyTunnel -Ip $ip
+    Stop-GuestNoVncTunnel
+    Ensure-GuestFirefox -ProxyConfig $proxyInfo
+    Ensure-GuestRustDesk
+    Start-GuestBrowser -ProxyConfig $proxyInfo -EnableNoVnc $false
+    Start-GuestRustDesk -Password (Get-RustDeskPassword)
+    Ensure-GuestFirefoxDebugTunnel -Ip $ip
+    Show-Status
+    Write-Host ""
+    Write-Host "RustDesk : connect from the host RustDesk client using the printed ID/password"
+    Write-Host "Logs     : npm run firefox:vm:logs"
+    return
+  }
   "status" {
+    if (-not (Test-InstanceExists)) {
+      Write-Host "Multipass instance not created yet."
+      return
+    }
+    Show-Status
+    return
+  }
+  "rustdesk-status" {
     if (-not (Test-InstanceExists)) {
       Write-Host "Multipass instance not created yet."
       return
@@ -731,7 +1079,7 @@ switch ($Action) {
     }
     $script = @'
 set -euo pipefail
-for file in /tmp/cbe-vm-firefox.log /tmp/cbe-vm-novnc.log /tmp/cbe-vm-x11vnc.log /tmp/cbe-vm-xvfb.log; do
+for file in /tmp/cbe-vm-firefox.log /tmp/cbe-vm-rustdesk.log /tmp/cbe-vm-rustdesk-install.log /tmp/cbe-vm-rustdesk-password.log /tmp/cbe-vm-novnc.log /tmp/cbe-vm-x11vnc.log /tmp/cbe-vm-xvfb.log; do
   if [ -f "$file" ]; then
     echo "===== $file ====="
     tail -n 120 "$file"
@@ -756,6 +1104,8 @@ DISPLAY=$guestDisplay scrot /tmp/cbe-vm-firefox.png
   }
   "stop" {
     Stop-GuestProxyTunnel
+    Stop-GuestNoVncTunnel
+    Stop-GuestFirefoxDebugTunnel
     if (-not (Test-InstanceExists)) {
       Write-Host "Multipass instance not created yet."
       return

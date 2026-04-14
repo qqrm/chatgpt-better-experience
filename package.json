@@ -16,6 +16,8 @@
     "firefox:vm": "pwsh -File scripts/firefox-vm.ps1 -Action start",
     "firefox:vm:logs": "pwsh -File scripts/firefox-vm.ps1 -Action logs",
     "firefox:vm:reset-profile": "pwsh -File scripts/firefox-vm.ps1 -Action reset-profile",
+    "firefox:vm:rustdesk": "pwsh -File scripts/firefox-vm.ps1 -Action rustdesk-start",
+    "firefox:vm:rustdesk:status": "pwsh -File scripts/firefox-vm.ps1 -Action rustdesk-status",
     "firefox:vm:screenshot": "pwsh -File scripts/firefox-vm.ps1 -Action screenshot",
     "firefox:vm:status": "pwsh -File scripts/firefox-vm.ps1 -Action status",
     "firefox:vm:stop": "pwsh -File scripts/firefox-vm.ps1 -Action stop",
