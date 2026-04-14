@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mock GPT Harness</title>
+    <link rel="stylesheet" href="/mock-gpt/styles.css" />
+  </head>
+  <body>
+    <div class="mockShell">
+      <aside class="mockControls" aria-label="Mock GPT controls">
+        <div class="mockControls__header">
+          <h1>Mock GPT</h1>
+          <p>Fixture replay for extension validation.</p>
+        </div>
+
+        <label class="mockField">
+          <span>Fixture</span>
+          <select id="fixtureSelect"></select>
+        </label>
+
+        <label class="mockField">
+          <span>Path</span>
+          <input id="pathInput" type="text" spellcheck="false" />
+        </label>
+
+        <label class="mockField">
+          <span>Wide Chat Width</span>
+          <input id="wideChatWidthInput" type="number" min="0" step="10" />
+        </label>
+
+        <div class="mockToggles" id="toggleGrid"></div>
+
+        <div class="mockActions">
+          <button id="reloadButton" type="button">Reload Harness</button>
+          <button id="resetButton" type="button">Reset Settings</button>
+        </div>
+
+        <details class="mockHelp">
+          <summary>Refresh from real GPT</summary>
+          <p>
+            Open the real GPT UI in the isolated Firefox VM, run the fixture dump snippet from
+            <code>/mock-gpt/fixture-dump-snippet.js</code> in DevTools, and save the generated HTML
+            under <code>tests/fixtures/</code>.
+          </p>
+        </details>
+      </aside>
+
+      <div class="mockViewport">
+        <div class="mockStatus" id="statusLine">Loading fixture…</div>
+        <div id="fixtureHost"></div>
+      </div>
+    </div>
+
+    <script src="/mock-gpt/app.js" type="module"></script>
+  </body>
+</html>
