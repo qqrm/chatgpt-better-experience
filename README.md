@@ -13,7 +13,6 @@ Dev:
 - `npm run build`
 - `npm run firefox:dev` for isolated containerized Firefox extension debugging
 - `npm run firefox:vm` for isolated Firefox debugging inside a Hyper-V Ubuntu VM via Multipass
-- `npm run firefox:vm:rustdesk` for the same VM stand with RustDesk access instead of relying on `noVNC`
 - `npm run firefox:vm:reset-profile` to wipe the saved VM Firefox profile when a clean login/session is needed
 - Checks are quiet on success by default; set `CBE_VERBOSE=1` to stream full tool output when debugging.
 

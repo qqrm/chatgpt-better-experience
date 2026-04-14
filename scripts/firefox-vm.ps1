@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [ValidateSet("start", "rustdesk-start", "stop", "status", "rustdesk-status", "logs", "screenshot", "reset-profile")]
+  [ValidateSet("start", "stop", "status", "logs", "screenshot", "reset-profile")]
   [string]$Action = "start"
 )
 
@@ -33,7 +33,6 @@ $proxyTunnelPidPath = Join-Path $runtimeRoot "host-proxy-tunnel.pid"
 $proxyTunnelInfoPath = Join-Path $runtimeRoot "host-proxy-tunnel.json"
 $noVncTunnelPidPath = Join-Path $runtimeRoot "host-novnc-tunnel.pid"
 $debugTunnelPidPath = Join-Path $runtimeRoot "host-firefox-debug-tunnel.pid"
-$rustDeskPasswordPath = Join-Path $runtimeRoot "rustdesk-password.txt"
 
 $instanceName = "cbe-debug-generic"
 $guestRepoPath = "/home/ubuntu/cbe"
@@ -41,8 +40,6 @@ $guestDisplay = ":101"
 $guestVncPort = 5902
 $guestNoVncPort = 6082
 $guestFirefoxDebugPort = 6000
-$rustDeskVersion = "1.4.6"
-$rustDeskDebUrl = "https://github.com/rustdesk/rustdesk/releases/download/$rustDeskVersion/rustdesk-$rustDeskVersion-x86_64.deb"
 $guestProxyListenHost = "127.0.0.1"
 $guestProxyListenPort = 17897
 $defaultVmCpuCount = 2
@@ -154,46 +151,6 @@ function Resolve-MemorySetting {
 
 $vmCpuCount = Resolve-PositiveIntSetting -Name "CBE_FIREFOX_VM_CPUS" -DefaultValue $defaultVmCpuCount
 $vmMemory = Resolve-MemorySetting
-
-function New-RandomSecret {
-  param([int]$Length = 16)
-
-  $alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
-  $bytes = New-Object byte[] $Length
-  $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-  try {
-    $rng.GetBytes($bytes)
-  }
-  finally {
-    $rng.Dispose()
-  }
-  $chars = for ($i = 0; $i -lt $Length; $i++) {
-    $alphabet[$bytes[$i] % $alphabet.Length]
-  }
-  return -join $chars
-}
-
-function Get-RustDeskPassword {
-  New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
-
-  $explicitPassword = [Environment]::GetEnvironmentVariable("CBE_FIREFOX_VM_RUSTDESK_PASSWORD")
-  if (-not [string]::IsNullOrWhiteSpace($explicitPassword)) {
-    $password = $explicitPassword.Trim()
-    Set-Content -LiteralPath $rustDeskPasswordPath -Value $password -NoNewline
-    return $password
-  }
-
-  if (Test-Path -LiteralPath $rustDeskPasswordPath) {
-    $password = (Get-Content -LiteralPath $rustDeskPasswordPath -Raw).Trim()
-    if (-not [string]::IsNullOrWhiteSpace($password)) {
-      return $password
-    }
-  }
-
-  $generated = New-RandomSecret -Length 16
-  Set-Content -LiteralPath $rustDeskPasswordPath -Value $generated -NoNewline
-  return $generated
-}
 
 function Resolve-ProxyConfigFromUri {
   param(
@@ -835,20 +792,6 @@ fi
   Invoke-GuestScript -Script $script
 }
 
-function Ensure-GuestRustDesk {
-  $script = @"
-set -euo pipefail
-target_version='$rustDeskVersion'
-installed_version=`$(dpkg-query -W -f='`${Version}' rustdesk 2>/dev/null || true)
-if [ "`$installed_version" != "`$target_version" ]; then
-  curl -L '$rustDeskDebUrl' -o /tmp/rustdesk.deb
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/rustdesk.deb >/tmp/cbe-vm-rustdesk-install.log 2>&1
-fi
-"@
-
-  Invoke-GuestScript -Script $script
-}
-
 function Start-GuestBrowser {
   param(
     $ProxyConfig,
@@ -947,41 +890,6 @@ fi
 
   Invoke-GuestScript -Script $script
 }
-
-function Start-GuestRustDesk {
-  param([Parameter(Mandatory = $true)][string]$Password)
-
-  $script = @"
-set -euo pipefail
-if command -v rustdesk >/dev/null 2>&1; then
-  rustdesk --password '$Password' >/tmp/cbe-vm-rustdesk-password.log 2>&1 || sudo rustdesk --password '$Password' >/tmp/cbe-vm-rustdesk-password.log 2>&1 || true
-  sudo rustdesk --option allow-linux-headless Y >/tmp/cbe-vm-rustdesk-option.log 2>&1 || true
-  pkill -9 -f '(^|/)rustdesk($| )' || true
-  DISPLAY=$guestDisplay nohup rustdesk >/tmp/cbe-vm-rustdesk.log 2>&1 &
-  sleep 8
-fi
-"@
-
-  Invoke-GuestScript -Script $script
-}
-
-function Get-GuestRustDeskId {
-  if (-not (Test-InstanceExists)) {
-    return ""
-  }
-  if ((Get-InstanceState) -ne "Running") {
-    return ""
-  }
-
-  try {
-    $id = Invoke-Multipass -Args @("exec", $instanceName, "--", "bash", "-lc", "command -v rustdesk >/dev/null 2>&1 && rustdesk --get-id 2>/dev/null || true") -AllowFailure:$true | Out-String
-    return $id.Trim()
-  }
-  catch {
-    return ""
-  }
-}
-
 function Reset-GuestBrowserProfile {
   $script = @'
 set -euo pipefail
@@ -997,7 +905,6 @@ function Show-Status {
   $info = Get-InstanceInfoText
   $ip = Get-InstanceIp
   $proxyInfo = Get-ActiveProxyTunnelInfo
-  $rustDeskId = Get-GuestRustDeskId
   $configuredCpuCount = (Invoke-Multipass -Args @("get", "local.${instanceName}.cpus") -AllowFailure:$false | Out-String).Trim()
   $configuredMemory = (Invoke-Multipass -Args @("get", "local.${instanceName}.memory") -AllowFailure:$false | Out-String).Trim()
 
@@ -1016,10 +923,6 @@ function Show-Status {
     }
     if ($proxyInfo) {
       Write-Host "Proxy   : ${guestProxyListenHost}:$($proxyInfo.GuestPort) -> $($proxyInfo.Host):$($proxyInfo.Port) ($($proxyInfo.Source))"
-    }
-    if ($rustDeskId) {
-      Write-Host "RustDesk: ID $rustDeskId"
-      Write-Host "Password: $(Get-RustDeskPassword)"
     }
   }
 }
@@ -1040,32 +943,7 @@ switch ($Action) {
     Write-Host "Logs      : npm run firefox:vm:logs"
     return
   }
-  "rustdesk-start" {
-    Ensure-Instance
-    $ip = Wait-ForSsh
-    Ensure-RepoMount
-    $proxyInfo = Ensure-GuestProxyTunnel -Ip $ip
-    Stop-GuestNoVncTunnel
-    Ensure-GuestFirefox -ProxyConfig $proxyInfo
-    Ensure-GuestRustDesk
-    Start-GuestBrowser -ProxyConfig $proxyInfo -EnableNoVnc $false
-    Start-GuestRustDesk -Password (Get-RustDeskPassword)
-    Ensure-GuestFirefoxDebugTunnel -Ip $ip
-    Show-Status
-    Write-Host ""
-    Write-Host "RustDesk : connect from the host RustDesk client using the printed ID/password"
-    Write-Host "Logs     : npm run firefox:vm:logs"
-    return
-  }
   "status" {
-    if (-not (Test-InstanceExists)) {
-      Write-Host "Multipass instance not created yet."
-      return
-    }
-    Show-Status
-    return
-  }
-  "rustdesk-status" {
     if (-not (Test-InstanceExists)) {
       Write-Host "Multipass instance not created yet."
       return
@@ -1079,7 +957,7 @@ switch ($Action) {
     }
     $script = @'
 set -euo pipefail
-for file in /tmp/cbe-vm-firefox.log /tmp/cbe-vm-rustdesk.log /tmp/cbe-vm-rustdesk-install.log /tmp/cbe-vm-rustdesk-password.log /tmp/cbe-vm-novnc.log /tmp/cbe-vm-x11vnc.log /tmp/cbe-vm-xvfb.log; do
+for file in /tmp/cbe-vm-firefox.log /tmp/cbe-vm-novnc.log /tmp/cbe-vm-x11vnc.log /tmp/cbe-vm-xvfb.log; do
   if [ -f "$file" ]; then
     echo "===== $file ====="
     tail -n 120 "$file"
