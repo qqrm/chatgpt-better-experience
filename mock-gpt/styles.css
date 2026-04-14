@@ -1,0 +1,201 @@
+:root {
+  color-scheme: dark;
+  --panel-bg: rgba(15, 23, 42, 0.92);
+  --panel-border: rgba(148, 163, 184, 0.2);
+  --panel-text: #e5eef9;
+  --panel-muted: #8aa0bc;
+  --surface: #0b1020;
+  --surface-alt: #121a2b;
+  --accent: #8bd3ff;
+  --accent-strong: #38bdf8;
+  --danger: #fda4af;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(56, 189, 248, 0.12), transparent 28%),
+    linear-gradient(180deg, #0a0f1c 0%, #0f172a 100%);
+  color: var(--panel-text);
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+body {
+  min-height: 100vh;
+}
+
+.mockShell {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.mockControls {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  min-height: 100vh;
+  padding: 24px 20px 28px;
+  border-right: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  backdrop-filter: blur(18px);
+}
+
+.mockControls__header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.mockControls__header p {
+  margin: 8px 0 0;
+  color: var(--panel-muted);
+  line-height: 1.4;
+}
+
+.mockField,
+.mockToggle {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.mockField span,
+.mockToggle span {
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--panel-muted);
+}
+
+.mockField input,
+.mockField select,
+.mockActions button {
+  width: 100%;
+  border: 1px solid rgba(139, 211, 255, 0.18);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.9);
+  color: var(--panel-text);
+  padding: 11px 12px;
+  font: inherit;
+}
+
+.mockField input:focus,
+.mockField select:focus,
+.mockActions button:focus {
+  outline: 2px solid rgba(56, 189, 248, 0.6);
+  outline-offset: 2px;
+}
+
+.mockToggles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.mockToggle {
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(18, 26, 43, 0.84);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.mockToggle input {
+  inline-size: 18px;
+  block-size: 18px;
+}
+
+.mockToggle label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mockActions {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.mockActions button {
+  cursor: pointer;
+}
+
+.mockActions button:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.mockHelp {
+  margin-top: 22px;
+  color: var(--panel-muted);
+}
+
+.mockHelp summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.mockViewport {
+  min-width: 0;
+  padding: 24px;
+}
+
+.mockStatus {
+  position: sticky;
+  top: 18px;
+  z-index: 5;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid rgba(139, 211, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(11, 16, 32, 0.86);
+  color: var(--accent);
+  width: fit-content;
+  backdrop-filter: blur(12px);
+}
+
+#fixtureHost {
+  min-height: calc(100vh - 88px);
+  background: white;
+  color: black;
+  border-radius: 24px;
+  overflow: clip;
+  box-shadow: 0 30px 80px rgba(2, 8, 23, 0.35);
+}
+
+body[data-fixture-theme="dark"] #fixtureHost {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.fixtureMetaBadge {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 10;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.88);
+  color: var(--panel-text);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 1100px) {
+  .mockShell {
+    grid-template-columns: 1fr;
+  }
+
+  .mockControls {
+    position: static;
+    min-height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--panel-border);
+  }
+}

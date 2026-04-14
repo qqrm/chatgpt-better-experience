@@ -6,6 +6,8 @@
   "scripts": {
     "build": "node scripts/run-quiet.mjs --label build --script build:raw",
     "build:raw": "node scripts/build.mjs",
+    "mock-gpt": "npm run build && node scripts/mock-gpt-server.mjs",
+    "mock-gpt:serve": "node scripts/mock-gpt-server.mjs",
     "firefox:dev": "pwsh -File scripts/firefox-container.ps1 -Action start",
     "firefox:dev:logs": "pwsh -File scripts/firefox-container.ps1 -Action logs",
     "firefox:dev:screenshot": "pwsh -File scripts/firefox-container.ps1 -Action screenshot",
