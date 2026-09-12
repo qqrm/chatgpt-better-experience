@@ -135,7 +135,10 @@ export function initAutoExpandChatsFeature(ctx: FeatureContext): FeatureHandle {
     const targets = [getSidebar(ctx), getChatHistoryNav(ctx)].filter(Boolean) as HTMLElement[];
     if (targets.length === 0) return;
 
-    const onUser = () => {
+    const onUser = (event: Event) => {
+      // Other extension features expand adjacent sections through synthetic events.
+      // They must not suppress this feature's retry window as if the user acted.
+      if (!event.isTrusted) return;
       lastUserInteractionAt = Date.now();
     };
 

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="fixture-origin" content="https://chatgpt.com" />
+    <meta name="fixture-kind" content="synthetic-interaction" />
+    <title>synthetic ChatGPT interaction fixture</title>
+  </head>
+  <body data-fixture-theme="dark">
+    <nav aria-label="Chat history">
+      <section class="group/sidebar-expando-section">
+        <button aria-expanded="false" data-mock-expandable="true"><h2>Chats</h2></button>
+        <a data-sidebar-item="true" href="/c/synthetic-chat-1">Synthetic chat</a>
+      </section>
+      <section data-testid="sidebar-item-projects">
+        <button aria-expanded="false" data-mock-expandable="true"><h2>Projects</h2></button>
+        <a href="/project/synthetic-project">Synthetic project</a>
+        <a href="/c/synthetic-project-chat">Project chat</a>
+      </section>
+      <div data-testid="history-item-synthetic">
+        <a href="/c/synthetic-delete-target">Delete target</a>
+        <button data-testid="history-item-synthetic-options" data-mock-menu-trigger="history">
+          Options
+        </button>
+      </div>
+      <div role="menu" data-mock-menu="history" hidden>
+        <button role="menuitem" data-testid="delete-chat-menu-item">Delete</button>
+      </div>
+    </nav>
+
+    <main>
+      <div class="max-w-(--thread-content-max-width)">
+        <article data-testid="conversation-turn-user-1">
+          <div data-message-author-role="user">Synthetic user message</div>
+        </article>
+        <article data-testid="conversation-turn-assistant-1">
+          <div data-message-author-role="assistant">
+            <pre><code>diff --git a/file b/file
++synthetic patch</code></pre>
+            <button aria-label="Share" data-testid="share-button">Share</button>
+            <button data-mock-menu-trigger="message">Message options</button>
+          </div>
+        </article>
+        <article data-testid="conversation-turn-user-2">
+          <div data-message-author-role="user">Two</div>
+        </article>
+        <article data-testid="conversation-turn-assistant-2">
+          <div data-message-author-role="assistant">Two</div>
+        </article>
+        <article data-testid="conversation-turn-user-3">
+          <div data-message-author-role="user">Three</div>
+        </article>
+        <article data-testid="conversation-turn-assistant-3">
+          <div data-message-author-role="assistant">Three</div>
+        </article>
+        <article data-testid="conversation-turn-user-4">
+          <div data-message-author-role="user">Four</div>
+        </article>
+        <article data-testid="conversation-turn-assistant-4">
+          <div data-message-author-role="assistant">Four</div>
+        </article>
+        <article data-testid="conversation-turn-user-5">
+          <div data-message-author-role="user">Five</div>
+        </article>
+        <article data-testid="conversation-turn-assistant-5">
+          <div data-message-author-role="assistant">Five</div>
+        </article>
+        <article data-testid="conversation-turn-user-6">
+          <div data-message-author-role="user">Six</div>
+          <button aria-label="Edit message" data-mock-edit-target="true">Edit message</button>
+          <div contenteditable="true" data-mock-edit-input="true" hidden>Six</div>
+        </article>
+        <article data-testid="conversation-turn-assistant-6">
+          <div data-message-author-role="assistant">Six</div>
+        </article>
+      </div>
+      <div role="menu" data-mock-menu="message" hidden>
+        <button role="menuitem">Edit message</button>
+      </div>
+      <label>
+        <input id="temporary-chat-checkbox" type="checkbox" />
+        <h1 data-testid="temporary-chat-label">Temporary Chat</h1>
+      </label>
+      <form data-testid="composer">
+        <div id="prompt-textarea" contenteditable="true" role="textbox"></div>
+        <button data-testid="send-button" type="submit" aria-label="Send">Send</button>
+      </form>
+    </main>
+  </body>
+</html>

@@ -255,10 +255,16 @@ describe("autoExpandChats", () => {
     handle.dispose();
   });
 
-  it("backs off during user interaction cooldown", async () => {
+  it("does not treat a programmatic click as user interaction", async () => {
     const ctx = makeDomBusCtx();
     const sidebar = mountSidebarShell(true);
     const toggle = mountYourChatsToggle(sidebar, "false");
+
+    const handle = initAutoExpandChatsFeature(ctx);
+
+    // A sibling extension feature dispatches untrusted events while expanding its own section.
+    // It must not suppress the Chats expansion retry.
+    toggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     let clicks = 0;
     toggle.addEventListener("click", () => {
@@ -266,13 +272,10 @@ describe("autoExpandChats", () => {
       toggle.setAttribute("aria-expanded", "true");
     });
 
-    const handle = initAutoExpandChatsFeature(ctx);
-
-    toggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     ctx.emitNavDelta();
     await vi.advanceTimersByTimeAsync(500);
 
-    expect(clicks).toBe(1); // only manual click, no auto click during cooldown
+    expect(clicks).toBe(1);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
 
     handle.dispose();
