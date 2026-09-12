@@ -79,7 +79,9 @@ export function initPreserveReadingPositionOnSendFeature(ctx: FeatureContext): F
     }
 
     if (Math.abs(root.scrollTop - state.baselineTop) > 1) {
-      if (state.pointerScrollActive || performance.now() - state.manualIntentAt < 450) {
+      const hasRecentManualIntent =
+        state.manualIntentAt > 0 && performance.now() - state.manualIntentAt < 450;
+      if (state.pointerScrollActive || hasRecentManualIntent) {
         deactivateLock();
         return;
       }

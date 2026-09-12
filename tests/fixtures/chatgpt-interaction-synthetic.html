@@ -29,53 +29,58 @@
     </nav>
 
     <main>
-      <div class="max-w-(--thread-content-max-width)">
-        <article data-testid="conversation-turn-user-1">
-          <div data-message-author-role="user">Synthetic user message</div>
-        </article>
-        <article data-testid="conversation-turn-assistant-1">
-          <div data-message-author-role="assistant">
-            <pre><code>diff --git a/file b/file
+      <h1>Synthetic patch task</h1>
+      <div data-scroll-root style="height: 220px; overflow-y: auto">
+        <div class="max-w-(--thread-content-max-width)">
+          <article data-testid="conversation-turn-user-1">
+            <div data-message-author-role="user">Synthetic user message</div>
+          </article>
+          <article data-testid="conversation-turn-assistant-1">
+            <div data-message-author-role="assistant">
+              <pre><code>diff --git a/file b/file
 +synthetic patch</code></pre>
-            <button aria-label="Share" data-testid="share-button">Share</button>
-            <button data-mock-menu-trigger="message">Message options</button>
-          </div>
-        </article>
-        <article data-testid="conversation-turn-user-2">
-          <div data-message-author-role="user">Two</div>
-        </article>
-        <article data-testid="conversation-turn-assistant-2">
-          <div data-message-author-role="assistant">Two</div>
-        </article>
-        <article data-testid="conversation-turn-user-3">
-          <div data-message-author-role="user">Three</div>
-        </article>
-        <article data-testid="conversation-turn-assistant-3">
-          <div data-message-author-role="assistant">Three</div>
-        </article>
-        <article data-testid="conversation-turn-user-4">
-          <div data-message-author-role="user">Four</div>
-        </article>
-        <article data-testid="conversation-turn-assistant-4">
-          <div data-message-author-role="assistant">Four</div>
-        </article>
-        <article data-testid="conversation-turn-user-5">
-          <div data-message-author-role="user">Five</div>
-        </article>
-        <article data-testid="conversation-turn-assistant-5">
-          <div data-message-author-role="assistant">Five</div>
-        </article>
-        <article data-testid="conversation-turn-user-6">
-          <div data-message-author-role="user">Six</div>
-          <button aria-label="Edit message" data-mock-edit-target="true">Edit message</button>
-          <div contenteditable="true" data-mock-edit-input="true" hidden>Six</div>
-        </article>
-        <article data-testid="conversation-turn-assistant-6">
-          <div data-message-author-role="assistant">Six</div>
-        </article>
+              <button aria-label="Share" data-testid="share-button">Share</button>
+              <button data-mock-menu-trigger="message">Message options</button>
+            </div>
+          </article>
+          <article data-testid="conversation-turn-user-2">
+            <div data-message-author-role="user">Two</div>
+          </article>
+          <article data-testid="conversation-turn-assistant-2">
+            <div data-message-author-role="assistant">Two</div>
+          </article>
+          <article data-testid="conversation-turn-user-3">
+            <div data-message-author-role="user">Three</div>
+          </article>
+          <article data-testid="conversation-turn-assistant-3">
+            <div data-message-author-role="assistant">Three</div>
+          </article>
+          <article data-testid="conversation-turn-user-4">
+            <div data-message-author-role="user">Four</div>
+          </article>
+          <article data-testid="conversation-turn-assistant-4">
+            <div data-message-author-role="assistant">Four</div>
+          </article>
+          <article data-testid="conversation-turn-user-5">
+            <div data-message-author-role="user">Five</div>
+          </article>
+          <article data-testid="conversation-turn-assistant-5">
+            <div data-message-author-role="assistant">Five</div>
+          </article>
+          <article data-testid="conversation-turn-user-6">
+            <div data-message-author-role="user">Six</div>
+            <button aria-label="Edit message" data-mock-edit-target="true">Edit message</button>
+            <div contenteditable="true" data-mock-edit-input="true" hidden>Six</div>
+          </article>
+          <article data-testid="conversation-turn-assistant-6">
+            <div data-message-author-role="assistant">Six</div>
+          </article>
+        </div>
+        <div aria-hidden="true" style="height: 1800px"></div>
       </div>
       <div role="menu" data-mock-menu="message" hidden>
         <button role="menuitem">Edit message</button>
+        <button role="menuitem" aria-label="Copy patch">Copy patch</button>
       </div>
       <label>
         <input id="temporary-chat-checkbox" type="checkbox" />
