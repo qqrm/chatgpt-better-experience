@@ -27,6 +27,25 @@ the same settings model it uses inside Firefox.
 
 ## Refresh Fixtures From Real GPT
 
+### Privacy-safe structural capture (default)
+
+When the goal is selector and behavior compatibility rather than a pixel-perfect product clone,
+run [`fixture-structure-dump-snippet.js`](../mock-gpt/fixture-structure-dump-snippet.js) in the
+DevTools Console of an already-open GPT tab. It produces a local HTML download that:
+
+- replaces every non-empty text node with `[fixture-text]`;
+- removes scripts, styles, external URLs, media references, `aria-label`, and message ids;
+- retains only DOM structure and a small allowlist of selector-relevant attributes.
+
+Copy the verified download into `tests/fixtures/`, then open it through `npm run mock-gpt`. The
+mock harness will not make a request to the fixture origin when replaying this capture.
+
+This is the preferred capture mode for personal signed-in browser sessions. It is intentionally
+not a visual clone, because reproducing ChatGPT's remote CSS and assets would make local replay
+depend on the live service again.
+
+### Full DOM capture
+
 Use the isolated VM flow first:
 
 - `npm run firefox:vm`
