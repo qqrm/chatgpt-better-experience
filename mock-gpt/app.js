@@ -290,6 +290,8 @@ async function bootContentScript() {
 }
 
 function installFixtureInteractionAdapter(root) {
+  let syntheticMessageSequence = 0;
+
   root.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     const expandable = target?.closest("[data-mock-expandable]");
@@ -316,6 +318,25 @@ function installFixtureInteractionAdapter(root) {
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       form.setAttribute("data-mock-submitted", "true");
+
+      const thread = root.querySelector('[class~="max-w-(--thread-content-max-width)"]');
+      if (!(thread instanceof HTMLElement)) return;
+
+      syntheticMessageSequence += 1;
+      const turn = document.createElement("article");
+      turn.setAttribute(
+        "data-testid",
+        `conversation-turn-user-synthetic-${syntheticMessageSequence}`
+      );
+      const message = document.createElement("div");
+      message.setAttribute("data-message-id", `synthetic-user-${syntheticMessageSequence}`);
+      message.setAttribute("data-message-author-role", "user");
+      const bubble = document.createElement("div");
+      bubble.className = "user-message-bubble-color";
+      bubble.textContent = "Synthetic submitted message";
+      message.appendChild(bubble);
+      turn.appendChild(message);
+      thread.appendChild(turn);
     });
   }
 }
