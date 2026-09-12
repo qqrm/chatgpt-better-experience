@@ -151,14 +151,19 @@ function createStorageArea(state) {
 
 function installExtensionApi(settings) {
   const storageArea = createStorageArea(settings);
+  const storage = {
+    sync: storageArea,
+    local: storageArea,
+    onChanged: storageArea.onChanged
+  };
   const chromeApi = {
     runtime: { lastError: null },
-    storage: storageArea
+    storage
   };
 
   window.chrome = chromeApi;
   window.browser = {
-    storage: storageArea
+    storage
   };
 }
 
