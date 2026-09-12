@@ -140,6 +140,19 @@ function createStorageArea(state) {
     async setLocal(partial) {
       await area.set(partial);
     },
+    async remove(keys) {
+      const entries = Array.isArray(keys) ? keys : [keys];
+      const changes = {};
+      for (const key of entries) {
+        if (!(key in state)) continue;
+        changes[key] = { oldValue: state[key], newValue: undefined };
+        delete state[key];
+      }
+      saveStoredSettings(state);
+      for (const listener of Array.from(changeListeners)) {
+        listener(changes, "local");
+      }
+    },
     onChanged: {
       addListener(listener) {
         changeListeners.add(listener);
