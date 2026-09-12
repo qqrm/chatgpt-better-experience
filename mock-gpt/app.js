@@ -312,6 +312,9 @@ function installFixtureInteractionAdapter(root) {
     const editTrigger = target?.closest("[data-mock-edit-target]");
     const editInput = editTrigger?.parentElement?.querySelector("[data-mock-edit-input]");
     editInput?.removeAttribute("hidden");
+
+    const dictationTrigger = target?.closest("[data-mock-dictation-trigger]");
+    if (dictationTrigger) root.dataset.mockDictationStarted = "true";
   });
 
   for (const form of Array.from(root.querySelectorAll("form"))) {
