@@ -322,6 +322,14 @@ function installFixtureInteractionAdapter(root) {
       event.preventDefault();
       form.setAttribute("data-mock-submitted", "true");
 
+      const scrollRoot = root.querySelector("[data-scroll-root]");
+      if (scrollRoot instanceof HTMLElement) {
+        window.setTimeout(() => {
+          scrollRoot.scrollTop = 320;
+          root.dataset.mockAutoScrollTop = String(scrollRoot.scrollTop);
+        }, 0);
+      }
+
       const thread = root.querySelector('[class~="max-w-(--thread-content-max-width)"]');
       if (!(thread instanceof HTMLElement)) return;
 
