@@ -46,10 +46,14 @@ const TOGGLES = [
   ["autoExpandChats", "Expand Chats"],
   ["autoExpandProjects", "Expand Projects"],
   ["autoExpandProjectItems", "Expand Project Items"],
+  ["autoTempChat", "Auto Temporary Chat"],
   ["oneClickDelete", "One Click Delete"],
+  ["downloadGitPatchesWithShiftClick", "Download Patches"],
+  ["startDictation", "Start Dictation"],
   ["ctrlEnterSends", "Ctrl+Enter Sends"],
   ["trimChatDom", "Trim Chat DOM"],
   ["hideShareButton", "Hide Share"],
+  ["macroRecorderEnabled", "Macro Recorder"],
   ["debugAutoExpandProjects", "Debug Traces"]
 ];
 
@@ -259,6 +263,37 @@ async function bootContentScript() {
   });
 }
 
+function installFixtureInteractionAdapter(root) {
+  root.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const expandable = target?.closest("[data-mock-expandable]");
+    if (expandable instanceof HTMLElement) {
+      expandable.setAttribute(
+        "aria-expanded",
+        expandable.getAttribute("aria-expanded") === "true" ? "false" : "true"
+      );
+    }
+
+    const menuTrigger = target?.closest("[data-mock-menu-trigger]");
+    const menuId = menuTrigger?.getAttribute("data-mock-menu-trigger");
+    if (menuId) {
+      const menu = root.querySelector(`[data-mock-menu="${CSS.escape(menuId)}"]`);
+      menu?.removeAttribute("hidden");
+    }
+
+    const editTrigger = target?.closest("[data-mock-edit-target]");
+    const editInput = editTrigger?.parentElement?.querySelector("[data-mock-edit-input]");
+    editInput?.removeAttribute("hidden");
+  });
+
+  for (const form of Array.from(root.querySelectorAll("form"))) {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      form.setAttribute("data-mock-submitted", "true");
+    });
+  }
+}
+
 async function main() {
   const params = getSearchParams();
   const storedSettings = loadStoredSettings();
@@ -298,6 +333,7 @@ async function main() {
   bodyClone.innerHTML = fixtureDoc.body.innerHTML;
   rewriteAssetUrls(bodyClone, fixtureOrigin);
   fixtureHost.replaceChildren(...Array.from(bodyClone.childNodes));
+  installFixtureInteractionAdapter(fixtureHost);
 
   installExtensionApi(storedSettings);
   statusLine.textContent = `Loaded ${fixtureId} at ${mockPath}`;
