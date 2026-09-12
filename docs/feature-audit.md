@@ -36,9 +36,9 @@ listed evidence before it can be marked live-verified.
 | One-click delete          | `tests/oneClickDelete*`                       | enabled/disabled marker replay              | conversation links present                  | open row menu; do not confirm a real deletion               | unit + offline integration + live structural |
 | Trim chat DOM             | `tests/trimChatDom.test.ts`                   | trims two turns, then restores all          | conversation turns present                  | more turns than keep threshold and restore controls         | unit + offline integration + live structural |
 | Message timestamps        | `tests/messageTimestamps*`                    | style loads; message data unavailable       | message roles and turns present             | timestamp-bearing rendered messages without reading content | unit + partial structural                    |
-| Preserve reading position | `tests/preserveReadingPositionOnSend.test.ts` | not yet                                     | scroll root and composer present            | a local send transition with measurable scroll position     | unit + live structural                       |
+| Preserve reading position | `tests/preserveReadingPositionOnSend.test.ts` | not yet                                     | scroll root and composer present            | a browser-level measurable scroll transition                | unit + live structural                       |
 | Hide share button         | `tests/hideShareButton.test.ts`               | hides semantic Share control and cleans up  | share test-id present                       | a semantic share control; `aria-label` was redacted         | unit + offline integration + live structural |
-| Download patch menu item  | `tests/downloadPatchMenuItem.test.ts`         | not yet                                     | code/menu surface absent on inspected route | a synthetic patch and open action menu; no clipboard export | unit only                                    |
+| Download patch menu item  | `tests/downloadPatchMenuItem.test.ts`         | Shift-click produces both runtime requests  | code/menu surface absent on inspected route | a current Codex task menu and actual download completion    | unit + offline integration                   |
 | Wide chat                 | `tests/wideChat*`                             | enable/cleanup replay                       | main and turns present                      | visual width/overlap checkpoint                             | unit + offline integration + live structural |
 | Ctrl+Enter send           | `tests/ctrlEnterSend.test.ts`                 | synthetic form receives submit              | composer fallback present                   | local form-submit fixture with no network target            | unit + offline integration + live structural |
 | Macro recorder            | `tests/macroRecorder*`                        | not yet                                     | page lifecycle only                         | synthetic user events and local export assertion            | unit only                                    |
@@ -53,3 +53,8 @@ listed evidence before it can be marked live-verified.
   until a reproducible isolated behavioral path is available.
 - Auto-expand Chats ignores untrusted synthetic events in its user-cooldown guard. This prevents
   an adjacent extension feature's automated sidebar click from suppressing the Chats expansion.
+- Preserve reading position previously treated its `0` sentinel as a fresh manual-scroll event
+  during the first 450 ms after page startup. The regression is fixed and covered by the synthetic
+  scroll model; a current ChatGPT behavioral run still requires the isolated browser stand.
+- Patch-download integration confirms the content-script-to-runtime message contract with a local
+  runtime double. It intentionally does not claim a browser file download or clipboard access.

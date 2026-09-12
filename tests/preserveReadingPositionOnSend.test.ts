@@ -48,14 +48,15 @@ function mountConversation() {
 describe("preserveReadingPositionOnSend", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.stubGlobal("requestAnimationFrame", ((cb: FrameRequestCallback) =>
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(((cb: FrameRequestCallback) =>
       window.setTimeout(() => cb(performance.now()), 16)) as typeof requestAnimationFrame);
-    vi.stubGlobal("cancelAnimationFrame", ((id: number) =>
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(((id: number) =>
       window.clearTimeout(id)) as typeof cancelAnimationFrame);
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     document.body.innerHTML = "";
     document.head.innerHTML = "";
@@ -81,6 +82,26 @@ describe("preserveReadingPositionOnSend", () => {
     vi.advanceTimersByTime(32);
 
     expect(scrollRoot.scrollTop).toBe(baselineTop + 240);
+
+    handle.dispose();
+  });
+
+  it("restores the reading position after a programmatic scroll following send", async () => {
+    const { initPreserveReadingPositionOnSendFeature } =
+      await import("../src/features/preserveReadingPositionOnSend");
+    const { scrollRoot, form } = mountConversation();
+    const handle = initPreserveReadingPositionOnSendFeature(
+      makeTestContext({ preserveReadingPositionOnSend: true })
+    );
+
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    const baselineTop = scrollRoot.scrollTop;
+    expect(window.requestAnimationFrame).toHaveBeenCalled();
+    scrollRoot.scrollTop = baselineTop + 240;
+
+    vi.advanceTimersByTime(32);
+
+    expect(scrollRoot.scrollTop).toBe(baselineTop);
 
     handle.dispose();
   });

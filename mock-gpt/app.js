@@ -161,7 +161,20 @@ function installExtensionApi(settings) {
     onChanged: storageArea.onChanged
   };
   const chromeApi = {
-    runtime: { lastError: null },
+    runtime: {
+      lastError: null,
+      sendMessage(message, callback) {
+        if (message?.type !== "downloadPatch") {
+          callback?.({ ok: false, error: "Unsupported mock runtime message." });
+          return;
+        }
+
+        const downloads = JSON.parse(fixtureHost.dataset.mockPatchDownloads || "[]");
+        downloads.push({ filename: message.filename, textLength: message.text?.length || 0 });
+        fixtureHost.dataset.mockPatchDownloads = JSON.stringify(downloads);
+        callback?.({ ok: true, downloadId: downloads.length });
+      }
+    },
     storage
   };
 
