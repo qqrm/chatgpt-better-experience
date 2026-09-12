@@ -572,6 +572,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
 
   let unsubRoots: (() => void) | null = null;
   let unsubNavDelta: (() => void) | null = null;
+  let unsubscribeStorage: (() => void) | undefined;
 
   const pendingRemovalCandidates = new Set<string>();
   const localState: LocalProjectStateCache = {
@@ -965,9 +966,12 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
 
     unsubNavDelta?.();
     unsubNavDelta = null;
+
+    unsubscribeStorage?.();
+    unsubscribeStorage = undefined;
   };
 
-  ctx.storagePort.onChanged?.((changes, areaName) => {
+  const storageSubscription = ctx.storagePort.onChanged?.((changes, areaName) => {
     if (stopped || areaName !== "local") return;
 
     let changed = false;
@@ -992,6 +996,7 @@ export function initAutoExpandProjectsFeature(ctx: FeatureContext): FeatureHandl
       resetAndSchedule("storage-local");
     }
   });
+  if (typeof storageSubscription === "function") unsubscribeStorage = storageSubscription;
 
   const navNow = getChatHistoryNav(ctx);
   bindUserInteractionGuards(navNow);

@@ -6,5 +6,5 @@ export interface StoragePort {
   set(values: Record<string, unknown>): Promise<void>;
   getLocal<T extends Record<string, unknown>>(defaults: T): Promise<T>;
   setLocal(values: Record<string, unknown>): Promise<void>;
-  onChanged?: (handler: StorageChangeHandler) => void;
+  onChanged?: (handler: StorageChangeHandler) => (() => void) | void;
 }
