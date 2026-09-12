@@ -58,3 +58,6 @@ listed evidence before it can be marked live-verified.
   scroll model; a current ChatGPT behavioral run still requires the isolated browser stand.
 - Patch-download integration confirms the content-script-to-runtime message contract with a local
   runtime double. It intentionally does not claim a browser file download or clipboard access.
+- Storage subscriptions now return an unsubscribe function. Content-script unload disposes every
+  registered feature and its storage subscription; Auto-expand Projects also releases its local
+  storage subscription during feature disposal. This closes a lifecycle gap found during the audit.

@@ -19,6 +19,12 @@ export type StorageApi = {
         areaName: string
       ) => void
     ) => void;
+    removeListener?: (
+      cb: (
+        changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
+        areaName: string
+      ) => void
+    ) => void;
   };
 };
 
@@ -153,8 +159,10 @@ export async function storageSetLocal(
 export function createStoragePort({ storageApi, lastError }: StorageAdapterDeps): StoragePort {
   const onChanged =
     storageApi?.onChanged && typeof storageApi.onChanged.addListener === "function"
-      ? (handler: Parameters<NonNullable<StoragePort["onChanged"]>>[0]) =>
-          storageApi.onChanged?.addListener(handler)
+      ? (handler: Parameters<NonNullable<StoragePort["onChanged"]>>[0]) => {
+          storageApi.onChanged?.addListener(handler);
+          return () => storageApi.onChanged?.removeListener?.(handler);
+        }
       : undefined;
 
   return {

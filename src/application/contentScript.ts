@@ -28,6 +28,32 @@ export interface ContentScriptDeps {
   storagePort?: StoragePort | null;
 }
 
+export function bindContentScriptLifecycle({
+  domBus,
+  features,
+  unsubscribeStorage,
+  onVisibilityChange
+}: {
+  domBus: { dispose: () => void };
+  features: FeatureHandle[];
+  unsubscribeStorage?: (() => void) | void;
+  onVisibilityChange: () => void;
+}): () => void {
+  let disposed = false;
+
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    if (typeof unsubscribeStorage === "function") unsubscribeStorage();
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+    for (const feature of features) feature.dispose?.();
+    domBus.dispose();
+  };
+
+  window.addEventListener("unload", dispose, { once: true });
+  return dispose;
+}
+
 const fallbackStoragePort: StoragePort = {
   get: (defaults) => Promise.resolve({ ...defaults }),
   set: () => Promise.resolve(),
@@ -132,7 +158,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       })();
     };
 
-    resolvedStorage.onChanged?.(handleStorageChange);
+    const unsubscribeStorage = resolvedStorage.onChanged?.(handleStorageChange);
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
@@ -144,14 +170,12 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    window.addEventListener(
-      "unload",
-      () => {
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
-        domBus.dispose();
-      },
-      { once: true }
-    );
+    bindContentScriptLifecycle({
+      domBus,
+      features,
+      unsubscribeStorage,
+      onVisibilityChange: handleVisibilityChange
+    });
   };
 
   void init();
