@@ -53,7 +53,7 @@ Use the isolated VM flow first:
 - navigate to the surface you need to mirror
 
 Then open DevTools in that VM browser and run the snippet from
-[`mock-gpt/fixture-dump-snippet.js`](/home/qqrm/repos/github/wt/chatgpt-better-experience-gpt-mirror-harness/mock-gpt/fixture-dump-snippet.js:1).
+[`fixture-dump-snippet.js`](../mock-gpt/fixture-dump-snippet.js).
 
 Save the generated HTML file into `tests/fixtures/`. The server picks it up automatically on the
 next page load.
