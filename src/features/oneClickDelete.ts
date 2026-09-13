@@ -4,6 +4,7 @@ import { buildChatGptAuthHeaders, buildChatGptUrl } from "./chatgptApi";
 const ONE_CLICK_DELETE_HOOK_MARK = "data-qqrm-oneclick-del-hooked";
 const ONE_CLICK_DELETE_ACTIONS_MARK = "data-qqrm-oneclick-actions";
 const ONE_CLICK_DELETE_ARCHIVE_MARK = "data-qqrm-oneclick-archive";
+const ONE_CLICK_DELETE_NATIVE_PIN_MARK = "data-qqrm-oneclick-native-pin";
 const ONE_CLICK_DELETE_ROW_MARK = "data-qqrm-oneclick-row";
 const ONE_CLICK_DELETE_X_MARK = "data-qqrm-oneclick-del-x";
 const ONE_CLICK_DELETE_ICON_MARK = "data-qqrm-oneclick-icon";
@@ -300,6 +301,32 @@ export const buildOneClickDeleteStyleText = () => `
   [${ONE_CLICK_DELETE_ACTIONS_MARK}="1"] > button[${ONE_CLICK_DELETE_X_MARK}="1"]:hover::after{
     opacity: 1;
     transform: translateY(-110%);
+  }
+
+  [${ONE_CLICK_DELETE_ROW_MARK}="1"]{
+    position: relative !important;
+  }
+
+  [${ONE_CLICK_DELETE_ROW_MARK}="1"] button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"]{
+    position: absolute !important;
+    inset-inline-start: 8px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    z-index: 1 !important;
+  }
+
+  [${ONE_CLICK_DELETE_ROW_MARK}="1"] button[${ONE_CLICK_DELETE_HOOK_MARK}="1"]{
+    position: absolute !important;
+    inline-size: 1px !important;
+    block-size: 1px !important;
+    min-inline-size: 0 !important;
+    min-block-size: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
   }
 
   html[${ONE_CLICK_DELETE_ROOT_FLAG}="1"] div[data-testid="modal-delete-conversation-confirmation"]{
@@ -790,6 +817,36 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     return archive;
   };
 
+  const findNativePinButton = (optionsBtn: HTMLElement) => {
+    const host = optionsBtn.parentElement;
+    if (!host) return null;
+
+    const candidates = Array.from(host.children).filter(
+      (child): child is HTMLButtonElement =>
+        child instanceof HTMLButtonElement && child !== optionsBtn
+    );
+    if (candidates.length === 0) return null;
+
+    const pinByHint = candidates.find((candidate) => {
+      const hint = [
+        candidate.getAttribute("aria-label"),
+        candidate.getAttribute("title"),
+        candidate.getAttribute("data-testid")
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hint.includes("pin") || hint.includes("закреп");
+    });
+
+    return pinByHint ?? (candidates.length === 1 ? candidates[0] : null);
+  };
+
+  const markNativePinButton = (optionsBtn: HTMLElement) => {
+    const pin = findNativePinButton(optionsBtn);
+    if (pin) pin.setAttribute(ONE_CLICK_DELETE_NATIVE_PIN_MARK, "1");
+  };
+
   const ensureQuickActions = (btn: HTMLElement) => {
     const host = btn.parentElement;
     if (!host) return null;
@@ -808,6 +865,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
 
     ensureOneClickArchiveButton(actions);
     ensureOneClickDeleteXButton(actions);
+    markNativePinButton(btn);
     return actions;
   };
 
@@ -817,6 +875,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       btn.removeAttribute(ONE_CLICK_DELETE_HOOK_MARK);
       const actions = btn.previousElementSibling;
       if (actions?.getAttribute(ONE_CLICK_DELETE_ACTIONS_MARK) === "1") actions.remove();
+      findNativePinButton(btn)?.removeAttribute(ONE_CLICK_DELETE_NATIVE_PIN_MARK);
       const row = findChatRowFromOptionsButton(btn);
       row?.removeAttribute(ONE_CLICK_DELETE_ROW_MARK);
     }
