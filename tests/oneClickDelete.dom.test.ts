@@ -37,9 +37,9 @@ describe("oneClickDelete DOM builders", () => {
     expect(host.querySelector("script")).toBeNull();
   });
 
-  it("renders quick buttons on the current history-item options button markup", () => {
+  it("renders quick buttons before a nav root has been discovered", () => {
     document.body.innerHTML = `
-      <nav aria-label="Chat history">
+      <nav class="group/scrollport">
         <ul>
           <li>
             <a class="group __menu-item hoverable" href="/c/current-chat">
@@ -52,7 +52,9 @@ describe("oneClickDelete DOM builders", () => {
       </nav>
     `;
 
-    const handle = initOneClickDeleteFeature(makeTestContext({ oneClickDelete: true }));
+    const ctx = makeTestContext({ oneClickDelete: true });
+    ctx.domBus = null;
+    const handle = initOneClickDeleteFeature(ctx);
     const optionsButton = document.querySelector<HTMLButtonElement>(
       'button[data-testid="history-item-0-options"]'
     );
