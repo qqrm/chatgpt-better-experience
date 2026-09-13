@@ -170,4 +170,27 @@ describe("domEventBus root discovery", () => {
 
     unsubscribe();
   });
+
+  it("discovers a pinned-chat nav from its undefined options trigger", async () => {
+    document.body.innerHTML = `
+      <nav id="pinned-chat-nav">
+        <a class="group __menu-item hoverable" href="/c/pinned-chat">
+          <button data-testid="undefined-options" type="button"></button>
+        </a>
+      </nav>
+    `;
+
+    const bus = createDomEventBus(makeCtx());
+    const snapshots: Array<{ nav: Element | null }> = [];
+    const unsubscribe = bus.onRoots((roots) => {
+      snapshots.push({ nav: roots.nav });
+    });
+
+    const nav = document.getElementById("pinned-chat-nav");
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+
+    expect(snapshots.some((snap) => snap.nav === nav)).toBe(true);
+
+    unsubscribe();
+  });
 });
