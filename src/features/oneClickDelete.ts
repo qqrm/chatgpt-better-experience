@@ -1589,6 +1589,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     const nav = ctx.domBus?.getNavRoot();
     state.deleteSweepNav = nav ?? null;
     if (nav) hookOptionsButtonsInNav(nav);
+    else runHookScan();
     if (ctx.logger.isEnabled) {
       ctx.logger.debug("oneClickDelete", "refresh", {
         preview: `bus=${state.stats.observerCalls} apply=${state.stats.applyRuns} nodes=${state.stats.nodesProcessed}`
