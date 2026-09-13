@@ -133,8 +133,6 @@ export interface PopupSettingsInput {
   startDictation: boolean;
   ctrlEnterSends: boolean;
   wideChatWidth: number;
-  trimChatDom: boolean;
-  trimChatDomKeep: number;
   hideShareButton: boolean;
   macroRecorderEnabled: boolean;
   debugAutoExpandProjects: boolean;

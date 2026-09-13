@@ -28,8 +28,6 @@ const DEFAULT_SETTINGS = {
   startDictation: false,
   ctrlEnterSends: true,
   wideChatWidth: 0,
-  trimChatDom: false,
-  trimChatDomKeep: 10,
   hideShareButton: false,
   macroRecorderEnabled: false,
   debugAutoExpandProjects: false,
@@ -51,7 +49,6 @@ const TOGGLES = [
   ["downloadGitPatchesWithShiftClick", "Download Patches"],
   ["startDictation", "Start Dictation"],
   ["ctrlEnterSends", "Ctrl+Enter Sends"],
-  ["trimChatDom", "Trim Chat DOM"],
   ["hideShareButton", "Hide Share"],
   ["macroRecorderEnabled", "Macro Recorder"],
   ["debugAutoExpandProjects", "Debug Traces"]

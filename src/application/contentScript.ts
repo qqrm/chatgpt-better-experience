@@ -11,7 +11,6 @@ import { initAutoExpandChatsFeature } from "../features/autoExpandChats";
 import { initAutoExpandProjectsFeature } from "../features/autoExpandProjects";
 import { initWideChatFeature } from "../features/wideChat";
 import { initCtrlEnterSendFeature } from "../features/ctrlEnterSend";
-import { initTrimChatDomFeature } from "../features/trimChatDom";
 import { initHideShareButtonFeature } from "../features/hideShareButton";
 import { initDownloadPatchMenuItemFeature } from "../features/downloadPatchMenuItem";
 import { initMacroRecorderFeature } from "../features/macroRecorder";
@@ -91,7 +90,6 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       initAutoExpandProjectsFeature(ctx),
       initAutoTempChatFeature(ctx),
       initOneClickDeleteFeature(ctx),
-      initTrimChatDomFeature(ctx),
       initMessageTimestampsFeature(ctx),
       initPreserveReadingPositionOnSendFeature(ctx),
       initHideShareButtonFeature(ctx),
@@ -138,8 +136,6 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
           "ctrlEnterSends" in changes ||
           "wideChatWidth" in changes ||
           "tempChatEnabled" in changes ||
-          "trimChatDom" in changes ||
-          "trimChatDomKeep" in changes ||
           "hideShareButton" in changes ||
           "macroRecorderEnabled" in changes ||
           "debugAutoExpandProjects" in changes ||
