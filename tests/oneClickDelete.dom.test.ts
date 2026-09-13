@@ -39,6 +39,7 @@ describe("oneClickDelete DOM builders", () => {
           <li>
             <a class="group __menu-item hoverable" href="/c/current-chat">
               <div class="trailing highlight">
+                <button data-testid="history-item-0-pin" type="button" aria-label="Pin chat"><svg></svg></button>
                 <button data-testid="history-item-0-options" type="button"><svg></svg></button>
               </div>
             </a>
@@ -56,6 +57,11 @@ describe("oneClickDelete DOM builders", () => {
 
     expect(optionsButton).not.toBeNull();
     expect(optionsButton?.getAttribute("data-qqrm-oneclick-del-hooked")).toBe("1");
+    expect(
+      document
+        .querySelector('button[data-testid="history-item-0-pin"]')
+        ?.getAttribute("data-qqrm-oneclick-native-pin")
+    ).toBe("1");
     const actions = optionsButton?.previousElementSibling;
     expect(actions?.getAttribute("data-qqrm-oneclick-actions")).toBe("1");
     expect(actions?.querySelector('button[data-qqrm-oneclick-archive="1"]')).not.toBeNull();
@@ -63,6 +69,8 @@ describe("oneClickDelete DOM builders", () => {
     expect(optionsButton?.querySelector('[data-qqrm-oneclick-archive="1"]')).toBeNull();
     expect(optionsButton?.querySelector('[data-qqrm-oneclick-del-x="1"]')).toBeNull();
     expect(buildOneClickDeleteStyleText()).toContain('[data-qqrm-oneclick-actions="1"]');
+    expect(buildOneClickDeleteStyleText()).toContain('[data-qqrm-oneclick-native-pin="1"]');
+    expect(buildOneClickDeleteStyleText()).toContain('[data-qqrm-oneclick-del-hooked="1"]');
     expect(buildOneClickDeleteStyleText()).not.toContain("width: 150px");
 
     handle.dispose();
