@@ -10,8 +10,11 @@ const ONE_CLICK_DELETE_X_MARK = "data-qqrm-oneclick-del-x";
 const ONE_CLICK_DELETE_ICON_MARK = "data-qqrm-oneclick-icon";
 const ONE_CLICK_DELETE_STYLE_ID = "cgptbe-silent-delete-style";
 const ONE_CLICK_DELETE_ROOT_FLAG = "data-cgptbe-silent-delete";
-const ONE_CLICK_DELETE_BUTTON_SELECTOR =
-  'button.__menu-item-trailing-btn[data-trailing-button][data-testid^="history-item-"]';
+const ONE_CLICK_DELETE_FAST_BUTTON_SELECTOR = [
+  'button.__menu-item-trailing-btn[data-trailing-button][data-testid^="history-item-"]',
+  'button[data-testid^="history-item-"][data-testid$="-options"]'
+].join(", ");
+const ONE_CLICK_DELETE_BUTTON_SELECTOR = `button[${ONE_CLICK_DELETE_HOOK_MARK}="1"]`;
 const ONE_CLICK_DELETE_NAV_RELEVANT_SELECTOR = [
   ONE_CLICK_DELETE_BUTTON_SELECTOR,
   "button[data-trailing-button]",
@@ -847,7 +850,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const collectHookableButtons = (root: ParentNode) => {
-    const fastSelector = `${ONE_CLICK_DELETE_BUTTON_SELECTOR}:not([${ONE_CLICK_DELETE_HOOK_MARK}="1"])`;
+    const fastSelector = `${ONE_CLICK_DELETE_FAST_BUTTON_SELECTOR}:not([${ONE_CLICK_DELETE_HOOK_MARK}="1"])`;
     const fastButtons = qsa<HTMLElement>(fastSelector, root as Document | Element).filter(
       isHistoryRowTrailingButton
     );
