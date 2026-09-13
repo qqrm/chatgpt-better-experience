@@ -56,10 +56,14 @@ describe("oneClickDelete DOM builders", () => {
 
     expect(optionsButton).not.toBeNull();
     expect(optionsButton?.getAttribute("data-qqrm-oneclick-del-hooked")).toBe("1");
-    expect(optionsButton?.querySelector('[data-qqrm-oneclick-archive="1"]')).not.toBeNull();
-    expect(optionsButton?.querySelector('[data-qqrm-oneclick-del-x="1"]')).not.toBeNull();
-    expect(optionsButton?.querySelector('[data-qqrm-oneclick-pin="1"]')).toBeNull();
-    expect(buildOneClickDeleteStyleText()).toContain('button[data-qqrm-oneclick-del-hooked="1"]');
+    const actions = optionsButton?.previousElementSibling;
+    expect(actions?.getAttribute("data-qqrm-oneclick-actions")).toBe("1");
+    expect(actions?.querySelector('button[data-qqrm-oneclick-archive="1"]')).not.toBeNull();
+    expect(actions?.querySelector('button[data-qqrm-oneclick-del-x="1"]')).not.toBeNull();
+    expect(optionsButton?.querySelector('[data-qqrm-oneclick-archive="1"]')).toBeNull();
+    expect(optionsButton?.querySelector('[data-qqrm-oneclick-del-x="1"]')).toBeNull();
+    expect(buildOneClickDeleteStyleText()).toContain('[data-qqrm-oneclick-actions="1"]');
+    expect(buildOneClickDeleteStyleText()).not.toContain("width: 150px");
 
     handle.dispose();
   });
