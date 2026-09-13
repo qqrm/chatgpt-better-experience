@@ -49,8 +49,6 @@ export interface Settings {
   startDictation: boolean;
   ctrlEnterSends: boolean;
   wideChatWidth: number;
-  trimChatDom: boolean;
-  trimChatDomKeep: number;
   hideShareButton: boolean;
   macroRecorderEnabled: boolean;
 
@@ -81,8 +79,6 @@ export const SETTINGS_DEFAULTS: SettingsRecord = {
   startDictation: false,
   ctrlEnterSends: true,
   wideChatWidth: 0,
-  trimChatDom: false,
-  trimChatDomKeep: 10,
   hideShareButton: false,
   macroRecorderEnabled: false,
   debugAutoExpandProjects: false,

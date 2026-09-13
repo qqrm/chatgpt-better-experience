@@ -54,8 +54,6 @@ describe("popup use cases macroRecorderEnabled + debug traces", () => {
         startDictation: false,
         ctrlEnterSends: true,
         wideChatWidth: 0,
-        trimChatDom: false,
-        trimChatDomKeep: 10,
         hideShareButton: false,
         macroRecorderEnabled: true,
         debugAutoExpandProjects: true,

@@ -37,8 +37,6 @@ export function makeTestContext(settings: Partial<Settings> = {}): FeatureContex
     startDictation: false,
     ctrlEnterSends: false,
     wideChatWidth: 0,
-    trimChatDom: false,
-    trimChatDomKeep: 10,
     hideShareButton: false,
     macroRecorderEnabled: false,
     debugAutoExpandProjects: false,

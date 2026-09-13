@@ -34,7 +34,6 @@ not current until its selectors and user-visible behavior have a privacy-safe fi
 | Auto-expand projects      | project group and nested chat controls        |
 | Auto temporary chat       | temporary-chat control and state              |
 | One-click delete          | chat-row action menu                          |
-| Trim chat DOM             | message list and restore banner               |
 | Message timestamps        | message metadata and conversation identity    |
 | Preserve reading position | composer send transition and scroll container |
 | Hide share button         | share action                                  |

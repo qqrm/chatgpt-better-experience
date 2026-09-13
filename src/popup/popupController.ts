@@ -28,7 +28,7 @@ function mustGetElement<T extends HTMLElement>(doc: Document, id: string) {
 
 type ThemeMode = "auto" | "dark" | "light";
 type PopupTab = "automation" | "input" | "sidebar" | "performance" | "codex" | "dev";
-type DrawerId = "trimChatDom" | "wideChat";
+type DrawerId = "wideChat";
 type MacroRecorderRuntimeStatus = "off" | "armed" | "recording" | "ready";
 type PopupPreviewState = {
   settings?: Partial<Settings>;
@@ -52,7 +52,6 @@ const SELECTIVE_PROJECTS_ACTIVITY_EVENTS = [
   "scroll"
 ] as const;
 const DRAWER_STORAGE_KEYS = {
-  trimChatDom: "popupTrimChatDomDetailsOpenUntil",
   wideChat: "popupWideChatDetailsOpenUntil"
 } as const;
 
@@ -91,11 +90,6 @@ interface PopupElements {
   oneClickDeleteEl: HTMLInputElement;
   startDictationEl: HTMLInputElement;
   ctrlEnterSendsEl: HTMLInputElement;
-  trimChatDomEl: HTMLInputElement;
-  trimChatDomKeepEl: HTMLInputElement;
-  trimChatDomKeepValueEl: HTMLElement;
-  trimChatDomDetailsEl: HTMLElement;
-  trimChatDomDetailsButtonEl: HTMLButtonElement;
   hideShareButtonEl: HTMLInputElement;
   wideChatWidthEl: HTMLInputElement;
   wideChatDetailsEl: HTMLElement;
@@ -158,11 +152,6 @@ const getPopupElements = (doc: Document): PopupElements => ({
   oneClickDeleteEl: mustGetElement<HTMLInputElement>(doc, "oneClickDelete"),
   startDictationEl: mustGetElement<HTMLInputElement>(doc, "startDictation"),
   ctrlEnterSendsEl: mustGetElement<HTMLInputElement>(doc, "ctrlEnterSends"),
-  trimChatDomEl: mustGetElement<HTMLInputElement>(doc, "trimChatDom"),
-  trimChatDomKeepEl: mustGetElement<HTMLInputElement>(doc, "trimChatDomKeep"),
-  trimChatDomKeepValueEl: mustGetElement<HTMLElement>(doc, "trimChatDomKeepValue"),
-  trimChatDomDetailsEl: mustGetElement<HTMLElement>(doc, "trimChatDomDetails"),
-  trimChatDomDetailsButtonEl: mustGetElement<HTMLButtonElement>(doc, "trimChatDomDetailsButton"),
   hideShareButtonEl: mustGetElement<HTMLInputElement>(doc, "hideShareButton"),
   wideChatWidthEl: mustGetElement<HTMLInputElement>(doc, "wideChatWidth"),
   wideChatDetailsEl: mustGetElement<HTMLElement>(doc, "wideChatDetails"),
@@ -205,7 +194,6 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
   const cleanupFns: Array<() => void> = [];
   const drawerTimerIds = new Map<DrawerId, number>();
   const drawerDeadlines: Record<DrawerId, number> = {
-    trimChatDom: 0,
     wideChat: 0
   };
   const popupPreview =
@@ -518,40 +506,20 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
     applyThemeMode(nextMode);
   };
 
-  const isDrawerAvailable = (drawer: DrawerId) =>
-    drawer === "trimChatDom" ? !!els.trimChatDomEl.checked : true;
-
-  const getDrawerButtonEl = (drawer: DrawerId) =>
-    drawer === "trimChatDom" ? els.trimChatDomDetailsButtonEl : els.wideChatDetailsButtonEl;
-
-  const getDrawerPanelEl = (drawer: DrawerId) =>
-    drawer === "trimChatDom" ? els.trimChatDomDetailsEl : els.wideChatDetailsEl;
-
-  const setDrawerButtonState = (drawer: DrawerId, open: boolean) => {
-    const button = getDrawerButtonEl(drawer);
+  const setDrawerButtonState = (_drawer: DrawerId, open: boolean) => {
+    const button = els.wideChatDetailsButtonEl;
     button.setAttribute("aria-expanded", open ? "true" : "false");
     button.dataset.state = open ? "open" : "closed";
-    if (drawer === "trimChatDom") {
-      button.hidden = !els.trimChatDomEl.checked;
-      button.setAttribute(
-        "aria-label",
-        open ? "Hide Trim chat DOM details" : "Show Trim chat DOM details"
-      );
-    } else {
-      button.setAttribute(
-        "aria-label",
-        open ? "Hide chat width controls" : "Show chat width controls"
-      );
-    }
+    button.setAttribute(
+      "aria-label",
+      open ? "Hide chat width controls" : "Show chat width controls"
+    );
   };
 
   const setDrawerOpen = (drawer: DrawerId, open: boolean) => {
-    const available = isDrawerAvailable(drawer);
-    const shouldOpen = available && open;
-    const panel = getDrawerPanelEl(drawer);
-    panel.hidden = !shouldOpen;
-    panel.setAttribute("aria-hidden", shouldOpen ? "false" : "true");
-    setDrawerButtonState(drawer, shouldOpen);
+    els.wideChatDetailsEl.hidden = !open;
+    els.wideChatDetailsEl.setAttribute("aria-hidden", open ? "false" : "true");
+    setDrawerButtonState(drawer, open);
     schedulePanelHeightLock();
   };
 
@@ -575,11 +543,6 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
   };
 
   const refreshDrawerDeadline = async (drawer: DrawerId) => {
-    if (!isDrawerAvailable(drawer)) {
-      await clearDrawerDeadline(drawer);
-      return;
-    }
-
     const deadline = now() + DRAWER_AUTO_CLOSE_MS;
     drawerDeadlines[drawer] = deadline;
     setDrawerOpen(drawer, true);
@@ -594,18 +557,8 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
     await persistDrawerDeadline(drawer, 0);
   };
 
-  const syncTrimDrawerAvailability = () => {
-    if (!els.trimChatDomEl.checked) {
-      setDrawerOpen("trimChatDom", false);
-      els.trimChatDomDetailsButtonEl.hidden = true;
-      return;
-    }
-    setDrawerButtonState("trimChatDom", !els.trimChatDomDetailsEl.hidden);
-  };
-
   const save = async () => {
     const wideChatWidth = Math.min(100, Math.max(0, Number(els.wideChatWidthEl.value) || 0));
-    const trimChatDomKeep = Math.min(50, Math.max(5, Number(els.trimChatDomKeepEl.value) || 0));
 
     const debugTraceTarget: "projects" | "editMessage" | "autoSend" | "timestamps" =
       els.debugTraceTargetEl.value === "editMessage"
@@ -632,8 +585,6 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
       oneClickDelete: !!els.oneClickDeleteEl.checked,
       startDictation: !!els.startDictationEl.checked,
       ctrlEnterSends: !!els.ctrlEnterSendsEl.checked,
-      trimChatDom: !!els.trimChatDomEl.checked,
-      trimChatDomKeep,
       hideShareButton: !!els.hideShareButtonEl.checked,
       wideChatWidth,
       macroRecorderEnabled: !!els.devPanelEnabledEl.checked && !!els.macroRecorderEnabledEl.checked,
@@ -641,8 +592,6 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
         !!els.devPanelEnabledEl.checked && !!els.debugAutoExpandProjectsEl.checked,
       debugTraceTarget
     });
-
-    els.trimChatDomKeepValueEl.textContent = String(trimChatDomKeep);
   };
 
   const load = async () => {
@@ -662,7 +611,6 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
       deps.storagePort.get({ popupDevPanelEnabled: false }),
       deps.storagePort.get({ popupActiveTab: "automation" as PopupTab }),
       deps.storagePort.get({
-        popupTrimChatDomDetailsOpenUntil: 0,
         popupWideChatDetailsOpenUntil: 0
       })
     ]);
@@ -686,9 +634,6 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
     els.oneClickDeleteEl.checked = settings.oneClickDelete;
     els.startDictationEl.checked = settings.startDictation;
     els.ctrlEnterSendsEl.checked = settings.ctrlEnterSends;
-    els.trimChatDomEl.checked = settings.trimChatDom;
-    els.trimChatDomKeepEl.value = String(settings.trimChatDomKeep);
-    els.trimChatDomKeepValueEl.textContent = String(settings.trimChatDomKeep);
     els.hideShareButtonEl.checked = settings.hideShareButton;
     els.wideChatWidthEl.value = String(settings.wideChatWidth);
     els.macroRecorderEnabledEl.checked = !!settings.macroRecorderEnabled;
@@ -702,27 +647,15 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
 
     syncSelectiveProjectsControls();
     const nowValue = now();
-    drawerDeadlines.trimChatDom = settings.trimChatDom
-      ? normalizeDrawerDeadline(drawerData.popupTrimChatDomDetailsOpenUntil, nowValue)
-      : 0;
     drawerDeadlines.wideChat = normalizeDrawerDeadline(
       drawerData.popupWideChatDetailsOpenUntil,
       nowValue
     );
 
-    syncTrimDrawerAvailability();
-    setDrawerOpen("trimChatDom", drawerDeadlines.trimChatDom > nowValue);
     setDrawerOpen("wideChat", drawerDeadlines.wideChat > nowValue);
-    scheduleDrawerAutoClose("trimChatDom");
     scheduleDrawerAutoClose("wideChat");
 
     const staleDrawerValues: Record<string, unknown> = {};
-    if (
-      drawerData.popupTrimChatDomDetailsOpenUntil !== drawerDeadlines.trimChatDom ||
-      (!settings.trimChatDom && drawerData.popupTrimChatDomDetailsOpenUntil)
-    ) {
-      staleDrawerValues.popupTrimChatDomDetailsOpenUntil = drawerDeadlines.trimChatDom;
-    }
     if (drawerData.popupWideChatDetailsOpenUntil !== drawerDeadlines.wideChat) {
       staleDrawerValues.popupWideChatDetailsOpenUntil = drawerDeadlines.wideChat;
     }
@@ -783,38 +716,6 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
   listen(els.oneClickDeleteEl, "change", () => void save().catch(() => {}));
   listen(els.startDictationEl, "change", () => void save().catch(() => {}));
   listen(els.ctrlEnterSendsEl, "change", () => void save().catch(() => {}));
-  listen(els.trimChatDomEl, "change", () => {
-    syncTrimDrawerAvailability();
-    const task = async () => {
-      if (els.trimChatDomEl.checked) {
-        await refreshDrawerDeadline("trimChatDom");
-      } else {
-        await clearDrawerDeadline("trimChatDom");
-      }
-      await save();
-    };
-    void task().catch(() => {});
-  });
-  listen(els.trimChatDomDetailsButtonEl, "click", () => {
-    const task = async () => {
-      if (els.trimChatDomDetailsEl.hidden) {
-        await refreshDrawerDeadline("trimChatDom");
-      } else {
-        await clearDrawerDeadline("trimChatDom");
-      }
-    };
-    void task().catch(() => {});
-  });
-  listen(els.trimChatDomKeepEl, "input", () => {
-    els.trimChatDomKeepValueEl.textContent = String(
-      Math.min(50, Math.max(5, Number(els.trimChatDomKeepEl.value) || 0))
-    );
-    const task = async () => {
-      await refreshDrawerDeadline("trimChatDom");
-      await save();
-    };
-    void task().catch(() => {});
-  });
   listen(els.hideShareButtonEl, "change", () => void save().catch(() => {}));
   listen(els.wideChatDetailsButtonEl, "click", () => {
     const task = async () => {
@@ -956,14 +857,6 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
         .catch(() => {});
     }
 
-    if ("popupTrimChatDomDetailsOpenUntil" in changes) {
-      drawerDeadlines.trimChatDom = els.trimChatDomEl.checked
-        ? normalizeDrawerDeadline(changes.popupTrimChatDomDetailsOpenUntil?.newValue, now())
-        : 0;
-      setDrawerOpen("trimChatDom", drawerDeadlines.trimChatDom > now());
-      scheduleDrawerAutoClose("trimChatDom");
-    }
-
     if ("popupWideChatDetailsOpenUntil" in changes) {
       drawerDeadlines.wideChat = normalizeDrawerDeadline(
         changes.popupWideChatDetailsOpenUntil?.newValue,
@@ -979,7 +872,6 @@ export async function initPopupController(deps: PopupControllerDeps): Promise<Po
   return {
     dispose() {
       disposed = true;
-      clearDrawerTimer("trimChatDom");
       clearDrawerTimer("wideChat");
       clearSelectiveProjectsDropdownTimer();
       if (panelHeightMeasureRafId !== null) {

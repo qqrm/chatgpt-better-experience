@@ -20,7 +20,6 @@ Verify there is no continuous idle CPU burn from content-script DOM watchers.
 6. Delete or archive one conversation via one-click delete.
 7. Toggle feature settings from extension popup:
    - wide chat
-   - trim chat DOM
    - hide share button
    - auto temp chat
 8. Return to idle state without typing or scrolling.
@@ -34,7 +33,6 @@ Verify there is no continuous idle CPU burn from content-script DOM watchers.
 ## Internal debug counters (when debug logger enabled)
 
 - `wideChat`: bus events / apply runs / processed nodes.
-- `trimChatDom`: bus events / apply runs / processed nodes.
 - `oneClickDelete`: bus events / hook/apply runs / processed nodes.
 - `autoTempChat`: bus events / apply runs / processed nodes.
 
