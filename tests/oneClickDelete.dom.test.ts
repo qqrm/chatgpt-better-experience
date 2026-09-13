@@ -9,12 +9,7 @@ import { makeTestContext } from "./helpers/testContext";
 
 describe("oneClickDelete DOM builders", () => {
   it("builds quick action icons without HTML string insertion", () => {
-    const icons = [
-      createQuickIconSvg("delete"),
-      createQuickIconSvg("archive"),
-      createQuickIconSvg("pin", "pin"),
-      createQuickIconSvg("pin", "unpin")
-    ];
+    const icons = [createQuickIconSvg("delete"), createQuickIconSvg("archive")];
 
     for (const icon of icons) {
       expect(icon.tagName.toLowerCase()).toBe("svg");
@@ -63,6 +58,7 @@ describe("oneClickDelete DOM builders", () => {
     expect(optionsButton?.getAttribute("data-qqrm-oneclick-del-hooked")).toBe("1");
     expect(optionsButton?.querySelector('[data-qqrm-oneclick-archive="1"]')).not.toBeNull();
     expect(optionsButton?.querySelector('[data-qqrm-oneclick-del-x="1"]')).not.toBeNull();
+    expect(optionsButton?.querySelector('[data-qqrm-oneclick-pin="1"]')).toBeNull();
     expect(buildOneClickDeleteStyleText()).toContain('button[data-qqrm-oneclick-del-hooked="1"]');
 
     handle.dispose();

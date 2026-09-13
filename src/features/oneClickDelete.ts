@@ -3,7 +3,6 @@ import { buildChatGptAuthHeaders, buildChatGptUrl } from "./chatgptApi";
 
 const ONE_CLICK_DELETE_HOOK_MARK = "data-qqrm-oneclick-del-hooked";
 const ONE_CLICK_DELETE_ARCHIVE_MARK = "data-qqrm-oneclick-archive";
-const ONE_CLICK_DELETE_PIN_MARK = "data-qqrm-oneclick-pin";
 const ONE_CLICK_DELETE_NATIVE_DOTS_MARK = "data-qqrm-native-dots";
 const ONE_CLICK_DELETE_ROW_MARK = "data-qqrm-oneclick-row";
 const ONE_CLICK_DELETE_X_MARK = "data-qqrm-oneclick-del-x";
@@ -35,18 +34,13 @@ const ONE_CLICK_DELETE_GAP = 6;
 const ONE_CLICK_DELETE_ARCHIVE_SIZE = 26;
 const ONE_CLICK_DELETE_ARCHIVE_RIGHT =
   ONE_CLICK_DELETE_X_RIGHT + ONE_CLICK_DELETE_X_SIZE + ONE_CLICK_DELETE_GAP;
-const ONE_CLICK_DELETE_PIN_SIZE = 26;
-const ONE_CLICK_DELETE_PIN_RIGHT =
-  ONE_CLICK_DELETE_ARCHIVE_RIGHT + ONE_CLICK_DELETE_ARCHIVE_SIZE + ONE_CLICK_DELETE_GAP;
 const ONE_CLICK_DELETE_DOTS_LEFT = 10;
 const ONE_CLICK_DELETE_WIPE_MS = 4500;
 const ONE_CLICK_DELETE_UNDO_TOTAL_MS = 5000;
 const ONE_CLICK_DELETE_TOOLTIP = "Click to delete";
 const ONE_CLICK_DELETE_ARCHIVE_TOOLTIP = "Archive";
-const ONE_CLICK_DELETE_PIN_TOOLTIP = "Pin / unpin";
 const CHAT_CONVERSATION_ID_REGEX = /\/c\/([^/?#]+)/;
-type QuickIconKind = "pin" | "archive" | "delete";
-type QuickPinActionKind = "pin" | "unpin";
+type QuickIconKind = "archive" | "delete";
 type SvgIconSpec = {
   width: string;
   height: string;
@@ -55,35 +49,8 @@ type SvgIconSpec = {
   paths: Array<Record<string, string>>;
 };
 
-const ONE_CLICK_DELETE_PIN_ACTION_MARK = "data-qqrm-oneclick-pin-action";
 const SVG_NS = "http://www.w3.org/2000/svg";
-
-const LOCAL_PIN_ICON_SPECS: Record<QuickPinActionKind, SvgIconSpec> = {
-  pin: {
-    width: "20",
-    height: "20",
-    viewBox: "0 0 20 20",
-    fill: "currentColor",
-    paths: [
-      {
-        d: "M11.835 12.5c0-.793.444-1.487 1.026-1.902l3.551-2.536.09-.073a1.01 1.01 0 0 0 .114-1.377l-.077-.086-3.065-3.065a1.01 1.01 0 0 0-1.463.037l-.073.09-2.536 3.55C8.987 7.72 8.293 8.166 7.5 8.166H5.417c-.434 0-.843.301-1.05.781-.205.476-.143.965.172 1.28l5.234 5.235.126.106c.312.22.739.245 1.155.066.48-.207.78-.616.78-1.05zm1.33 2.083c0 1.09-.743 1.909-1.585 2.272-.793.341-1.817.34-2.595-.314l-.152-.14-2.147-2.147L2.97 17.97a.666.666 0 0 1-.942-.942l3.716-3.716L3.6 11.168c-.792-.792-.818-1.901-.454-2.747.363-.842 1.182-1.585 2.272-1.585H7.5c.288 0 .607-.172.82-.47l2.536-3.55.081-.108a2.34 2.34 0 0 1 3.477-.186l3.065 3.065.093.098a2.34 2.34 0 0 1-.28 3.379l-.107.08-3.55 2.537c-.299.213-.47.532-.47.82z"
-      }
-    ]
-  },
-  unpin: {
-    width: "20",
-    height: "20",
-    viewBox: "0 0 20 20",
-    fill: "currentColor",
-    paths: [
-      {
-        d: "M5.145 8.207c-.326.097-.615.362-.778.74-.205.475-.143.965.172 1.28l5.234 5.234.126.107c.311.22.739.244 1.154.065.378-.163.643-.452.74-.78l.994.996a2.74 2.74 0 0 1-1.207 1.006c-.793.341-1.818.34-2.595-.314l-.152-.14-2.148-2.147-3.715 3.717a.667.667 0 0 1-.941-.942l3.716-3.715-2.147-2.147c-.791-.791-.817-1.901-.453-2.747.203-.47.55-.912 1.006-1.208zM17.136 16.197a.665.665 0 0 1-.94.94zM2.862 2.863a.67.67 0 0 1 .837-.085l.104.084 13.333 13.334-.47.47-.47.47L2.862 3.805l-.085-.105a.67.67 0 0 1 .085-.836M10.937 2.707a2.34 2.34 0 0 1 3.477-.186l3.065 3.065.093.098a2.34 2.34 0 0 1-.28 3.379l-.107.08-2.905 2.075-.953-.953 3.085-2.203.09-.073a1.01 1.01 0 0 0 .114-1.376l-.077-.086-3.066-3.066a1.01 1.01 0 0 0-1.463.037l-.072.09-2.203 3.084-.954-.953 2.075-2.904z"
-      }
-    ]
-  }
-};
-
-const LOCAL_QUICK_ICON_SPECS: Record<Exclude<QuickIconKind, "pin">, SvgIconSpec> = {
+const LOCAL_QUICK_ICON_SPECS: Record<QuickIconKind, SvgIconSpec> = {
   archive: {
     width: "16",
     height: "16",
@@ -136,9 +103,8 @@ function createSvgIcon(spec: SvgIconSpec) {
   return svg;
 }
 
-export function createQuickIconSvg(kind: QuickIconKind, pinAction: QuickPinActionKind = "pin") {
-  const spec = kind === "pin" ? LOCAL_PIN_ICON_SPECS[pinAction] : LOCAL_QUICK_ICON_SPECS[kind];
-  return createSvgIcon(spec);
+export function createQuickIconSvg(kind: QuickIconKind) {
+  return createSvgIcon(LOCAL_QUICK_ICON_SPECS[kind]);
 }
 
 export function createPendingOverlayContent() {
@@ -265,12 +231,6 @@ export const buildOneClickDeleteStyleText = () => `
     --qqrm-archive-muted: #6b7280;
     --qqrm-archive-muted-bg: rgba(107, 114, 128, 0.1);
     --qqrm-archive-muted-border: rgba(107, 114, 128, 0.28);
-    --qqrm-pin: #16a34a;
-    --qqrm-pin-bg: rgba(22, 163, 74, 0.14);
-    --qqrm-pin-border: rgba(22, 163, 74, 0.35);
-    --qqrm-pin-muted: #6b7280;
-    --qqrm-pin-muted-bg: rgba(107, 114, 128, 0.1);
-    --qqrm-pin-muted-border: rgba(107, 114, 128, 0.28);
   }
 
   @media (prefers-color-scheme: dark) {
@@ -287,12 +247,6 @@ export const buildOneClickDeleteStyleText = () => `
       --qqrm-archive-muted: #9ca3af;
       --qqrm-archive-muted-bg: rgba(148, 163, 184, 0.14);
       --qqrm-archive-muted-border: rgba(148, 163, 184, 0.3);
-      --qqrm-pin: #4ade80;
-      --qqrm-pin-bg: rgba(74, 222, 128, 0.16);
-      --qqrm-pin-border: rgba(74, 222, 128, 0.35);
-      --qqrm-pin-muted: #9ca3af;
-      --qqrm-pin-muted-bg: rgba(148, 163, 184, 0.14);
-      --qqrm-pin-muted-border: rgba(148, 163, 184, 0.3);
     }
   }
 
@@ -344,36 +298,6 @@ export const buildOneClickDeleteStyleText = () => `
   }
 
   ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"] svg{
-    display: block;
-  }
-
-  ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_PIN_MARK}="1"]{
-    position: absolute;
-    right: ${ONE_CLICK_DELETE_PIN_RIGHT}px;
-    top: 50%;
-    transform: translate3d(0, -50%, 0);
-    width: ${ONE_CLICK_DELETE_PIN_SIZE}px;
-    height: ${ONE_CLICK_DELETE_PIN_SIZE}px;
-    border-radius: 9px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    font-weight: 600;
-    line-height: 18px;
-    color: currentColor;
-    background: transparent;
-    border: 1px solid transparent;
-    box-shadow: none;
-    opacity: 0.0;
-    will-change: opacity, transform;
-    transition: opacity 140ms ease, background 140ms ease;
-    user-select: none;
-    pointer-events: auto;
-    cursor: pointer;
-  }
-
-  ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_PIN_MARK}="1"] svg{
     display: block;
   }
 
@@ -436,17 +360,6 @@ export const buildOneClickDeleteStyleText = () => `
   [${ONE_CLICK_DELETE_ROW_MARK}="1"]:hover ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"],
   [${ONE_CLICK_DELETE_ROW_MARK}="1"]:focus-within ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"],
   ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:focus-visible > span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]{
-    opacity: 1.0;
-    color: currentColor;
-    background: transparent;
-    border-color: transparent;
-    transform: translate3d(0, -50%, 0);
-  }
-
-  ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:hover > span[${ONE_CLICK_DELETE_PIN_MARK}="1"],
-  [${ONE_CLICK_DELETE_ROW_MARK}="1"]:hover ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_PIN_MARK}="1"],
-  [${ONE_CLICK_DELETE_ROW_MARK}="1"]:focus-within ${ONE_CLICK_DELETE_BUTTON_SELECTOR} > span[${ONE_CLICK_DELETE_PIN_MARK}="1"],
-  ${ONE_CLICK_DELETE_BUTTON_SELECTOR}:focus-visible > span[${ONE_CLICK_DELETE_PIN_MARK}="1"]{
     opacity: 1.0;
     color: currentColor;
     background: transparent;
@@ -887,80 +800,16 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     }
   };
 
-  const cacheNativeQuickIconsFromMenu = (_menuRoot: ParentNode) => {
-    // Intentionally disabled.
-    // Quick action icons are now local deterministic SVGs to avoid startup race conditions
-    // and visual switching after the first native menu open/delete interaction.
-  };
-
-  const detectPinnedRow = (row: HTMLElement | null) => {
-    if (!row) return false;
-    const pinnedNeedles = ["pinned", "закреп", "angeheftet", "épinglé", "fijado"];
-    const hasPinnedNeedle = (value: string | null | undefined) => {
-      const text = (value ?? "").toLowerCase();
-      return pinnedNeedles.some((needle) => text.includes(needle));
-    };
-
-    if (
-      hasPinnedNeedle(row.getAttribute("data-testid")) ||
-      hasPinnedNeedle(row.getAttribute("aria-label")) ||
-      hasPinnedNeedle(row.id) ||
-      hasPinnedNeedle(row.className)
-    ) {
-      return true;
-    }
-
-    let cur: HTMLElement | null = row;
-    while (cur && cur !== document.body) {
-      if (hasPinnedNeedle(cur.getAttribute("aria-label"))) return true;
-      const heading =
-        cur.querySelector<HTMLElement>("h1, h2, h3, h4, [role='heading']")?.textContent ??
-        cur.previousElementSibling?.textContent ??
-        "";
-      if (hasPinnedNeedle(heading)) return true;
-      cur = cur.parentElement;
-    }
-
-    return false;
-  };
-
-  const inferPinActionFromButton = (btn: HTMLElement | null): QuickPinActionKind => {
-    if (!btn) return "pin";
-    const marked = btn.getAttribute(ONE_CLICK_DELETE_PIN_ACTION_MARK);
-    if (marked === "pin" || marked === "unpin") return marked;
-    const row = findChatRowFromOptionsButton(btn);
-    return detectPinnedRow(row) ? "unpin" : "pin";
-  };
-
-  const setPinActionOnButton = (btn: HTMLElement, action: QuickPinActionKind) => {
-    btn.setAttribute(ONE_CLICK_DELETE_PIN_ACTION_MARK, action);
-  };
-
   const applyLocalQuickIcon = (span: HTMLElement, kind: QuickIconKind) => {
-    const pinAction =
-      kind === "pin" ? inferPinActionFromButton(span.closest<HTMLElement>("button")) : "pin";
-    const iconMark = kind === "pin" ? `${kind}:${pinAction}` : kind;
     if (
-      span.getAttribute(ONE_CLICK_DELETE_ICON_MARK) === iconMark &&
+      span.getAttribute(ONE_CLICK_DELETE_ICON_MARK) === kind &&
       span.firstElementChild instanceof SVGElement
     ) {
       return;
     }
 
-    span.replaceChildren(createQuickIconSvg(kind, pinAction));
-    span.setAttribute(ONE_CLICK_DELETE_ICON_MARK, iconMark);
-  };
-
-  const refreshAllHookedIcons = () => {
-    const btns = qsa<HTMLElement>(`button[${ONE_CLICK_DELETE_HOOK_MARK}="1"]`);
-    for (const btn of btns) {
-      const del = btn.querySelector<HTMLElement>(`span[${ONE_CLICK_DELETE_X_MARK}="1"]`);
-      const archive = btn.querySelector<HTMLElement>(`span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]`);
-      const pin = btn.querySelector<HTMLElement>(`span[${ONE_CLICK_DELETE_PIN_MARK}="1"]`);
-      if (del) applyLocalQuickIcon(del, "delete");
-      if (archive) applyLocalQuickIcon(archive, "archive");
-      if (pin) applyLocalQuickIcon(pin, "pin");
-    }
+    span.replaceChildren(createQuickIconSvg(kind));
+    span.setAttribute(ONE_CLICK_DELETE_ICON_MARK, kind);
   };
 
   const ensureHookScanScheduler = () => {
@@ -1018,24 +867,9 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     const native = svgs.find(
       (svg) =>
         !svg.closest(`span[${ONE_CLICK_DELETE_X_MARK}="1"]`) &&
-        !svg.closest(`span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]`) &&
-        !svg.closest(`span[${ONE_CLICK_DELETE_PIN_MARK}="1"]`)
+        !svg.closest(`span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]`)
     );
     if (native) native.setAttribute(ONE_CLICK_DELETE_NATIVE_DOTS_MARK, "1");
-  };
-
-  const ensureOneClickPinSpan = (btn: HTMLElement) => {
-    let pin = btn.querySelector<HTMLSpanElement>(`span[${ONE_CLICK_DELETE_PIN_MARK}="1"]`);
-    if (pin) {
-      applyLocalQuickIcon(pin, "pin");
-      return pin;
-    }
-    pin = document.createElement("span");
-    pin.setAttribute(ONE_CLICK_DELETE_PIN_MARK, "1");
-    pin.setAttribute("aria-label", ONE_CLICK_DELETE_PIN_TOOLTIP);
-    btn.appendChild(pin);
-    applyLocalQuickIcon(pin, "pin");
-    return pin;
   };
 
   const clearOneClickDeleteButtons = () => {
@@ -1046,11 +880,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       if (x) x.remove();
       const archive = btn.querySelector(`span[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]`);
       if (archive) archive.remove();
-      const pin = btn.querySelector(`span[${ONE_CLICK_DELETE_PIN_MARK}="1"]`);
-      if (pin) pin.remove();
       const dots = btn.querySelector(`svg[${ONE_CLICK_DELETE_NATIVE_DOTS_MARK}="1"]`);
       if (dots) dots.removeAttribute(ONE_CLICK_DELETE_NATIVE_DOTS_MARK);
-      btn.removeAttribute(ONE_CLICK_DELETE_PIN_ACTION_MARK);
       const row = findChatRowFromOptionsButton(btn);
       row?.removeAttribute(ONE_CLICK_DELETE_ROW_MARK);
     }
@@ -1224,140 +1055,15 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     return btn && isHistoryRowTrailingButton(btn) ? btn : null;
   };
 
-  const getPinFromEvent = (target: EventTarget | null) => {
-    if (!(target instanceof Element)) return null;
-    return target.closest<HTMLElement>(`span[${ONE_CLICK_DELETE_PIN_MARK}="1"]`);
-  };
-
-  const getOptionsButtonFromPin = (pin: HTMLElement) => {
-    const btn = pin.closest<HTMLElement>("button");
-    return btn && isHistoryRowTrailingButton(btn) ? btn : null;
-  };
-
   const hookOneClickDeleteButton = (btn: HTMLElement) => {
     if (!btn || btn.nodeType !== 1) return;
     if (btn.hasAttribute(ONE_CLICK_DELETE_HOOK_MARK)) return;
     btn.setAttribute(ONE_CLICK_DELETE_HOOK_MARK, "1");
     ensureOneClickDeleteXSpan(btn);
     ensureOneClickArchiveSpan(btn);
-    setPinActionOnButton(btn, inferPinActionFromButton(btn));
-    ensureOneClickPinSpan(btn);
     ensureNativeDotsMark(btn);
     const row = findChatRowFromOptionsButton(btn);
     row?.setAttribute(ONE_CLICK_DELETE_ROW_MARK, "1");
-  };
-
-  const closeOpenMenuSilently = async (optionsBtn?: HTMLElement | null) => {
-    try {
-      const dispatchEscape = (type: "keydown" | "keyup") => {
-        document.dispatchEvent(
-          new KeyboardEvent(type, {
-            key: "Escape",
-            code: "Escape",
-            bubbles: true,
-            cancelable: true
-          })
-        );
-      };
-
-      dispatchEscape("keydown");
-      dispatchEscape("keyup");
-      await new Promise((resolve) => setTimeout(resolve, 40));
-
-      if (document.querySelector('[role="menu"]') && optionsBtn) {
-        ctx.helpers.humanClick(optionsBtn, "oneclick-pin-close-menu");
-        await new Promise((resolve) => setTimeout(resolve, 40));
-      }
-
-      if (document.querySelector('[role="menu"]')) {
-        const outsideTarget =
-          document.querySelector<HTMLElement>('nav[aria-label="Chat history"]') ??
-          document.body ??
-          document.documentElement;
-        if (outsideTarget) {
-          ctx.helpers.humanClick(outsideTarget, "oneclick-pin-close-menu-outside");
-          await new Promise((resolve) => setTimeout(resolve, 40));
-        }
-      }
-    } catch {
-      // ignore
-    }
-  };
-
-  const runOneClickPinUiFlow = async (btn: HTMLElement) => {
-    let pinActionClicked = false;
-    try {
-      setSilentDeleteMode(true);
-      ctx.helpers.humanClick(btn, "oneclick-pin-open-menu");
-
-      const pinItem = await (async () => {
-        const pinTextVariants = [
-          "Pin",
-          "Pin chat",
-          "Pin conversation",
-          "Unpin",
-          "Unpin chat",
-          "Unpin conversation",
-          "Закрепить",
-          "Открепить",
-          "Закрепить чат",
-          "Открепить чат"
-        ];
-        const pinSelectors = [
-          'div[role="menuitem"][data-testid*="unpin" i]',
-          'div[role="menuitem"][data-testid*="pin" i]',
-          'button[role="menuitem"][data-testid*="unpin" i]',
-          'button[role="menuitem"][data-testid*="pin" i]',
-          'div[role="menuitem"][id*="unpin" i]',
-          'div[role="menuitem"][id*="pin" i]',
-          'button[role="menuitem"][id*="unpin" i]',
-          'button[role="menuitem"][id*="pin" i]'
-        ];
-
-        const t0 = performance.now();
-        while (performance.now() - t0 < 1500) {
-          const menus = qsa('[role="menu"]');
-          for (const menu of menus) {
-            cacheNativeQuickIconsFromMenu(menu);
-            refreshAllHookedIcons();
-            for (const selector of pinSelectors) {
-              const item = menu.querySelector<HTMLElement>(selector);
-              if (item) return item;
-            }
-            const byText = findButtonByTextVariants(menu, pinTextVariants);
-            if (byText) return byText;
-          }
-
-          for (const selector of pinSelectors) {
-            const fallback = document.querySelector<HTMLElement>(selector);
-            if (fallback) return fallback;
-          }
-          const fallbackText = findButtonByTextVariants(document, pinTextVariants);
-          if (fallbackText) return fallbackText;
-
-          await new Promise((resolve) => setTimeout(resolve, 50));
-        }
-        return null;
-      })();
-
-      if (!pinItem) return;
-      const pinItemText = (pinItem.textContent ?? "").trim().toLowerCase();
-      const pinAction: QuickPinActionKind =
-        pinItemText.includes("unpin") || pinItemText.includes("откреп") ? "unpin" : "pin";
-      setPinActionOnButton(btn, pinAction);
-      refreshAllHookedIcons();
-
-      pinActionClicked = true;
-      ctx.helpers.humanClick(pinItem, "oneclick-pin-menu");
-      setPinActionOnButton(btn, pinAction === "pin" ? "unpin" : "pin");
-      refreshAllHookedIcons();
-    } finally {
-      if (!pinActionClicked) {
-        await closeOpenMenuSilently(btn);
-      }
-      await new Promise((resolve) => setTimeout(resolve, 60));
-      setSilentDeleteMode(false);
-    }
   };
 
   const runOneClickDeleteUiFlow = async (btn: HTMLElement) => {
@@ -1370,8 +1076,6 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
         while (performance.now() - t0 < 1500) {
           const menus = qsa('[role="menu"]');
           for (const menu of menus) {
-            cacheNativeQuickIconsFromMenu(menu);
-            refreshAllHookedIcons();
             const item =
               menu.querySelector<HTMLElement>(
                 'div[role="menuitem"][data-testid="delete-chat-menu-item"]'
@@ -1440,8 +1144,6 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
         while (performance.now() - t0 < 1500) {
           const menus = qsa('[role="menu"]');
           for (const menu of menus) {
-            cacheNativeQuickIconsFromMenu(menu);
-            refreshAllHookedIcons();
             for (const selector of archiveSelectors) {
               const item = menu.querySelector<HTMLElement>(selector);
               if (item) return item;
@@ -1534,15 +1236,6 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const handlePointerDown = (ev: PointerEvent) => {
-    const pin = getPinFromEvent(ev.target);
-    if (pin) {
-      const btn = getOptionsButtonFromPin(pin);
-      if (!btn) return;
-      swallowEvent(ev);
-      enqueueDelete(() => runOneClickPinUiFlow(btn));
-      return;
-    }
-
     const archive = getArchiveFromEvent(ev.target);
     if (archive) {
       const btn = getOptionsButtonFromArchive(archive);
@@ -1561,12 +1254,6 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const handleClick = (ev: MouseEvent) => {
-    const pin = getPinFromEvent(ev.target);
-    if (pin) {
-      swallowEvent(ev);
-      return;
-    }
-
     const archive = getArchiveFromEvent(ev.target);
     if (archive) {
       swallowEvent(ev);
