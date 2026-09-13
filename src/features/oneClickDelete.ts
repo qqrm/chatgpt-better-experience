@@ -12,7 +12,8 @@ const ONE_CLICK_DELETE_STYLE_ID = "cgptbe-silent-delete-style";
 const ONE_CLICK_DELETE_ROOT_FLAG = "data-cgptbe-silent-delete";
 const ONE_CLICK_DELETE_FAST_BUTTON_SELECTOR = [
   'button.__menu-item-trailing-btn[data-trailing-button][data-testid^="history-item-"]',
-  'button[data-testid^="history-item-"][data-testid$="-options"]'
+  'button[data-testid^="history-item-"][data-testid$="-options"]',
+  'button[data-testid="undefined-options"]'
 ].join(", ");
 const ONE_CLICK_DELETE_BUTTON_SELECTOR = `button[${ONE_CLICK_DELETE_HOOK_MARK}="1"]`;
 const ONE_CLICK_DELETE_NAV_RELEVANT_SELECTOR = [
@@ -20,6 +21,7 @@ const ONE_CLICK_DELETE_NAV_RELEVANT_SELECTOR = [
   "button[data-trailing-button]",
   "button.__menu-item-trailing-btn",
   "button[data-testid*='history-item' i]",
+  'button[data-testid="undefined-options"]',
   "[data-sidebar-item='true']",
   ".group.__menu-item",
   "a[href^='/c/']",
@@ -719,7 +721,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       isHistoryRowTrailingButton
     );
     const fallbackCandidates = qsa<HTMLElement>(
-      `button[data-trailing-button], button.__menu-item-trailing-btn, button[data-testid*='history-item' i]`,
+      `button[data-trailing-button], button.__menu-item-trailing-btn, button[data-testid*='history-item' i], button[data-testid="undefined-options"]`,
       root as Document | Element
     );
     const dedup = new Set<HTMLElement>(fastButtons);
@@ -1287,7 +1289,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     state.unsubRoots =
       ctx.domBus?.onRoots((roots) => {
         state.deleteSweepNav = roots.nav;
-        if (roots.nav) state.hookScanSchedule?.();
+        if (roots.nav) hookOptionsButtonsInNav(roots.nav);
+        else runHookScan();
       }) ?? null;
 
     state.unsubNavDelta =

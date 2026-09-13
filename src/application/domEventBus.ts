@@ -44,7 +44,10 @@ export function createDomEventBus(ctx: FeatureContext) {
   ];
   const PROJECT_LINK_SELECTOR = 'a[href*="/project"]';
   const SIDEBAR_ITEM_SELECTOR = '[data-sidebar-item="true"]';
-  const HISTORY_OPTIONS_SELECTOR = '[data-testid^="history-item-"][data-testid$="-options"]';
+  const HISTORY_OPTIONS_SELECTOR = [
+    '[data-testid^="history-item-"][data-testid$="-options"]',
+    '[data-testid="undefined-options"]'
+  ].join(", ");
   const HISTORY_ITEM_SELECTOR = '[data-testid^="history-item-"]';
   const ROOT_FINDER_TIMEOUT_MS = 15_000;
 
