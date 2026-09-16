@@ -602,8 +602,22 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     return null;
   };
 
+  const looksLikeNativePinButton = (btn: HTMLButtonElement) => {
+    const dataTestId = btn.getAttribute("data-testid")?.toLowerCase() ?? "";
+    if (dataTestId.includes("pin")) return true;
+    const hint = [btn.getAttribute("aria-label"), btn.getAttribute("title")]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return hint.includes("pin") || hint.includes("закреп") || hint.includes("откреп");
+  };
+
   const isHistoryRowTrailingButton = (btn: HTMLElement) => {
     if (!(btn instanceof HTMLButtonElement)) return false;
+    // The native pin/unpin button can carry a history-item testid itself; it
+    // must stay visible as the first quick action instead of being hooked
+    // (hidden) and given its own quick-action group.
+    if (looksLikeNativePinButton(btn)) return false;
     const cls = btn.className || "";
     const dataTestId = btn.getAttribute("data-testid")?.toLowerCase() ?? "";
     const looksTrailing =
@@ -758,7 +772,22 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     return Array.from(dedup);
   };
 
+  // React re-renders can rebuild a row around our injected quick-action group
+  // (owner button replaced); drop groups whose next sibling is no longer a
+  // hooked options button so rescans never stack duplicate groups.
+  const pruneOrphanQuickActions = (root: Document | Element) => {
+    const groups = qsa<HTMLElement>(`[${ONE_CLICK_DELETE_ACTIONS_MARK}="1"]`, root);
+    for (const group of groups) {
+      if (!group.isConnected) continue;
+      const owner = group.nextElementSibling;
+      const owned =
+        owner instanceof HTMLButtonElement && owner.hasAttribute(ONE_CLICK_DELETE_HOOK_MARK);
+      if (!owned) group.remove();
+    }
+  };
+
   const hookOptionsButtonsInNav = (nav: Element) => {
+    pruneOrphanQuickActions(nav);
     const buttons = collectHookableButtons(nav);
     for (const button of buttons) {
       hookOneClickDeleteButton(button);
@@ -768,6 +797,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
 
   const runHookScan = () => {
     const nav = ctx.domBus?.getNavRoot();
+    pruneOrphanQuickActions(nav ?? document);
     const buttons = nav ? collectHookableButtons(nav) : [];
     if (buttons.length === 0) {
       buttons.push(...collectHookableButtons(document));
@@ -846,27 +876,29 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
 
   const findNativePinButton = (optionsBtn: HTMLElement) => {
     const host = optionsBtn.parentElement;
-    if (!host) return null;
+    if (host) {
+      const candidates = Array.from(host.children).filter(
+        (child): child is HTMLButtonElement =>
+          child instanceof HTMLButtonElement && child !== optionsBtn
+      );
 
-    const candidates = Array.from(host.children).filter(
-      (child): child is HTMLButtonElement =>
-        child instanceof HTMLButtonElement && child !== optionsBtn
-    );
-    if (candidates.length === 0) return null;
+      const pinByHint = candidates.find(looksLikeNativePinButton);
+      if (pinByHint) return pinByHint;
+      // Older sidebar DOM renders the pin button without any hint attributes.
+      if (candidates.length === 1) return candidates[0];
+    }
 
-    const pinByHint = candidates.find((candidate) => {
-      const hint = [
-        candidate.getAttribute("aria-label"),
-        candidate.getAttribute("title"),
-        candidate.getAttribute("data-testid")
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hint.includes("pin") || hint.includes("закреп");
-    });
+    // Newer sidebar DOM can wrap the pin button separately from the options
+    // button; fall back to a hint scan across the whole history row.
+    const row = findHistoryRowFromNode(optionsBtn);
+    if (row) {
+      const rowPin = Array.from(row.querySelectorAll<HTMLButtonElement>("button")).find(
+        (btn) => btn !== optionsBtn && looksLikeNativePinButton(btn)
+      );
+      if (rowPin) return rowPin;
+    }
 
-    return pinByHint ?? (candidates.length === 1 ? candidates[0] : null);
+    return null;
   };
 
   const markNativePinButton = (optionsBtn: HTMLElement) => {

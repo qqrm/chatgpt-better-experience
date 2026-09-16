@@ -207,4 +207,105 @@ describe("oneClickDelete DOM builders", () => {
       vi.useRealTimers();
     }
   });
+
+  it("does not hook the native pin button even when it carries a history-item testid", () => {
+    document.body.innerHTML = `
+      <nav aria-label="Chat history">
+        <ul>
+          <li>
+            <a class="group __menu-item hoverable" href="/c/live-chat">
+              <div class="trailing highlight">
+                <div class="flex items-center gap-2">
+                  <button data-testid="history-item-0-pin" type="button" aria-label="Pin chat"><svg></svg></button>
+                  <button data-testid="history-item-0-options" type="button"><svg></svg></button>
+                </div>
+              </div>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    `;
+
+    const ctx = makeTestContext({ oneClickDelete: true });
+    ctx.domBus = null;
+    const handle = initOneClickDeleteFeature(ctx);
+
+    const pin = document.querySelector<HTMLButtonElement>(
+      'button[data-testid="history-item-0-pin"]'
+    );
+
+    expect(pin?.getAttribute("data-qqrm-oneclick-del-hooked")).toBeNull();
+    expect(pin?.getAttribute("data-qqrm-oneclick-native-pin")).toBe("1");
+    expect(document.querySelectorAll("[data-qqrm-oneclick-actions='1']").length).toBe(1);
+
+    handle.dispose();
+  });
+
+  it("prunes orphaned quick action groups instead of stacking duplicates", () => {
+    document.body.innerHTML = `
+      <nav aria-label="Chat history">
+        <ul>
+          <li>
+            <a class="group __menu-item hoverable" href="/c/rerendered-chat">
+              <div class="trailing highlight">
+                <div class="flex items-center gap-2">
+                  <div data-qqrm-oneclick-actions="1" role="group">
+                    <button data-qqrm-oneclick-archive="1" type="button"></button>
+                    <button data-qqrm-oneclick-del-x="1" type="button"></button>
+                  </div>
+                  <button data-testid="history-item-1-options" type="button"><svg></svg></button>
+                </div>
+              </div>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    `;
+
+    const ctx = makeTestContext({ oneClickDelete: true });
+    ctx.domBus = null;
+    const handle = initOneClickDeleteFeature(ctx);
+
+    const groups = document.querySelectorAll("[data-qqrm-oneclick-actions='1']");
+    expect(groups.length).toBe(1);
+
+    const owner = groups[0].nextElementSibling;
+    expect(owner?.getAttribute("data-testid")).toBe("history-item-1-options");
+    expect(owner?.getAttribute("data-qqrm-oneclick-del-hooked")).toBe("1");
+
+    handle.dispose();
+  });
+
+  it("marks a native pin button wrapped separately from the options button", () => {
+    document.body.innerHTML = `
+      <nav aria-label="Chat history">
+        <ul>
+          <li>
+            <a class="group __menu-item hoverable" href="/c/wrapped-pin-chat">
+              <div class="trailing highlight">
+                <div class="pin-wrapper">
+                  <button type="button" aria-label="Закрепить чат"><svg></svg></button>
+                </div>
+                <div class="options-wrapper">
+                  <button data-testid="undefined-options" type="button"><svg></svg></button>
+                </div>
+              </div>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    `;
+
+    const ctx = makeTestContext({ oneClickDelete: true });
+    ctx.domBus = null;
+    const handle = initOneClickDeleteFeature(ctx);
+
+    expect(
+      document
+        .querySelector('button[aria-label="Закрепить чат"]')
+        ?.getAttribute("data-qqrm-oneclick-native-pin")
+    ).toBe("1");
+
+    handle.dispose();
+  });
 });
