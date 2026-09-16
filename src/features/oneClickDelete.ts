@@ -305,16 +305,33 @@ export const buildOneClickDeleteStyleText = () => `
     transform: translateY(-110%);
   }
 
-  [${ONE_CLICK_DELETE_ROW_MARK}="1"]{
+  button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"]{
+    flex: none !important;
+    inline-size: ${ONE_CLICK_DELETE_ACTION_SIZE}px !important;
+    block-size: ${ONE_CLICK_DELETE_ACTION_SIZE}px !important;
+    min-inline-size: ${ONE_CLICK_DELETE_ACTION_SIZE}px !important;
+    border: 0 !important;
+    border-radius: 8px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
     position: relative !important;
+    color: currentColor !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    cursor: pointer !important;
   }
 
-  [${ONE_CLICK_DELETE_ROW_MARK}="1"] button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"]{
-    position: absolute !important;
-    inset-inline-start: 8px !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    z-index: 1 !important;
+  button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"]:hover,
+  button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"]:focus-visible{
+    background: color-mix(in srgb, currentColor 12%, transparent) !important;
+    outline: none !important;
+  }
+
+  button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"] svg{
+    display: block;
+    pointer-events: none;
   }
 
   [${ONE_CLICK_DELETE_ROW_MARK}="1"] button[${ONE_CLICK_DELETE_HOOK_MARK}="1"]{
