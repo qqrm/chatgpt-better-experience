@@ -34,6 +34,10 @@ const ONE_CLICK_DELETE_WIPE_MS = 4500;
 const ONE_CLICK_DELETE_UNDO_TOTAL_MS = 5000;
 const ONE_CLICK_DELETE_TOOLTIP = "Click to delete";
 const ONE_CLICK_DELETE_ARCHIVE_TOOLTIP = "Archive";
+// The sidebar can render long after this feature starts (document_start on a
+// slow SPA load, hidden tab); re-scan a few times so quick buttons do not
+// stay missing until the next mutation or settings change.
+const ONE_CLICK_DELETE_WARM_UP_DELAYS_MS = [1_000, 3_000, 7_000, 15_000, 30_000];
 const CHAT_CONVERSATION_ID_REGEX = /\/c\/([^/?#]+)/;
 type QuickIconKind = "archive" | "delete";
 type SvgIconSpec = {
@@ -549,6 +553,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     deleteSweepNav: Element | null;
     unsubNavDelta: (() => void) | null;
     unsubRoots: (() => void) | null;
+    warmUpTimeoutIds: number[];
+    windowLoadListener: (() => void) | null;
     stats: { observerCalls: number; applyRuns: number; nodesProcessed: number };
     pendingByRow: Map<HTMLElement, PendingAction>;
     deleteQueue: Promise<void>;
@@ -563,6 +569,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     deleteSweepNav: null,
     unsubNavDelta: null,
     unsubRoots: null,
+    warmUpTimeoutIds: [],
+    windowLoadListener: null,
     stats: { observerCalls: 0, applyRuns: 0, nodesProcessed: 0 },
     pendingByRow: new Map(),
     deleteQueue: Promise.resolve(),
@@ -1303,6 +1311,12 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     ensureHookScanScheduler();
     refreshOneClickDelete();
 
+    state.windowLoadListener = () => refreshOneClickDelete();
+    window.addEventListener("load", state.windowLoadListener);
+    state.warmUpTimeoutIds = ONE_CLICK_DELETE_WARM_UP_DELAYS_MS.map((delayMs) =>
+      window.setTimeout(() => refreshOneClickDelete(), delayMs)
+    );
+
     state.unsubRoots =
       ctx.domBus?.onRoots((roots) => {
         state.deleteSweepNav = roots.nav;
@@ -1328,6 +1342,13 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     document.removeEventListener("click", handleClick, true);
     window.removeEventListener("blur", handleBlur, true);
     clearAllPendingActions();
+
+    if (state.windowLoadListener) {
+      window.removeEventListener("load", state.windowLoadListener);
+      state.windowLoadListener = null;
+    }
+    for (const timeoutId of state.warmUpTimeoutIds) window.clearTimeout(timeoutId);
+    state.warmUpTimeoutIds = [];
 
     state.unsubNavDelta?.();
     state.unsubNavDelta = null;
