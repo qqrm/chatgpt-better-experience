@@ -50,6 +50,7 @@ export function createDomEventBus(ctx: FeatureContext) {
   ].join(", ");
   const HISTORY_ITEM_SELECTOR = '[data-testid^="history-item-"]';
   const ROOT_FINDER_TIMEOUT_MS = 15_000;
+  const ROOT_FINDER_POLL_MS = 3_000;
 
   const resolveRoot = (channel: BusChannel): Element | null => {
     if (channel === "main") {
@@ -98,6 +99,7 @@ export function createDomEventBus(ctx: FeatureContext) {
   let pathUnsubscribe: Unsubscribe | null = null;
   let rootFinderObserver: MutationObserver | null = null;
   let rootFinderTimeoutId: number | null = null;
+  let rootFinderPollTimerId: number | null = null;
 
   const listeners = new Map<BusChannel, Set<(delta: DomDelta) => void>>([
     ["main", new Set()],
@@ -158,11 +160,25 @@ export function createDomEventBus(ctx: FeatureContext) {
       window.clearTimeout(rootFinderTimeoutId);
       rootFinderTimeoutId = null;
     }
+
+    if (rootFinderPollTimerId !== null) {
+      window.clearInterval(rootFinderPollTimerId);
+      rootFinderPollTimerId = null;
+    }
   };
 
   const shouldRunRootFinder = () => {
     if (!started || disposed || !hasAnySubscribers()) return false;
     return channelRootMissing("main") || channelRootMissing("nav");
+  };
+
+  // Past its active window the finder switches to a slow cadence instead of
+  // going dormant: the sidebar can render long after load (async history
+  // fetch), be re-mounted later on, and RAF-driven flushes stall in hidden
+  // tabs where only timers keep firing.
+  const ensureRootFinderPoll = () => {
+    if (rootFinderPollTimerId !== null) return;
+    rootFinderPollTimerId = window.setInterval(rootFinderFlush, ROOT_FINDER_POLL_MS);
   };
 
   const rootFinderFlush = () => {
@@ -187,6 +203,7 @@ export function createDomEventBus(ctx: FeatureContext) {
     if (didRootChange) notifyRoots("rebind");
 
     if (!shouldRunRootFinder()) stopRootFinder();
+    else ensureRootFinderPoll();
   };
 
   const { schedule: rootFinderRafSchedule, cancel: rootFinderRafCancel } =
@@ -206,7 +223,8 @@ export function createDomEventBus(ctx: FeatureContext) {
     rootFinderObserver.observe(root, { childList: true, subtree: true });
 
     rootFinderTimeoutId = window.setTimeout(() => {
-      stopRootFinder();
+      rootFinderTimeoutId = null;
+      rootFinderFlush();
     }, ROOT_FINDER_TIMEOUT_MS);
   };
 
@@ -386,6 +404,17 @@ export function createDomEventBus(ctx: FeatureContext) {
     if (!hasAnySubscribers()) stop();
   };
 
+  // The root finder window can expire (or stall while hidden) before a slow
+  // sidebar ever renders; re-resolve and notify so features do not stay dead
+  // until the next SPA route change.
+  const ensureRoots = () => {
+    if (!started || disposed) return;
+    if (!hasAnySubscribers()) return;
+    if (!channelRootMissing("main") && !channelRootMissing("nav")) return;
+    rebind("rebind");
+    updateRootFinder();
+  };
+
   const start = () => {
     if (started || disposed) return;
     if (!hasAnySubscribers()) return;
@@ -492,6 +521,7 @@ export function createDomEventBus(ctx: FeatureContext) {
     dispose,
     onDelta,
     onRoots,
+    ensureRoots,
     getMainRoot: () => mainState.root,
     getNavRoot: () => navState.root,
     getStats: () => ({

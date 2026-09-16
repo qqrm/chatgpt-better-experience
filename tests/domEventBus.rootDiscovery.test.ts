@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createDomEventBus } from "../src/application/domEventBus";
 import type { FeatureContext } from "../src/application/featureContext";
 import { SETTINGS_DEFAULTS } from "../src/domain/settings";
@@ -189,6 +189,60 @@ describe("domEventBus root discovery", () => {
     const nav = document.getElementById("pinned-chat-nav");
     await new Promise((resolve) => window.setTimeout(resolve, 20));
 
+    expect(snapshots.some((snap) => snap.nav === nav)).toBe(true);
+
+    unsubscribe();
+  });
+
+  it("keeps discovering nav roots via slow poll after the finder window expires", async () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"]
+    });
+
+    try {
+      document.body.innerHTML = '<main role="main" id="main"></main>';
+
+      const bus = createDomEventBus(makeCtx());
+      const snapshots: Array<{ nav: Element | null }> = [];
+      const unsubscribe = bus.onRoots((roots) => {
+        snapshots.push({ nav: roots.nav });
+      });
+
+      await vi.advanceTimersByTimeAsync(15_500);
+
+      const nav = document.createElement("nav");
+      nav.setAttribute("aria-label", "Chat history");
+      nav.id = "late-nav";
+      document.body.appendChild(nav);
+
+      await vi.advanceTimersByTimeAsync(3_500);
+
+      expect(snapshots.some((snap) => snap.nav === nav)).toBe(true);
+      expect(bus.getNavRoot()).toBe(nav);
+
+      unsubscribe();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("re-resolves missing roots on demand via ensureRoots", () => {
+    document.body.innerHTML = '<main role="main" id="main"></main>';
+
+    const bus = createDomEventBus(makeCtx());
+    const snapshots: Array<{ nav: Element | null }> = [];
+    const unsubscribe = bus.onRoots((roots) => {
+      snapshots.push({ nav: roots.nav });
+    });
+
+    const nav = document.createElement("nav");
+    nav.setAttribute("aria-label", "Chat history");
+    nav.id = "on-demand-nav";
+    document.body.appendChild(nav);
+
+    bus.ensureRoots();
+
+    expect(bus.getNavRoot()).toBe(nav);
     expect(snapshots.some((snap) => snap.nav === nav)).toBe(true);
 
     unsubscribe();

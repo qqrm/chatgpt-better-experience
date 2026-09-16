@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { RootSnapshot } from "../src/application/domEventBus";
 import {
   buildOneClickDeleteStyleText,
@@ -161,5 +161,50 @@ describe("oneClickDelete DOM builders", () => {
     ).toBe("1");
 
     handle.dispose();
+  });
+
+  it("hooks rows that render after start via warm-up rescans", async () => {
+    vi.useFakeTimers();
+
+    try {
+      document.body.innerHTML = "";
+
+      const ctx = makeTestContext({ oneClickDelete: true });
+      ctx.domBus = null;
+      const handle = initOneClickDeleteFeature(ctx);
+
+      document.body.innerHTML = `
+        <nav aria-label="Chat history">
+          <ul>
+            <li>
+              <a class="group __menu-item hoverable" href="/c/late-chat">
+                <div class="trailing highlight">
+                  <div class="flex items-center gap-2">
+                    <button data-testid="history-item-9-pin" type="button" aria-label="Pin chat"><svg></svg></button>
+                    <button data-testid="history-item-9-options" type="button"><svg></svg></button>
+                  </div>
+                </div>
+              </a>
+            </li>
+          </ul>
+        </nav>
+      `;
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      const optionsButton = document.querySelector<HTMLElement>(
+        'button[data-testid="history-item-9-options"]'
+      );
+      expect(optionsButton?.getAttribute("data-qqrm-oneclick-del-hooked")).toBe("1");
+      expect(
+        document
+          .querySelector('button[data-testid="history-item-9-pin"]')
+          ?.getAttribute("data-qqrm-oneclick-native-pin")
+      ).toBe("1");
+
+      handle.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

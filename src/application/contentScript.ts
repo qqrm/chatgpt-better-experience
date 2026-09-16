@@ -161,6 +161,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
         domBus.stop();
       } else {
         domBus.start();
+        domBus.ensureRoots();
       }
     };
 
