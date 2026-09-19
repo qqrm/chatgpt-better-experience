@@ -276,6 +276,222 @@ describe("oneClickDelete DOM builders", () => {
     handle.dispose();
   });
 
+  it("does not hook a hint-less native pin button that carries trailing markers", () => {
+    document.body.innerHTML = `
+      <nav aria-label="Chat history">
+        <ul>
+          <li>
+            <a class="group __menu-item hoverable" href="/c/hintless-pin-chat">
+              <div class="trailing highlight">
+                <div class="flex items-center gap-2">
+                  <button data-trailing-button class="__menu-item-trailing-btn" type="button"><svg></svg></button>
+                  <button data-testid="history-item-3-options" type="button"><svg></svg></button>
+                </div>
+              </div>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    `;
+
+    const ctx = makeTestContext({ oneClickDelete: true });
+    ctx.domBus = null;
+    const handle = initOneClickDeleteFeature(ctx);
+
+    try {
+      const pin = document.querySelector<HTMLButtonElement>("button[data-trailing-button]");
+      const optionsButton = document.querySelector<HTMLButtonElement>(
+        'button[data-testid="history-item-3-options"]'
+      );
+
+      expect(pin).not.toBeNull();
+      expect(pin?.getAttribute("data-qqrm-oneclick-del-hooked")).toBeNull();
+      expect(pin?.getAttribute("data-qqrm-oneclick-native-pin")).toBe("1");
+      expect(optionsButton?.getAttribute("data-qqrm-oneclick-del-hooked")).toBe("1");
+
+      const groups = document.querySelectorAll("[data-qqrm-oneclick-actions='1']");
+      expect(groups.length).toBe(1);
+      expect(groups[0].nextElementSibling).toBe(optionsButton);
+    } finally {
+      handle.dispose();
+    }
+  });
+
+  it("never routes the delete action to the native pin button", async () => {
+    vi.useFakeTimers();
+    let handle: ReturnType<typeof initOneClickDeleteFeature> | null = null;
+
+    try {
+      document.body.innerHTML = `
+        <nav aria-label="Chat history">
+          <ul>
+            <li>
+              <a class="group __menu-item hoverable" href="/c/miswired-chat">
+                <div class="trailing highlight">
+                  <div class="flex items-center gap-2">
+                    <button data-trailing-button class="__menu-item-trailing-btn" type="button"><svg></svg></button>
+                    <button data-testid="history-item-4-options" type="button"><svg></svg></button>
+                  </div>
+                </div>
+              </a>
+            </li>
+          </ul>
+        </nav>
+        <div role="menu">
+          <div role="menuitem" data-testid="delete-chat-menu-item">Delete</div>
+        </div>
+      `;
+
+      const ctx = makeTestContext({ oneClickDelete: true });
+      ctx.domBus = null;
+      const clicked: Array<HTMLElement | null> = [];
+      ctx.helpers.humanClick = (el) => {
+        clicked.push(el);
+        return true;
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new Error("offline");
+        })
+      );
+
+      handle = initOneClickDeleteFeature(ctx);
+
+      const pin = document.querySelector<HTMLButtonElement>("button[data-trailing-button]");
+      const optionsButton = document.querySelector<HTMLButtonElement>(
+        'button[data-testid="history-item-4-options"]'
+      );
+      const deleteX = document.querySelector<HTMLButtonElement>("button[data-qqrm-oneclick-del-x]");
+      expect(deleteX).not.toBeNull();
+
+      deleteX?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0 })
+      );
+      expect(document.querySelector(".qqrm-oneclick-undo-overlay")).not.toBeNull();
+
+      await vi.advanceTimersByTimeAsync(6_000);
+
+      expect(clicked).toContain(optionsButton);
+      expect(clicked).not.toContain(pin);
+    } finally {
+      handle?.dispose();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it("finds the delete menu item by its Russian label in the UI fallback", async () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "performance"]
+    });
+    let handle: ReturnType<typeof initOneClickDeleteFeature> | null = null;
+
+    try {
+      document.body.innerHTML = `
+        <nav aria-label="Chat history">
+          <ul>
+            <li>
+              <a class="group __menu-item hoverable" href="/c/ru-chat">
+                <div class="trailing highlight">
+                  <button data-testid="history-item-5-options" type="button"><svg></svg></button>
+                </div>
+              </a>
+            </li>
+          </ul>
+        </nav>
+        <div role="menu">
+          <div role="menuitem">Закрепить</div>
+          <div role="menuitem">Удалить</div>
+        </div>
+      `;
+
+      const ctx = makeTestContext({ oneClickDelete: true });
+      ctx.domBus = null;
+      const clicked: Array<HTMLElement | null> = [];
+      ctx.helpers.humanClick = (el) => {
+        clicked.push(el);
+        return true;
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new Error("offline");
+        })
+      );
+
+      handle = initOneClickDeleteFeature(ctx);
+
+      const deleteX = document.querySelector<HTMLButtonElement>("button[data-qqrm-oneclick-del-x]");
+      deleteX?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0 })
+      );
+
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      const ruDeleteItem = document.querySelectorAll('[role="menuitem"]')[1];
+      expect(clicked).toContain(ruDeleteItem);
+    } finally {
+      handle?.dispose();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it("closes a stray options menu when the delete menu item is not found", async () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "performance"]
+    });
+    let handle: ReturnType<typeof initOneClickDeleteFeature> | null = null;
+
+    try {
+      document.body.innerHTML = `
+        <nav aria-label="Chat history">
+          <ul>
+            <li>
+              <a class="group __menu-item hoverable" href="/c/no-menu-chat">
+                <div class="trailing highlight">
+                  <button data-testid="history-item-6-options" type="button"><svg></svg></button>
+                </div>
+              </a>
+            </li>
+          </ul>
+        </nav>
+        <div role="menu"></div>
+      `;
+
+      const ctx = makeTestContext({ oneClickDelete: true });
+      ctx.domBus = null;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new Error("offline");
+        })
+      );
+
+      handle = initOneClickDeleteFeature(ctx);
+
+      const menu = document.querySelector('[role="menu"]');
+      const escapeEvents: string[] = [];
+      menu?.addEventListener("keydown", (ev) => {
+        if ((ev as KeyboardEvent).key === "Escape") escapeEvents.push("escape");
+      });
+
+      const deleteX = document.querySelector<HTMLButtonElement>("button[data-qqrm-oneclick-del-x]");
+      deleteX?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0 })
+      );
+
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      expect(escapeEvents).toContain("escape");
+    } finally {
+      handle?.dispose();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
   it("marks a native pin button wrapped separately from the options button", () => {
     document.body.innerHTML = `
       <nav aria-label="Chat history">
