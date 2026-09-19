@@ -72,6 +72,8 @@ describe("oneClickDelete DOM builders", () => {
     expect(optionsButton?.querySelector('[data-qqrm-oneclick-del-x="1"]')).toBeNull();
     expect(buildOneClickDeleteStyleText()).toContain('[data-qqrm-oneclick-actions="1"]');
     expect(buildOneClickDeleteStyleText()).toContain('[data-qqrm-oneclick-native-pin="1"]');
+    expect(buildOneClickDeleteStyleText()).toContain("content: attr(aria-label)");
+    expect(buildOneClickDeleteStyleText()).toContain("max-inline-size: 28px");
     expect(buildOneClickDeleteStyleText()).not.toContain("inset-inline-start");
     expect(buildOneClickDeleteStyleText()).toContain('[data-qqrm-oneclick-del-hooked="1"]');
     expect(buildOneClickDeleteStyleText()).not.toContain("width: 150px");
@@ -365,6 +367,7 @@ describe("oneClickDelete DOM builders", () => {
       expect(pin).not.toBeNull();
       expect(pin?.getAttribute("data-qqrm-oneclick-del-hooked")).toBeNull();
       expect(pin?.getAttribute("data-qqrm-oneclick-native-pin")).toBe("1");
+      expect(pin?.getAttribute("aria-label")).toBe("Pin / unpin chat");
       expect(optionsButton?.getAttribute("data-qqrm-oneclick-del-hooked")).toBe("1");
 
       const groups = document.querySelectorAll("[data-qqrm-oneclick-actions='1']");
