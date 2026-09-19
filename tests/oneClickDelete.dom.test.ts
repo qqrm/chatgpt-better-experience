@@ -65,6 +65,7 @@ describe("oneClickDelete DOM builders", () => {
     ).toBe("1");
     const actions = optionsButton?.previousElementSibling;
     expect(actions?.getAttribute("data-qqrm-oneclick-actions")).toBe("1");
+    expect(actions?.querySelector('button[data-qqrm-oneclick-pin="1"]')).toBeNull();
     expect(actions?.querySelector('button[data-qqrm-oneclick-archive="1"]')).not.toBeNull();
     expect(actions?.querySelector('button[data-qqrm-oneclick-del-x="1"]')).not.toBeNull();
     expect(optionsButton?.querySelector('[data-qqrm-oneclick-archive="1"]')).toBeNull();
@@ -109,6 +110,7 @@ describe("oneClickDelete DOM builders", () => {
         .querySelector('button[aria-label="Unpin chat"]')
         ?.getAttribute("data-qqrm-oneclick-native-pin")
     ).toBe("1");
+    expect(document.querySelector('button[data-qqrm-oneclick-pin="1"]')).toBeNull();
     expect(optionsButton?.previousElementSibling?.getAttribute("data-qqrm-oneclick-actions")).toBe(
       "1"
     );
@@ -236,9 +238,65 @@ describe("oneClickDelete DOM builders", () => {
 
     expect(pin?.getAttribute("data-qqrm-oneclick-del-hooked")).toBeNull();
     expect(pin?.getAttribute("data-qqrm-oneclick-native-pin")).toBe("1");
+    expect(document.querySelector('button[data-qqrm-oneclick-pin="1"]')).toBeNull();
     expect(document.querySelectorAll("[data-qqrm-oneclick-actions='1']").length).toBe(1);
 
     handle.dispose();
+  });
+
+  it("uses the options button to run the fallback pin action", async () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "performance"]
+    });
+    let handle: ReturnType<typeof initOneClickDeleteFeature> | null = null;
+
+    try {
+      document.body.innerHTML = `
+        <nav aria-label="Chat history">
+          <ul>
+            <li>
+              <a class="group __menu-item hoverable" href="/c/fallback-pin-chat">
+                <div class="trailing highlight">
+                  <button data-testid="history-item-2-options" type="button"><svg></svg></button>
+                </div>
+              </a>
+            </li>
+          </ul>
+        </nav>
+        <div role="menu">
+          <div role="menuitem">Закрепить</div>
+        </div>
+      `;
+
+      const ctx = makeTestContext({ oneClickDelete: true });
+      ctx.domBus = null;
+      const clicked: Array<HTMLElement | null> = [];
+      ctx.helpers.humanClick = (el) => {
+        clicked.push(el);
+        return true;
+      };
+      handle = initOneClickDeleteFeature(ctx);
+
+      const optionsButton = document.querySelector<HTMLElement>(
+        'button[data-testid="history-item-2-options"]'
+      );
+      const fallbackPin = document.querySelector<HTMLButtonElement>(
+        'button[data-qqrm-oneclick-pin="1"]'
+      );
+      const pinMenuItem = document.querySelector<HTMLElement>('[role="menuitem"]');
+      expect(fallbackPin).not.toBeNull();
+
+      fallbackPin?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0 })
+      );
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(clicked).toContain(optionsButton);
+      expect(clicked).toContain(pinMenuItem);
+    } finally {
+      handle?.dispose();
+      vi.useRealTimers();
+    }
   });
 
   it("prunes orphaned quick action groups instead of stacking duplicates", () => {
