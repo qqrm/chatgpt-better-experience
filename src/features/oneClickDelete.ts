@@ -5,6 +5,7 @@ const ONE_CLICK_DELETE_HOOK_MARK = "data-qqrm-oneclick-del-hooked";
 const ONE_CLICK_DELETE_ACTIONS_MARK = "data-qqrm-oneclick-actions";
 const ONE_CLICK_DELETE_ARCHIVE_MARK = "data-qqrm-oneclick-archive";
 const ONE_CLICK_DELETE_NATIVE_PIN_MARK = "data-qqrm-oneclick-native-pin";
+const ONE_CLICK_DELETE_PIN_MARK = "data-qqrm-oneclick-pin";
 const ONE_CLICK_DELETE_ROW_MARK = "data-qqrm-oneclick-row";
 const ONE_CLICK_DELETE_X_MARK = "data-qqrm-oneclick-del-x";
 const ONE_CLICK_DELETE_ICON_MARK = "data-qqrm-oneclick-icon";
@@ -34,12 +35,13 @@ const ONE_CLICK_DELETE_WIPE_MS = 4500;
 const ONE_CLICK_DELETE_UNDO_TOTAL_MS = 5000;
 const ONE_CLICK_DELETE_TOOLTIP = "Click to delete";
 const ONE_CLICK_DELETE_ARCHIVE_TOOLTIP = "Archive";
+const ONE_CLICK_DELETE_PIN_TOOLTIP = "Pin / unpin chat";
 // The sidebar can render long after this feature starts (document_start on a
 // slow SPA load, hidden tab); re-scan a few times so quick buttons do not
 // stay missing until the next mutation or settings change.
 const ONE_CLICK_DELETE_WARM_UP_DELAYS_MS = [1_000, 3_000, 7_000, 15_000, 30_000];
 const CHAT_CONVERSATION_ID_REGEX = /\/c\/([^/?#]+)/;
-type QuickIconKind = "archive" | "delete";
+type QuickIconKind = "archive" | "delete" | "pin";
 type SvgIconSpec = {
   width: string;
   height: string;
@@ -50,6 +52,17 @@ type SvgIconSpec = {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const LOCAL_QUICK_ICON_SPECS: Record<QuickIconKind, SvgIconSpec> = {
+  pin: {
+    width: "16",
+    height: "16",
+    viewBox: "0 0 20 20",
+    fill: "currentColor",
+    paths: [
+      {
+        d: "M11.835 12.5c0-.793.444-1.487 1.026-1.902l3.551-2.536.09-.073a1.01 1.01 0 0 0 .114-1.377l-.077-.086-3.065-3.065a1.01 1.01 0 0 0-1.463.037l-.073.09-2.536 3.55C8.987 7.72 8.293 8.166 7.5 8.166H5.417c-.434 0-.843.301-1.05.781-.205.476-.143.965.172 1.28l5.234 5.235.126.106c.312.22.739.245 1.155.066.48-.207.78-.616.78-1.05zm1.33 2.083c0 1.09-.743 1.909-1.585 2.272-.793.341-1.817.34-2.595-.314l-.152-.14-2.147-2.147L2.97 17.97a.666.666 0 0 1-.942-.942l3.716-3.716L3.6 11.168c-.792-.792-.818-1.901-.454-2.747.363-.842 1.182-1.585 2.272-1.585H7.5c.288 0 .607-.172.82-.47l2.536-3.55.081-.108a2.34 2.34 0 0 1 3.477-.186l3.065 3.065.093.098a2.34 2.34 0 0 1-.28 3.379l-.107.08-3.55 2.537c-.299.213-.47.532-.47.82z"
+      }
+    ]
+  },
   archive: {
     width: "16",
     height: "16",
@@ -880,6 +893,21 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     return archive;
   };
 
+  const ensureOneClickPinButton = (actions: HTMLElement) => {
+    let pin = actions.querySelector<HTMLButtonElement>(`button[${ONE_CLICK_DELETE_PIN_MARK}="1"]`);
+    if (pin) {
+      applyLocalQuickIcon(pin, "pin");
+      return pin;
+    }
+    pin = document.createElement("button");
+    pin.type = "button";
+    pin.setAttribute(ONE_CLICK_DELETE_PIN_MARK, "1");
+    pin.setAttribute("aria-label", ONE_CLICK_DELETE_PIN_TOOLTIP);
+    actions.insertBefore(pin, actions.firstChild);
+    applyLocalQuickIcon(pin, "pin");
+    return pin;
+  };
+
   const findNativePinButton = (optionsBtn: HTMLElement) => {
     const host = optionsBtn.parentElement;
     if (host) {
@@ -910,6 +938,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   const markNativePinButton = (optionsBtn: HTMLElement) => {
     const pin = findNativePinButton(optionsBtn);
     if (pin) pin.setAttribute(ONE_CLICK_DELETE_NATIVE_PIN_MARK, "1");
+    return Boolean(pin);
   };
 
   const ensureQuickActions = (btn: HTMLElement) => {
@@ -928,9 +957,18 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       host.insertBefore(actions, btn);
     }
 
+    // Prefer ChatGPT's own pin control when this sidebar variant renders one.
+    // Some current variants only expose pinning in the options menu; retain a
+    // local quick control there so the action never disappears with the native
+    // control. Keeping it in the injected group also prevents a duplicate.
+    const hasNativePin = markNativePinButton(btn);
+    const fallbackPin = actions.querySelector<HTMLButtonElement>(
+      `button[${ONE_CLICK_DELETE_PIN_MARK}="1"]`
+    );
+    if (hasNativePin) fallbackPin?.remove();
+    else ensureOneClickPinButton(actions);
     ensureOneClickArchiveButton(actions);
     ensureOneClickDeleteXButton(actions);
-    markNativePinButton(btn);
     return actions;
   };
 
@@ -1104,6 +1142,11 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     return target.closest<HTMLElement>(`button[${ONE_CLICK_DELETE_ARCHIVE_MARK}="1"]`);
   };
 
+  const getPinFromEvent = (target: EventTarget | null) => {
+    if (!(target instanceof Element)) return null;
+    return target.closest<HTMLElement>(`button[${ONE_CLICK_DELETE_PIN_MARK}="1"]`);
+  };
+
   const getOptionsButtonFromAction = (action: HTMLElement) => {
     const actions = action.closest<HTMLElement>(`[${ONE_CLICK_DELETE_ACTIONS_MARK}="1"]`);
     const host = actions?.parentElement;
@@ -1274,6 +1317,64 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     }
   };
 
+  const runOneClickPinUiFlow = async (btn: HTMLElement) => {
+    const pinTextVariants = [
+      "Pin",
+      "Pin chat",
+      "Pin conversation",
+      "Unpin",
+      "Unpin chat",
+      "Unpin conversation",
+      "Закрепить",
+      "Открепить",
+      "Закрепить чат",
+      "Открепить чат"
+    ];
+    const pinSelectors = [
+      '[role="menuitem"][data-testid*="unpin" i]',
+      '[role="menuitem"][data-testid*="pin" i]',
+      '[role="menuitem"][id*="unpin" i]',
+      '[role="menuitem"][id*="pin" i]'
+    ];
+
+    try {
+      setSilentDeleteMode(true);
+      ctx.helpers.humanClick(btn, "oneclick-pin-open-menu");
+
+      const pinItem = await (async () => {
+        const t0 = performance.now();
+        while (performance.now() - t0 < 1500) {
+          const menus = qsa('[role="menu"]');
+          for (const menu of menus) {
+            for (const selector of pinSelectors) {
+              const item = menu.querySelector<HTMLElement>(selector);
+              if (item) return item;
+            }
+            const byText = findButtonByTextVariants(menu, pinTextVariants);
+            if (byText) return byText;
+          }
+          for (const selector of pinSelectors) {
+            const fallback = document.querySelector<HTMLElement>(selector);
+            if (fallback) return fallback;
+          }
+          const fallbackText = findButtonByTextVariants(document, pinTextVariants);
+          if (fallbackText) return fallbackText;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        return null;
+      })();
+
+      if (!pinItem) {
+        closeStrayMenus();
+        return;
+      }
+      ctx.helpers.humanClick(pinItem, "oneclick-pin-menu");
+    } finally {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      setSilentDeleteMode(false);
+    }
+  };
+
   const runOneClickDeleteFlow = async (btn: HTMLElement) => {
     const row = findChatRowFromOptionsButton(btn);
     if (!row) return;
@@ -1314,6 +1415,15 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const handlePointerDown = (ev: PointerEvent) => {
+    const pin = getPinFromEvent(ev.target);
+    if (pin) {
+      const btn = getOptionsButtonFromAction(pin);
+      if (!btn) return;
+      swallowEvent(ev);
+      enqueueDelete(() => runOneClickPinUiFlow(btn));
+      return;
+    }
+
     const archive = getArchiveFromEvent(ev.target);
     if (archive) {
       const btn = getOptionsButtonFromAction(archive);
@@ -1332,6 +1442,12 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   };
 
   const handleClick = (ev: MouseEvent) => {
+    const pin = getPinFromEvent(ev.target);
+    if (pin) {
+      swallowEvent(ev);
+      return;
+    }
+
     const archive = getArchiveFromEvent(ev.target);
     if (archive) {
       swallowEvent(ev);
