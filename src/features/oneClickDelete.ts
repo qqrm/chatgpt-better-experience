@@ -612,20 +612,26 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     return hint.includes("pin") || hint.includes("закреп") || hint.includes("откреп");
   };
 
+  // Only the row's options button may be hooked. Hooking by loose trailing
+  // markers alone once routed quick-delete clicks to the native pin button
+  // (delete ended up pinning the chat), so an options identity is mandatory.
+  const looksLikeOptionsButton = (btn: HTMLButtonElement) => {
+    const dataTestId = btn.getAttribute("data-testid")?.toLowerCase() ?? "";
+    if (dataTestId.includes("options")) return true;
+    const hint = [btn.getAttribute("aria-label"), btn.getAttribute("title")]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return hint.includes("options");
+  };
+
   const isHistoryRowTrailingButton = (btn: HTMLElement) => {
     if (!(btn instanceof HTMLButtonElement)) return false;
     // The native pin/unpin button can carry a history-item testid itself; it
     // must stay visible as the first quick action instead of being hooked
     // (hidden) and given its own quick-action group.
     if (looksLikeNativePinButton(btn)) return false;
-    const cls = btn.className || "";
-    const dataTestId = btn.getAttribute("data-testid")?.toLowerCase() ?? "";
-    const looksTrailing =
-      btn.hasAttribute("data-trailing-button") ||
-      cls.includes("__menu-item-trailing-btn") ||
-      dataTestId.includes("history-item") ||
-      dataTestId.includes("options");
-    if (!looksTrailing) return false;
+    if (!looksLikeOptionsButton(btn)) return false;
     const row = findHistoryRowFromNode(btn);
     return Boolean(row);
   };
@@ -1100,8 +1106,16 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
 
   const getOptionsButtonFromAction = (action: HTMLElement) => {
     const actions = action.closest<HTMLElement>(`[${ONE_CLICK_DELETE_ACTIONS_MARK}="1"]`);
-    const btn = actions?.nextElementSibling;
-    return btn instanceof HTMLElement && isHistoryRowTrailingButton(btn) ? btn : null;
+    const host = actions?.parentElement;
+    if (!actions || !host) return null;
+    // Walk forward inside the trailing host so a foreign sibling (for example
+    // the native pin button) can never be mistaken for the owner button.
+    let el: Element | null = actions.nextElementSibling;
+    while (el && el.parentElement === host) {
+      if (el instanceof HTMLButtonElement && isHistoryRowTrailingButton(el)) return el;
+      el = el.nextElementSibling;
+    }
+    return null;
   };
 
   const hookOneClickDeleteButton = (btn: HTMLElement) => {
@@ -1113,7 +1127,18 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     row?.setAttribute(ONE_CLICK_DELETE_ROW_MARK, "1");
   };
 
+  const closeStrayMenus = () => {
+    // A fallback flow that never finds its menu item would otherwise leave the
+    // silently-hidden options menu behind, which pops back into view.
+    for (const menu of qsa('[role="menu"]')) {
+      menu.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+      );
+    }
+  };
+
   const runOneClickDeleteUiFlow = async (btn: HTMLElement) => {
+    const deleteTextVariants = ["Delete", "Удалить", "Удалить чат", "Удалить беседу"];
     try {
       setSilentDeleteMode(true);
       ctx.helpers.humanClick(btn, "oneclick-delete-open-menu");
@@ -1126,20 +1151,23 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
             const item =
               menu.querySelector<HTMLElement>(
                 'div[role="menuitem"][data-testid="delete-chat-menu-item"]'
-              ) ?? findButtonByExactText(menu, "Delete");
+              ) ?? findButtonByTextVariants(menu, deleteTextVariants);
             if (item) return item;
           }
           const fallback =
             document.querySelector<HTMLElement>(
               'div[role="menuitem"][data-testid="delete-chat-menu-item"]'
-            ) ?? findButtonByExactText(document, "Delete");
+            ) ?? findButtonByTextVariants(document, deleteTextVariants);
           if (fallback) return fallback;
           await new Promise((resolve) => setTimeout(resolve, 50));
         }
         return null;
       })();
 
-      if (!deleteItem) return;
+      if (!deleteItem) {
+        closeStrayMenus();
+        return;
+      }
       ctx.helpers.humanClick(deleteItem, "oneclick-delete-menu");
 
       const modal = await ctx.helpers.waitPresent(
@@ -1158,7 +1186,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
           modal,
           1200
         )) as HTMLElement | null) ??
-        findButtonByExactText(modal, "Delete");
+        findButtonByTextVariants(modal, deleteTextVariants);
 
       if (!confirmBtn) return;
       ctx.helpers.humanClick(confirmBtn, "oneclick-delete-confirm");
@@ -1209,7 +1237,10 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
         return null;
       })();
 
-      if (!archiveItem) return;
+      if (!archiveItem) {
+        closeStrayMenus();
+        return;
+      }
       ctx.helpers.humanClick(archiveItem, "oneclick-archive-menu");
 
       const modal = (await ctx.helpers.waitPresent(
