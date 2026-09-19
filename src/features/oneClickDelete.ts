@@ -269,15 +269,22 @@ export const buildOneClickDeleteStyleText = () => `
     gap: 2px !important;
   }
 
-  [${ONE_CLICK_DELETE_ACTIONS_MARK}="1"] > button{
-    width: ${ONE_CLICK_DELETE_ACTION_SIZE}px !important;
-    height: ${ONE_CLICK_DELETE_ACTION_SIZE}px !important;
-    min-width: ${ONE_CLICK_DELETE_ACTION_SIZE}px !important;
+  [${ONE_CLICK_DELETE_ACTIONS_MARK}="1"] > button,
+  button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"]{
+    box-sizing: border-box !important;
+    flex: none !important;
+    inline-size: ${ONE_CLICK_DELETE_ACTION_SIZE}px !important;
+    block-size: ${ONE_CLICK_DELETE_ACTION_SIZE}px !important;
+    min-inline-size: ${ONE_CLICK_DELETE_ACTION_SIZE}px !important;
+    min-block-size: ${ONE_CLICK_DELETE_ACTION_SIZE}px !important;
+    max-inline-size: ${ONE_CLICK_DELETE_ACTION_SIZE}px !important;
+    max-block-size: ${ONE_CLICK_DELETE_ACTION_SIZE}px !important;
     border: 0 !important;
     border-radius: 8px !important;
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
+    margin: 0 !important;
     padding: 0 !important;
     position: relative !important;
     color: currentColor !important;
@@ -287,7 +294,9 @@ export const buildOneClickDeleteStyleText = () => `
   }
 
   [${ONE_CLICK_DELETE_ACTIONS_MARK}="1"] > button:hover,
-  [${ONE_CLICK_DELETE_ACTIONS_MARK}="1"] > button:focus-visible{
+  [${ONE_CLICK_DELETE_ACTIONS_MARK}="1"] > button:focus-visible,
+  button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"]:hover,
+  button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"]:focus-visible{
     background: color-mix(in srgb, currentColor 12%, transparent) !important;
     outline: none !important;
   }
@@ -297,8 +306,9 @@ export const buildOneClickDeleteStyleText = () => `
     pointer-events: none;
   }
 
-  [${ONE_CLICK_DELETE_ACTIONS_MARK}="1"] > button[${ONE_CLICK_DELETE_X_MARK}="1"]::after{
-    content: "${ONE_CLICK_DELETE_TOOLTIP}";
+  [${ONE_CLICK_DELETE_ACTIONS_MARK}="1"] > button::after,
+  button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"]::after{
+    content: attr(aria-label);
     position: absolute;
     right: 0;
     top: -8px;
@@ -317,33 +327,12 @@ export const buildOneClickDeleteStyleText = () => `
     z-index: 99999;
   }
 
-  [${ONE_CLICK_DELETE_ACTIONS_MARK}="1"] > button[${ONE_CLICK_DELETE_X_MARK}="1"]:hover::after{
+  [${ONE_CLICK_DELETE_ACTIONS_MARK}="1"] > button:hover::after,
+  [${ONE_CLICK_DELETE_ACTIONS_MARK}="1"] > button:focus-visible::after,
+  button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"]:hover::after,
+  button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"]:focus-visible::after{
     opacity: 1;
     transform: translateY(-110%);
-  }
-
-  button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"]{
-    flex: none !important;
-    inline-size: ${ONE_CLICK_DELETE_ACTION_SIZE}px !important;
-    block-size: ${ONE_CLICK_DELETE_ACTION_SIZE}px !important;
-    min-inline-size: ${ONE_CLICK_DELETE_ACTION_SIZE}px !important;
-    border: 0 !important;
-    border-radius: 8px !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    padding: 0 !important;
-    position: relative !important;
-    color: currentColor !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    cursor: pointer !important;
-  }
-
-  button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"]:hover,
-  button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"]:focus-visible{
-    background: color-mix(in srgb, currentColor 12%, transparent) !important;
-    outline: none !important;
   }
 
   button[${ONE_CLICK_DELETE_NATIVE_PIN_MARK}="1"] svg{
@@ -937,7 +926,12 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
 
   const markNativePinButton = (optionsBtn: HTMLElement) => {
     const pin = findNativePinButton(optionsBtn);
-    if (pin) pin.setAttribute(ONE_CLICK_DELETE_NATIVE_PIN_MARK, "1");
+    if (pin) {
+      pin.setAttribute(ONE_CLICK_DELETE_NATIVE_PIN_MARK, "1");
+      if (!pin.hasAttribute("aria-label")) {
+        pin.setAttribute("aria-label", pin.getAttribute("title") ?? ONE_CLICK_DELETE_PIN_TOOLTIP);
+      }
+    }
     return Boolean(pin);
   };
 
