@@ -14,7 +14,11 @@ const ONE_CLICK_DELETE_ROOT_FLAG = "data-cgptbe-silent-delete";
 const ONE_CLICK_DELETE_FAST_BUTTON_SELECTOR = [
   'button.__menu-item-trailing-btn[data-trailing-button][data-testid^="history-item-"]',
   'button[data-testid^="history-item-"][data-testid$="-options"]',
-  'button[data-testid="undefined-options"]'
+  'button[data-testid="undefined-options"]',
+  // ChatGPT renames the options testid prefix every few weeks (history-item-N
+  // -> undefined -> next name); the suffix has been stable, so match it
+  // directly instead of enumerating known prefixes.
+  'button[data-testid$="-options"]'
 ].join(", ");
 const ONE_CLICK_DELETE_BUTTON_SELECTOR = `button[${ONE_CLICK_DELETE_HOOK_MARK}="1"]`;
 const ONE_CLICK_DELETE_NAV_RELEVANT_SELECTOR = [
@@ -22,7 +26,7 @@ const ONE_CLICK_DELETE_NAV_RELEVANT_SELECTOR = [
   "button[data-trailing-button]",
   "button.__menu-item-trailing-btn",
   "button[data-testid*='history-item' i]",
-  'button[data-testid="undefined-options"]',
+  "button[data-testid$='-options']",
   "[data-sidebar-item='true']",
   ".group.__menu-item",
   "a[href^='/c/']",
@@ -596,7 +600,11 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
         "[data-sidebar-item='true'], .group.__menu-item, [role='listitem'], li, [data-testid*='history-item' i]"
       );
     if (rowFromAnchor) return rowFromAnchor;
-    const row = node.closest<HTMLElement>(
+    // Search from the parent: a trailing button can carry a history-item
+    // testid itself, and closest() includes the node, so without this the
+    // button resolved as its own row (row marks, undo overlays, and
+    // conversation-id lookups then landed on the button, not the row).
+    const row = node.parentElement?.closest<HTMLElement>(
       ".group.__menu-item.hoverable, .group.__menu-item, [data-sidebar-item='true'], [data-testid*='history-item' i], [role='listitem'], li"
     );
     if (!row) return null;
@@ -617,6 +625,8 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
   // Only the row's options button may be hooked. Hooking by loose trailing
   // markers alone once routed quick-delete clicks to the native pin button
   // (delete ended up pinning the chat), so an options identity is mandatory.
+  // Hints stay substring-based and multilingual: some sidebar variants expose
+  // no testid at all and only a localized aria-label.
   const looksLikeOptionsButton = (btn: HTMLButtonElement) => {
     const dataTestId = btn.getAttribute("data-testid")?.toLowerCase() ?? "";
     if (dataTestId.includes("options")) return true;
@@ -624,7 +634,14 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
-    return hint.includes("options");
+    return (
+      hint.includes("options") ||
+      hint.includes("more") ||
+      hint.includes("параметр") ||
+      hint.includes("опци") ||
+      hint.includes("ещё") ||
+      hint.includes("еще")
+    );
   };
 
   const isHistoryRowTrailingButton = (btn: HTMLElement) => {
@@ -768,7 +785,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       isHistoryRowTrailingButton
     );
     const fallbackCandidates = qsa<HTMLElement>(
-      `button[data-trailing-button], button.__menu-item-trailing-btn, button[data-testid*='history-item' i], button[data-testid="undefined-options"]`,
+      `button[data-trailing-button], button.__menu-item-trailing-btn, button[data-testid*='history-item' i], button[data-testid$='-options']`,
       root as Document | Element
     );
     const dedup = new Set<HTMLElement>(fastButtons);
@@ -776,6 +793,21 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       if (btn.hasAttribute(ONE_CLICK_DELETE_HOOK_MARK)) continue;
       if (!isHistoryRowTrailingButton(btn)) continue;
       dedup.add(btn);
+    }
+    // Attribute selectors cannot anticipate every sidebar rename, and some
+    // variants label the options button only with a localized aria-label.
+    // Sweep every button inside a history row as a last candidate source;
+    // the options identity (and pin exclusion) still gates actual hooking.
+    const historyRows = qsa<HTMLElement>(
+      "a[href^='/c/'], a[href*='/c/'], [data-sidebar-item='true'], .group.__menu-item",
+      root as Document | Element
+    );
+    for (const row of historyRows) {
+      for (const btn of qsa<HTMLButtonElement>("button", row)) {
+        if (btn.hasAttribute(ONE_CLICK_DELETE_HOOK_MARK)) continue;
+        if (!isHistoryRowTrailingButton(btn)) continue;
+        dedup.add(btn);
+      }
     }
     return Array.from(dedup);
   };
@@ -794,6 +826,41 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
     }
   };
 
+  // Selector drift is the recurring way this feature dies: the sidebar keeps
+  // rendering history rows while the hook scan silently finds zero candidate
+  // buttons. When debug logging is on, dump the rejected row buttons so the
+  // next "quick buttons are gone" report names the exact DOM shape instead of
+  // forcing a live-capture session.
+  const logEmptyScanDiagnostics = (scanRoot: Document | Element | null) => {
+    if (!ctx.logger.isEnabled || !scanRoot) return;
+    const historyAnchors = qsa<HTMLAnchorElement>("a[href^='/c/'], a[href*='/c/']", scanRoot);
+    const rowCandidates = qsa<HTMLElement>(".group.__menu-item", scanRoot);
+    if (historyAnchors.length === 0 && rowCandidates.length === 0) return;
+    const hookedCount = qsa<HTMLElement>(ONE_CLICK_DELETE_BUTTON_SELECTOR, scanRoot).length;
+    if (hookedCount > 0) return;
+
+    const seen = new Set<HTMLElement>();
+    const rejected: string[] = [];
+    for (const btn of qsa<HTMLButtonElement>("button", scanRoot)) {
+      if (seen.has(btn)) continue;
+      seen.add(btn);
+      if (!looksLikeNativePinButton(btn) && !findHistoryRowFromNode(btn)) continue;
+      rejected.push(
+        JSON.stringify({
+          testid: btn.getAttribute("data-testid"),
+          aria: btn.getAttribute("aria-label"),
+          title: btn.getAttribute("title"),
+          trailing: btn.hasAttribute("data-trailing-button"),
+          cls: (btn.getAttribute("class") ?? "").split(/\s+/).filter(Boolean).slice(0, 5).join(" ")
+        })
+      );
+      if (rejected.length >= 10) break;
+    }
+    logDebug(
+      `scan found 0 hookable options buttons on ${historyAnchors.length || rowCandidates.length} history rows; row buttons: ${rejected.join(" | ") || "none"}`
+    );
+  };
+
   const hookOptionsButtonsInNav = (nav: Element) => {
     pruneOrphanQuickActions(nav);
     const buttons = collectHookableButtons(nav);
@@ -801,6 +868,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       hookOneClickDeleteButton(button);
       state.stats.applyRuns += 1;
     }
+    logEmptyScanDiagnostics(nav);
   };
 
   const runHookScan = () => {
@@ -814,6 +882,7 @@ export function initOneClickDeleteFeature(ctx: FeatureContext): FeatureHandle {
       hookOneClickDeleteButton(button);
       state.stats.applyRuns += 1;
     }
+    logEmptyScanDiagnostics(nav ?? document);
   };
 
   const applyLocalQuickIcon = (span: HTMLElement, kind: QuickIconKind) => {

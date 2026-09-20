@@ -585,4 +585,109 @@ describe("oneClickDelete DOM builders", () => {
 
     handle.dispose();
   });
+
+  it("hooks options buttons whose testid prefix was renamed, matching the -options suffix only", () => {
+    document.body.innerHTML = `
+      <nav aria-label="Chat history">
+        <ul>
+          <li>
+            <a class="group __menu-item hoverable" href="/c/renamed-testid-chat">
+              <div class="trailing highlight">
+                <div class="flex items-center gap-2">
+                  <button data-testid="conversation-abc123-pin" type="button" aria-label="Pin chat"><svg></svg></button>
+                  <button data-testid="conversation-abc123-options" type="button"><svg></svg></button>
+                </div>
+              </div>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    `;
+
+    const ctx = makeTestContext({ oneClickDelete: true });
+    ctx.domBus = null;
+    const handle = initOneClickDeleteFeature(ctx);
+
+    const optionsButton = document.querySelector<HTMLButtonElement>(
+      'button[data-testid="conversation-abc123-options"]'
+    );
+    expect(optionsButton?.getAttribute("data-qqrm-oneclick-del-hooked")).toBe("1");
+    expect(
+      document
+        .querySelector('button[data-testid="conversation-abc123-pin"]')
+        ?.getAttribute("data-qqrm-oneclick-native-pin")
+    ).toBe("1");
+    expect(optionsButton?.previousElementSibling?.getAttribute("data-qqrm-oneclick-actions")).toBe(
+      "1"
+    );
+
+    handle.dispose();
+  });
+
+  it("hooks options buttons that only carry a localized aria-label and no testid", () => {
+    document.body.innerHTML = `
+      <nav aria-label="Chat history">
+        <ul>
+          <li>
+            <a class="group __menu-item hoverable" href="/c/localized-label-chat">
+              <div class="trailing highlight">
+                <div class="flex items-center gap-2">
+                  <button type="button" aria-label="Закрепить чат"><svg></svg></button>
+                  <button type="button" aria-label="Параметры чата"><svg></svg></button>
+                </div>
+              </div>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    `;
+
+    const ctx = makeTestContext({ oneClickDelete: true });
+    ctx.domBus = null;
+    const handle = initOneClickDeleteFeature(ctx);
+
+    const optionsButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Параметры чата"]'
+    );
+    expect(optionsButton?.getAttribute("data-qqrm-oneclick-del-hooked")).toBe("1");
+    expect(
+      document
+        .querySelector('button[aria-label="Закрепить чат"]')
+        ?.getAttribute("data-qqrm-oneclick-native-pin")
+    ).toBe("1");
+
+    handle.dispose();
+  });
+
+  it("marks the history row element, not a history-item button, as the row", () => {
+    document.body.innerHTML = `
+      <nav aria-label="Chat history">
+        <ul>
+          <li>
+            <a class="group __menu-item hoverable">
+              <div class="trailing highlight">
+                <div class="flex items-center gap-2">
+                  <button data-testid="history-item-0-pin" type="button" aria-label="Pin chat"><svg></svg></button>
+                  <button data-testid="history-item-0-options" type="button"><svg></svg></button>
+                </div>
+              </div>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    `;
+
+    const ctx = makeTestContext({ oneClickDelete: true });
+    ctx.domBus = null;
+    const handle = initOneClickDeleteFeature(ctx);
+
+    const row = document.querySelector("a.group.__menu-item");
+    expect(row?.getAttribute("data-qqrm-oneclick-row")).toBe("1");
+    const optionsButton = document.querySelector<HTMLButtonElement>(
+      'button[data-testid="history-item-0-options"]'
+    );
+    expect(optionsButton?.getAttribute("data-qqrm-oneclick-row")).toBeNull();
+
+    handle.dispose();
+  });
 });
