@@ -29,3 +29,5 @@
 /.rag/
 /.rag-service/
 /.runtime/
+
+__pycache__/

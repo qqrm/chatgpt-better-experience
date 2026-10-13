@@ -31,8 +31,9 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Detect whether screenshot needs refresh
@@ -95,7 +96,7 @@ jobs:
       - name: Cache Playwright browsers
         if: steps.changes.outputs.changed == 'true'
         id: playwright-cache
-        uses: actions/cache@v5.0.3
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-ms-playwright-${{ hashFiles('package-lock.json') }}
@@ -129,7 +130,7 @@ jobs:
       - name: Create PR with screenshot update
         id: create_pr
         if: steps.changes.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v8.1.0
+        uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0 # v8.1.0
         with:
           token: ${{ secrets.AUTOMATION_BOT_TOKEN }}
           commit-message: "docs: refresh dark-theme popup screenshot"

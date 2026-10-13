@@ -1,10 +1,11 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { spawn } from "node:child_process";
 import { hrtime } from "node:process";
 import { fileURLToPath } from "node:url";
 
 const DEFAULT_VERBOSE = process.env.CBE_VERBOSE === "1";
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-const windowsShell = process.env.ComSpec ?? "cmd.exe";
 
 const formatDuration = (durationMs) => {
   if (durationMs < 1000) {
@@ -49,8 +50,7 @@ export const runCommandQuiet = ({
   cwd = process.cwd(),
   env = process.env,
   logger = console,
-  verbose = DEFAULT_VERBOSE,
-  shell = false
+  verbose = DEFAULT_VERBOSE
 }) =>
   new Promise((resolve, reject) => {
     const startedAt = hrtime.bigint();
@@ -58,7 +58,7 @@ export const runCommandQuiet = ({
     const child = spawn(command, args, {
       cwd,
       env,
-      shell,
+      shell: false,
       stdio: verbose ? "inherit" : ["ignore", "pipe", "pipe"]
     });
 
@@ -139,14 +139,26 @@ export const runCommandQuiet = ({
 
 export const runNpmScriptQuiet = ({ script, label = script, extraArgs = [], ...options }) => {
   if (process.platform === "win32") {
-    const forwardedArgs = extraArgs.length > 0 ? ` -- ${extraArgs.map(quoteArg).join(" ")}` : "";
-
-    return runCommandQuiet({
-      ...options,
-      label,
-      command: windowsShell,
-      args: ["/d", "/s", "/c", `${npmCommand} run --silent ${script}${forwardedArgs}`]
-    });
+    const npmCli = [
+      process.env.npm_execpath,
+      path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js")
+    ].find(
+      (candidate) => candidate && path.basename(candidate) === "npm-cli.js" && existsSync(candidate)
+    );
+    if (!npmCli) throw new Error("Cannot locate npm-cli.js; run this command through npm.");
+    const args = [npmCli, "run", "--silent", script];
+    if (extraArgs.length) args.push("--", ...extraArgs);
+    const env = { ...(options.env ?? process.env) };
+    const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path");
+    if (pathKey) {
+      // npm restores these paths itself; retaining them across nested npm calls
+      // can exceed cmd.exe's PATH length limit on Windows.
+      env[pathKey] = env[pathKey]
+        .split(path.delimiter)
+        .filter((entry) => !/[\\/]node_modules[\\/]\.bin[\\/]?$/iu.test(entry))
+        .join(path.delimiter);
+    }
+    return runCommandQuiet({ ...options, env, label, command: process.execPath, args });
   }
 
   const npmArgs = ["run", "--silent", script];

@@ -3,6 +3,17 @@ import { describe, expect, it, vi } from "vitest";
 import { QuietRunError, runCommandQuiet } from "../scripts/run-quiet.mjs";
 
 describe("runCommandQuiet", () => {
+  it("passes shell metacharacters as literal arguments", async () => {
+    const argument = "value & echo injected | ignored > file";
+    const result = await runCommandQuiet({
+      label: "literal-argument",
+      command: process.execPath,
+      args: ["-e", "process.stdout.write(process.argv[1])", argument],
+      logger: { log: vi.fn(), error: vi.fn() }
+    });
+    expect(result.stdout).toBe(argument);
+  });
+
   it("prints only a pass summary on success", async () => {
     const logger = {
       log: vi.fn(),

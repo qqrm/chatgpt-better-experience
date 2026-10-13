@@ -1,12 +1,16 @@
 (() => {
-  const clean = (html) =>
-    html
-      .replace(/\snonce="[^"]*"/g, "")
-      .replace(/\sintegrity="[^"]*"/g, "")
-      .replace(/\scrossorigin="[^"]*"/g, "")
-      .replace(/\sdata-headlessui-state="[^"]*"/g, "")
-      .replace(/<!--[\s\S]*?-->/g, "")
-      .trim();
+  const clean = (node) => {
+    const clone = node.cloneNode(true);
+    for (const el of [clone, ...clone.querySelectorAll("*")]) {
+      for (const attr of ["nonce", "integrity", "crossorigin", "data-headlessui-state"])
+        el.removeAttribute(attr);
+    }
+    const walker = document.createTreeWalker(clone, NodeFilter.SHOW_COMMENT);
+    const comments = [];
+    while (walker.nextNode()) comments.push(walker.currentNode);
+    for (const comment of comments) comment.remove();
+    return clone.outerHTML.trim();
+  };
 
   const pick = (selector) => document.querySelector(selector);
   const nav = pick('nav[aria-label="Chat history"]');
@@ -42,9 +46,7 @@
       bodyParts.push(`<!-- ${name}: null -->`);
       continue;
     }
-    bodyParts.push(
-      `<!-- ${name} -->\n<div data-fixture-root="${name}">${clean(node.outerHTML)}</div>`
-    );
+    bodyParts.push(`<!-- ${name} -->\n<div data-fixture-root="${name}">${clean(node)}</div>`);
   }
 
   const output = `<!doctype html>

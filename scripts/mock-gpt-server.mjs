@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, open } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -57,15 +57,19 @@ function isSafeFixtureName(value) {
 }
 
 async function tryServeFile(res, filePath) {
+  let file;
   try {
-    const fileStat = await stat(filePath);
+    file = await open(filePath, "r");
+    const fileStat = await file.stat();
     if (!fileStat.isFile()) return false;
     const ext = path.extname(filePath).toLowerCase();
-    const body = await readFile(filePath);
+    const body = await file.readFile();
     respond(res, 200, body, MIME_TYPES[ext] || "application/octet-stream");
     return true;
   } catch {
     return false;
+  } finally {
+    await file?.close();
   }
 }
 

@@ -22,9 +22,9 @@
     "firefox:vm:status": "pwsh -File scripts/firefox-vm.ps1 -Action status",
     "firefox:vm:stop": "pwsh -File scripts/firefox-vm.ps1 -Action stop",
     "lint:amo": "node scripts/run-quiet.mjs --label lint:amo --script lint:amo:raw",
-    "lint:amo:raw": "npx web-ext@9.3.0 lint --source-dir dist",
+    "lint:amo:raw": "web-ext lint --source-dir dist",
     "build:amo": "node scripts/run-quiet.mjs --label build:amo --script build:amo:raw",
-    "build:amo:raw": "npx web-ext@9.3.0 build --source-dir dist --artifacts-dir web-ext-artifacts --overwrite-dest",
+    "build:amo:raw": "web-ext build --source-dir dist --artifacts-dir web-ext-artifacts --overwrite-dest",
     "verify:ci": "node scripts/verify-ci.mjs",
     "generate:icons": "node scripts/generate-icons.mjs",
     "lint": "node scripts/run-quiet.mjs --label lint --script lint:raw",
@@ -60,15 +60,19 @@
     "@types/node": "^25.2.3",
     "@typescript-eslint/eslint-plugin": "^8.54.0",
     "@typescript-eslint/parser": "^8.56.0",
-    "esbuild": "^0.27.3",
+    "esbuild": "^0.28.2",
     "eslint": "9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",
+    "jsdom": "^28.1.0",
     "lint-staged": "^16.2.7",
     "prettier": "3.8.1",
     "typescript": "^5.8.0",
     "typescript-eslint": "^8.56.0",
     "vitest": "^4.0.18",
-    "jsdom": "^28.1.0"
+    "web-ext": "10.7.0"
+  },
+  "overrides": {
+    "shell-quote": "^1.12.0"
   }
 }
