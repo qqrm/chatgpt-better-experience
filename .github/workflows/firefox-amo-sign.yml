@@ -191,7 +191,7 @@ jobs:
         env:
           AMO_API_KEY: ${{ secrets.JWT_ISSUER }}
           AMO_API_SECRET: ${{ secrets.JWT_SECRET }}
-        run: npx web-ext@9.3.0 sign --source-dir dist --artifacts-dir web-ext-artifacts --api-key "$AMO_API_KEY" --api-secret "$AMO_API_SECRET" --channel listed --amo-metadata config/extension/amo-metadata.json --timeout 900000
+        run: npx --no-install web-ext sign --source-dir dist --artifacts-dir web-ext-artifacts --api-key "$AMO_API_KEY" --api-secret "$AMO_API_SECRET" --channel listed --amo-metadata config/extension/amo-metadata.json --timeout 900000
 
       - name: Upload signed XPI artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
