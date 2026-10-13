@@ -15,8 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   prepare-version:
@@ -35,8 +34,9 @@ jobs:
 
     steps:
       - name: Checkout main
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           ref: main
           fetch-depth: 2
           token: ${{ secrets.AUTOMATION_BOT_TOKEN }}
@@ -80,7 +80,7 @@ jobs:
       - name: Create or update AMO auto-bump PR
         id: create_pr
         if: steps.ensure-version.outputs.bumped == 'true'
-        uses: peter-evans/create-pull-request@v8.1.0
+        uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0 # v8.1.0
         with:
           token: ${{ secrets.AUTOMATION_BOT_TOKEN }}
           branch: ci/amo-auto-bump
@@ -97,8 +97,6 @@ jobs:
             - Workflow run id: `${{ github.run_id }}`
           labels: |
             automation/amo
-          enable-automerge: true
-          merge-method: squash
 
       - name: Validate repository auto-merge setting
         if: steps.create_pr.outputs.pull-request-operation == 'created' || steps.create_pr.outputs.pull-request-operation == 'updated'
@@ -114,7 +112,7 @@ jobs:
             exit 1
           fi
 
-      - name: Enforce auto-merge (with merge-now fallback)
+      - name: Enable native auto-merge for the current version commit
         if: steps.create_pr.outputs.pull-request-operation == 'created' || steps.create_pr.outputs.pull-request-operation == 'updated'
         env:
           GH_TOKEN: ${{ secrets.AUTOMATION_BOT_TOKEN }}
@@ -122,21 +120,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          gh pr merge "${PR_NUMBER}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --squash \
-            --auto
-
-          state="$(gh pr view "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --json state --jq '.state')"
-          merge_state="$(gh pr view "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --json mergeStateStatus --jq '.mergeStateStatus')"
-
-          if [ "${state}" != "MERGED" ] && [ "${merge_state}" = "CLEAN" ]; then
-            gh pr merge "${PR_NUMBER}" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --squash \
-              --delete-branch
-          fi
+          head_sha="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq '.headRefOid')"
+          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --auto --squash --match-head-commit "$head_sha"
 
       - name: Finalize prepare-version outputs
         id: finalize
@@ -174,8 +160,9 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           ref: ${{ needs.prepare-version.outputs.checkout_ref }}
           token: ${{ secrets.AUTOMATION_BOT_TOKEN }}
 
@@ -207,7 +194,7 @@ jobs:
         run: npx web-ext@9.3.0 sign --source-dir dist --artifacts-dir web-ext-artifacts --api-key "$AMO_API_KEY" --api-secret "$AMO_API_SECRET" --channel listed --amo-metadata config/extension/amo-metadata.json --timeout 900000
 
       - name: Upload signed XPI artifact
-        uses: actions/upload-artifact@v6.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: signed-xpi
           path: web-ext-artifacts/*.xpi

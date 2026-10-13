@@ -23,7 +23,6 @@ export function runCommandQuiet(options: {
   env?: NodeJS.ProcessEnv;
   logger?: QuietRunLogger;
   verbose?: boolean;
-  shell?: boolean;
 }): Promise<QuietRunResult>;
 
 export function runNpmScriptQuiet(options: {

@@ -27,11 +27,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Detect code-relevant changes
         id: changes
-        uses: dorny/paths-filter@v3.0.2
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
         with:
           filters: |
             heavy:
@@ -75,7 +77,7 @@ jobs:
 
       - name: Upload build artifact
         if: steps.changes.outputs.heavy == 'true' && hashFiles('dist/**') != ''
-        uses: actions/upload-artifact@v6.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: extension-dist
           path: dist
@@ -93,16 +95,18 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
           languages: javascript-typescript
           queries: security-extended
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
 
   supply-chain:
     name: Supply Chain
@@ -116,7 +120,9 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Node and install dependencies
         uses: ./.github/actions/setup-node-npm
@@ -134,7 +140,7 @@ jobs:
           ls -1 web-ext-artifacts/*.zip
 
       - name: Generate CycloneDX SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           path: .
           format: cyclonedx-json
@@ -143,7 +149,7 @@ jobs:
           artifact-name: cyclonedx-sbom
 
       - name: Upload AMO package artifact
-        uses: actions/upload-artifact@v6.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: amo-package
           path: web-ext-artifacts/*.zip
@@ -151,6 +157,20 @@ jobs:
           retention-days: 7
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: web-ext-artifacts/*.zip
+
+  ci-gate:
+    if: always() && github.event_name != 'schedule'
+    needs: [build, codeql]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require build and code analysis
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          CODEQL_RESULT: ${{ needs.codeql.result }}
+        run: |
+          test "$BUILD_RESULT" = success
+          test "$CODEQL_RESULT" = success
