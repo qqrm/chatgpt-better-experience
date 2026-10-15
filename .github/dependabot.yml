@@ -16,6 +16,10 @@ updates:
       default-days: 7
 
   - package-ecosystem: "npm"
+    # typescript-eslint currently supports TypeScript <6.1; remove when upstream supports it.
+    ignore:
+      - dependency-name: "typescript"
+        versions: [">=6.1"]
     directory: "/"
     patterns: ["*"]
     multi-ecosystem-group: "maintenance"
