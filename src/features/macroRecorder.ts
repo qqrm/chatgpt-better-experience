@@ -133,8 +133,7 @@ function buildStableSelector(el: Element | null): string | null {
 
 function getNavigationType() {
   const nav = performance.getEntriesByType("navigation")[0] as
-    | PerformanceNavigationTiming
-    | undefined;
+    PerformanceNavigationTiming | undefined;
   return nav?.type ?? null;
 }
 

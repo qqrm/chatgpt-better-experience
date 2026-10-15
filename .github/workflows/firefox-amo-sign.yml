@@ -8,7 +8,12 @@ on:
       - README.md
       - docs/**
       - config/extension/manifest.base.json
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact merged commit requested by the dependency controller
+        type: string
+        required: false
 
 concurrency:
   group: firefox-amo-sign-main
@@ -20,10 +25,10 @@ permissions:
 jobs:
   prepare-version:
     # Skip the rerun caused by our own auto-bump commit to avoid duplicate AMO submissions.
-    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[amo-auto-bump]') }}
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'push' || !contains(github.event.head_commit.message, '[amo-auto-bump]'))
 
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 35
     outputs:
       release_sha: ${{ steps.finalize.outputs.release_sha }}
       release_version: ${{ steps.finalize.outputs.release_version }}
@@ -33,11 +38,21 @@ jobs:
       bump_pr_url: ${{ steps.finalize.outputs.bump_pr_url }}
 
     steps:
+      - name: Verify publication commit
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ACTUAL_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "$EXPECTED_SHA" ]; then
+            [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+            test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          fi
       - name: Checkout main
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 2
           token: ${{ secrets.AUTOMATION_BOT_TOKEN }}
 
@@ -80,7 +95,7 @@ jobs:
       - name: Create or update AMO auto-bump PR
         id: create_pr
         if: steps.ensure-version.outputs.bumped == 'true'
-        uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0 # v8.1.0
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ secrets.AUTOMATION_BOT_TOKEN }}
           branch: ci/amo-auto-bump
@@ -99,7 +114,7 @@ jobs:
             automation/amo
 
       - name: Validate repository auto-merge setting
-        if: steps.create_pr.outputs.pull-request-operation == 'created' || steps.create_pr.outputs.pull-request-operation == 'updated'
+        if: steps.ensure-version.outputs.bumped == 'true' && steps.create_pr.outputs.pull-request-number != ''
         env:
           GH_TOKEN: ${{ secrets.AUTOMATION_BOT_TOKEN }}
         shell: bash
@@ -113,7 +128,8 @@ jobs:
           fi
 
       - name: Enable native auto-merge for the current version commit
-        if: steps.create_pr.outputs.pull-request-operation == 'created' || steps.create_pr.outputs.pull-request-operation == 'updated'
+        id: version_merge
+        if: steps.ensure-version.outputs.bumped == 'true' && steps.create_pr.outputs.pull-request-number != ''
         env:
           GH_TOKEN: ${{ secrets.AUTOMATION_BOT_TOKEN }}
           PR_NUMBER: ${{ steps.create_pr.outputs.pull-request-number }}
@@ -121,35 +137,38 @@ jobs:
         run: |
           set -euo pipefail
           head_sha="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq '.headRefOid')"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
           gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
             --auto --squash --match-head-commit "$head_sha"
 
-      - name: Finalize prepare-version outputs
+      - name: Finalize only after the checked version PR merges
         id: finalize
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_BOT_TOKEN }}
+          ORIGINAL_SHA: ${{ steps.ensure-version.outputs.release_sha }}
+          RELEASE_VERSION: ${{ steps.ensure-version.outputs.release_version }}
+          BUMPED: ${{ steps.ensure-version.outputs.bumped }}
+          PR_NUMBER: ${{ steps.create_pr.outputs.pull-request-number }}
+          CHECKED_HEAD: ${{ steps.version_merge.outputs.head_sha }}
+          PR_URL: ${{ steps.create_pr.outputs.pull-request-url }}
         run: |
           set -euo pipefail
-
-          release_sha="${{ steps.ensure-version.outputs.release_sha }}"
-          release_version="${{ steps.ensure-version.outputs.release_version }}"
-          bumped="${{ steps.ensure-version.outputs.bumped }}"
-          checkout_ref="$release_sha"
-          bump_branch=""
-          bump_pr_url=""
-
-          if [ "${bumped}" = "true" ]; then
-            checkout_ref="ci/amo-auto-bump"
-            bump_branch="ci/amo-auto-bump"
-            bump_pr_url="${{ steps.create_pr.outputs.pull-request-url }}"
+          release_sha="$ORIGINAL_SHA"
+          if [ "$BUMPED" = true ]; then
+            [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+            release_sha="$(python3 .github/scripts/release_gate.py \
+              --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" \
+              --head "$CHECKED_HEAD" --base main)"
           fi
-
+          [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]]
           {
             echo "release_sha=$release_sha"
-            echo "release_version=$release_version"
-            echo "bumped=$bumped"
-            echo "checkout_ref=$checkout_ref"
-            echo "bump_branch=$bump_branch"
-            echo "bump_pr_url=$bump_pr_url"
+            echo "release_version=$RELEASE_VERSION"
+            echo "bumped=$BUMPED"
+            echo "checkout_ref=$release_sha"
+            echo "bump_branch="
+            echo "bump_pr_url=$PR_URL"
           } >> "$GITHUB_OUTPUT"
 
   sign-and-submit:
@@ -160,7 +179,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ needs.prepare-version.outputs.checkout_ref }}
@@ -194,7 +213,7 @@ jobs:
         run: npx --no-install web-ext sign --source-dir dist --artifacts-dir web-ext-artifacts --api-key "$AMO_API_KEY" --api-secret "$AMO_API_SECRET" --channel listed --amo-metadata config/extension/amo-metadata.json --timeout 900000
 
       - name: Upload signed XPI artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: signed-xpi
           path: web-ext-artifacts/*.xpi
