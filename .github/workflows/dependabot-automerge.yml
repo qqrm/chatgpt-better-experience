@@ -9,11 +9,7 @@ on: # zizmor: ignore[dangerous-triggers]
     types: [completed]
 
 # Metadata only: never check out PR code or consume its artifacts here.
-permissions:
-  contents: write
-  pull-requests: write
-  checks: read
-  actions: write
+permissions: {}
 
 concurrency:
   group: dependency-merge-and-release
@@ -21,6 +17,11 @@ concurrency:
 
 jobs:
   automerge:
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+      actions: write
     if: >-
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion == 'success' &&
@@ -64,13 +65,16 @@ jobs:
 
           # Repeat provenance verification using only GitHub metadata, never PR code.
           commits="$(gh api "repos/$REPO/pulls/$pr/commits?per_page=100" --paginate --slurp)"
-          jq -e --arg sha "$CHECKED_SHA" '
+          if ! jq -e --arg sha "$CHECKED_SHA" '
             # provenance-policy-begin
             add | length > 0 and .[-1].sha == $sha and
             all(.[]; .author.login == "dependabot[bot]" and
               .committer.login == "web-flow" and .commit.verification.verified == true)
             # provenance-policy-end
-          ' <<< "$commits" >/dev/null
+          ' <<< "$commits" >/dev/null; then
+            echo 'This batch is not exclusively signed by Dependabot; no automatic merge.'
+            exit 0
+          fi
 
           if jq -e '.state == "OPEN"' <<< "$info" >/dev/null; then
             base_sha="$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha)"

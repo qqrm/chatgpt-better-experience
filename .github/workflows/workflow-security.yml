@@ -21,7 +21,7 @@ jobs:
           persist-credentials: false
       - name: Test dependency policy
         run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
-      - name: Verify Dependabot commit provenance
+      - name: Verify dependency batch commit provenance
         if: github.event.pull_request.user.login == 'dependabot[bot]'
         env:
           GH_TOKEN: ${{ github.token }}
