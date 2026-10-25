@@ -1,4 +1,4 @@
-FROM node:20-bookworm
+FROM node:24-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -20,6 +20,8 @@ COPY docker/firefox-dev/start-firefox.sh /usr/local/bin/start-firefox.sh
 RUN chmod +x /usr/local/bin/start-firefox.sh
 
 WORKDIR /workspace
+RUN mkdir -p /workspace/node_modules && chown -R node:node /workspace
+USER node
 EXPOSE 6080
 
 ENTRYPOINT ["/usr/local/bin/start-firefox.sh"]
