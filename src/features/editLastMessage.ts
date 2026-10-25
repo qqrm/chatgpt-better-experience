@@ -89,7 +89,8 @@ export function initEditLastMessageFeature(ctx: FeatureContext): FeatureHandle {
         const anchors = qsa<HTMLElement>('a[data-sidebar-item="true"][href]');
         for (const a of anchors) {
           const href = a.getAttribute("href") ?? "";
-          if (!href.includes(`/c/${id}`)) continue;
+          const candidateId = /\/c\/([^/?#]+)/.exec(href)?.[1];
+          if (candidateId !== id) continue;
           if (isElementVisible(a)) return a;
           return a; // visible check is best-effort; still prefer exact match
         }

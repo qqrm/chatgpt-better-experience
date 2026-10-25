@@ -1,14 +1,15 @@
 # Feature audit matrix
 
 This is the authoritative working matrix for the extension audit. A green unit test is not a
-claim that a feature has been verified against the current ChatGPT UI. Each row requires the
+claim that a feature has been verified against the current ChatGPT UI. September evidence below
+is historical; see the dated refresh for the latest results. Each row requires the
 listed evidence before it can be marked live-verified.
 
 ## Source manifest
 
 | Source                                                    | Status             | Role in the audit                                                                            |
 | --------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------- |
-| `src/application/contentScript.ts`                        | included           | Registers the 14 runtime features; this is the complete feature inventory.                   |
+| `src/application/contentScript.ts`                        | included           | Registers 13 runtime handles; F2 rename is a separate behavior inside the edit handle.       |
 | `src/features/*.ts`                                       | included           | Defines implementation contracts and cleanup behavior.                                       |
 | `tests/*.test.ts`                                         | included           | Unit and fixture-level regression evidence.                                                  |
 | `tests/fixtures/chatgpt-fixture-2026-02-04-17-23-37.html` | included           | Historical semantic fixture; not evidence of the current UI.                                 |
@@ -47,9 +48,8 @@ listed evidence before it can be marked live-verified.
 - The privacy-safe structural fixture must not be repurposed as a semantic fixture: it strips the
   labels, text, URLs, and message identifiers that several features deliberately use.
 - An offline integration fixture must be synthetic and contain no conversation or account data.
-- The VM stand currently cannot start because Multipass is unavailable; the container stand cannot
-  start until Docker Desktop's daemon is running. The host Zen page remains read-only evidence
-  until a reproducible isolated behavioral path is available.
+- The September audit could not start the VM or container stand. The October refresh below
+  supersedes that environment result; the old Zen capture remains historical evidence only.
 - Auto-expand Chats ignores untrusted synthetic events in its user-cooldown guard. This prevents
   an adjacent extension feature's automated sidebar click from suppressing the Chats expansion.
 - Preserve reading position previously treated its `0` sentinel as a fresh manual-scroll event
@@ -62,3 +62,51 @@ listed evidence before it can be marked live-verified.
   storage subscription during feature disposal. This closes a lifecycle gap found during the audit.
 - The Mock GPT storage shim implements `storage.local.remove`, matching the macro recorder's export
   cleanup contract. The local start/stop scenario now reaches `Macro recording saved`.
+
+## Refresh: 2026-10-25
+
+Base: `35fa4d5`, extension manifest `1.0.268`. No manual version bump.
+This refresh does **not** certify all functionality against signed-in ChatGPT.
+
+### Source coverage manifest
+
+| Source                                                                          | Inclusion and evidence                                                                                                              | Remaining coverage                                                                                                                |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `src/application/contentScript.ts`, all `src/features/*.ts`                     | All 13 registered feature handles mapped to the matrix; F2 added below                                                              | Current signed-in behavior of every feature remains unverified                                                                    |
+| `src/domain/`, `src/application/`, `src/infra/`, `src/lib/`, `src/entrypoints/` | Existing unit, integration and lifecycle suite executed                                                                             | Tests are bounded regression evidence, not exhaustive proof                                                                       |
+| `src/popup/`                                                                    | Popup/controller/use-case and settings tests executed                                                                               | Real Firefox popup interaction not exercised                                                                                      |
+| `src/background.ts`                                                             | Download implementation inspected; build and AMO lint passed                                                                        | Browser download completion and clipboard behavior not exercised; no dedicated background unit suite                              |
+| All `tests/*.test.ts`                                                           | 39 files, 175 tests passed, including three new F2 tests                                                                            | JSDOM does not implement native form submission; browser replay covers the synthetic submit boundary                              |
+| `tests/fixtures/`                                                               | February semantic HTML, September structural HTML, synthetic interaction HTML, macro export JSON discovered; fixture tests executed | Historical fixtures do not establish October selector compatibility                                                               |
+| `mock-gpt/`, `scripts/mock-gpt-server.mjs`                                      | Built content script replayed in the in-app browser on synthetic HTML                                                               | Runtime/storage are doubles; no real download, microphone or API contract is proved                                               |
+| `config/`, `icons/`, `icons-src/`, build/check scripts                          | Build, typecheck, lint, format, AMO lint/package; generated manifest inspected                                                      | No AMO publication/signing performed as part of local validation                                                                  |
+| `docker/`, Compose and Firefox scripts                                          | Container built; Firefox installed the temporary extension; screenshot captured                                                     | Windows PowerShell screenshot wrapper changed; underlying Compose command exercised, wrapper not executed in WSL                  |
+| Multipass VM                                                                    | Executable absent from PATH and documented Windows fallback                                                                         | VM runtime unavailable; Docker fallback used                                                                                      |
+| Live `https://chatgpt.com/` in isolated Firefox                                 | Logged-out landing page loaded, verified by screenshot                                                                              | Login required for chat history, projects, conversation actions and Codex task surfaces                                           |
+| `docs/`, README/specifications                                                  | Existing audit and stand instructions reviewed and refreshed                                                                        | September live DOM fingerprint retained as dated historical evidence                                                              |
+| `.github/` workflows, actions and policy scripts                                | 33 Python policy tests, actionlint and zizmor passed                                                                                | Hosted CodeQL and required PR gates must be confirmed by CI                                                                       |
+| `package.json`, `package-lock.json`                                             | Installed reproducibly; compatible fast-uri and undici updates applied                                                              | Three high audit entries remain on the node-forge → adbkit → web-ext development chain; registry latest node-forge is still 1.4.0 |
+
+### Behavior replayed in this refresh
+
+| Behavior                                         | Current evidence                                                               | Limit                                                                                          |
+| ------------------------------------------------ | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| Dictation lifecycle / auto-send / start shortcut | Existing machine, command executor and feature tests passed                    | Actual audio and live send not exercised                                                       |
+| ArrowUp edit                                     | Synthetic browser replay focused the last message editor; unit tests passed    | Live edit UI requires login                                                                    |
+| F2 rename                                        | Three new tests cover exact conversation ID, disabled setting and key repeat   | Fixed prefix-match bug; live rename not exercised                                              |
+| Auto-expand chats and projects                   | Both synthetic sections visibly expanded                                       | Account sidebar and project-item nesting require login; nesting covered only by existing tests |
+| Auto temporary chat                              | Synthetic checkbox became checked after enabling setting and reloading harness | Live temporary-chat control not exercised                                                      |
+| One-click chat actions                           | Synthetic pin/archive/delete controls rendered; unit/fixture tests passed      | Actual deletion/archive/pin not performed                                                      |
+| Message timestamps                               | Synthetic submitted message acquired a visible timestamp                       | Live API metadata not exercised                                                                |
+| Preserve reading position                        | Existing scroll regression tests passed                                        | No new browser-level scroll measurement                                                        |
+| Hide Share                                       | Synthetic Share control disappeared after applying setting                     | Live Share surface requires conversation                                                       |
+| Patch download and clipboard option              | Existing feature tests passed; background inspected                            | No real browser download or clipboard mutation                                                 |
+| Wide chat                                        | Existing layout/relevance tests passed                                         | No fresh visual width/overlap measurement                                                      |
+| Ctrl+Enter send                                  | Synthetic form visibly appended a submitted message                            | No real ChatGPT message sent                                                                   |
+| Macro recorder                                   | Synthetic start/stop displayed “Macro recording saved”; contract tests passed  | Firefox export and real-page recording not exercised                                           |
+| Popup/settings/debug/storage/lifecycle           | Existing suites passed                                                         | Live settings propagation not checked in Firefox                                               |
+
+Local checks used Node 24.22.1 through `npm exec --yes --package=node@24.22.1 -- ...`.
+The host default 24.14.0 is below jsdom's required 24.15.0 minimum on the Node 24 line.
+`npm audit --omit=dev` reported zero vulnerabilities; full `npm audit` still fails on the
+development dependency chain above. Downgrading web-ext to npm's suggested 5.1.0 was not applied.

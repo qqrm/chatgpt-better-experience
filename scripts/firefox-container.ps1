@@ -54,7 +54,10 @@ switch ($Action) {
     $outputDir = Join-Path $repoRoot ".runtime\firefox-container"
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
     $outputPath = Join-Path $outputDir "firefox-screen.png"
-    & docker exec chatgptbetterexperience-fix-chatgpt-browser-debug-firefox-dev-1 sh -lc "DISPLAY=:99 import -window root /workspace/.runtime/firefox-container/firefox-screen.png >/dev/null 2>&1 || true"
+    if (Test-Path -LiteralPath $outputPath) {
+      Remove-Item -LiteralPath $outputPath
+    }
+    Invoke-Compose -Args @("exec", "-T", "firefox-dev", "sh", "-lc", "DISPLAY=:99 import -window root /workspace/.runtime/firefox-container/firefox-screen.png")
     if (-not (Test-Path -LiteralPath $outputPath)) {
       throw "Failed to capture Firefox container screenshot."
     }

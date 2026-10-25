@@ -47,7 +47,7 @@ HUSKY=0 npm ci --no-audit --no-fund
 
 npm run build
 
-npx --yes web-ext@9.3.0 run \
+./node_modules/.bin/web-ext run \
   --source-dir=dist \
   --artifacts-dir=web-ext-artifacts \
   --target=firefox-desktop \

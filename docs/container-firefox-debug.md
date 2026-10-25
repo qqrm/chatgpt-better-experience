@@ -25,6 +25,24 @@ the host system.
 
 ## Access
 
+### WSL/Linux without PowerShell
+
+Run the same Compose operations directly from the task worktree:
+
+```sh
+docker compose -f docker-compose.firefox.yml up -d --build firefox-dev
+docker compose -f docker-compose.firefox.yml ps
+docker compose -f docker-compose.firefox.yml logs --tail=200 firefox-dev
+docker compose -f docker-compose.firefox.yml exec -T firefox-dev sh -lc 'DISPLAY=:99 import -window root /workspace/.runtime/firefox-container/firefox-screen.png'
+docker compose -f docker-compose.firefox.yml down --remove-orphans
+```
+
+The stand uses Node 24 and the `web-ext` installed by `npm ci` from the lockfile, matching CI.
+It runs as the image's `node` user (UID 1000) so the Firefox profile and generated assets remain
+accessible to the usual WSL checkout owner. Other Linux UIDs require matching directory permissions.
+If a previous root-owned build left `~/.docker/buildx/activity/default` unwritable, use
+`BUILDX_CONFIG="$PWD/.runtime/buildx"` for the build command to isolate its metadata.
+
 - noVNC UI: `http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale`
 
 The browser is rendered inside the container and exposed through noVNC. If nobody opens the noVNC
