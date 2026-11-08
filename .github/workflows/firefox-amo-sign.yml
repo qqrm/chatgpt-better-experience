@@ -49,7 +49,7 @@ jobs:
             test "$ACTUAL_SHA" = "$EXPECTED_SHA"
           fi
       - name: Checkout main
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -95,7 +95,7 @@ jobs:
       - name: Create or update AMO auto-bump PR
         id: create_pr
         if: steps.ensure-version.outputs.bumped == 'true'
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ secrets.AUTOMATION_BOT_TOKEN }}
           branch: ci/amo-auto-bump
@@ -179,21 +179,27 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ needs.prepare-version.outputs.checkout_ref }}
           token: ${{ secrets.AUTOMATION_BOT_TOKEN }}
 
       - name: Log release target
+        env:
+          RELEASE_SHA: ${{ needs.prepare-version.outputs.release_sha }}
+          RELEASE_VERSION: ${{ needs.prepare-version.outputs.release_version }}
+          BUMPED: ${{ needs.prepare-version.outputs.bumped }}
+          CHECKOUT_REF: ${{ needs.prepare-version.outputs.checkout_ref }}
+          BUMP_BRANCH: ${{ needs.prepare-version.outputs.bump_branch }}
+          BUMP_PR_URL: ${{ needs.prepare-version.outputs.bump_pr_url }}
         run: |
-          echo "release_sha=${{ needs.prepare-version.outputs.release_sha }}"
-          echo "release_version=${{ needs.prepare-version.outputs.release_version }}"
-          echo "bumped=${{ needs.prepare-version.outputs.bumped }}"
-          echo "checkout_ref=${{ needs.prepare-version.outputs.checkout_ref }}"
-          echo "bump_branch=${{ needs.prepare-version.outputs.bump_branch }}"
-          echo "bump_pr_url=${{ needs.prepare-version.outputs.bump_pr_url }}"
-
+          printf '%s=%s\n' release_sha "$RELEASE_SHA"
+          printf '%s=%s\n' release_version "$RELEASE_VERSION"
+          printf '%s=%s\n' bumped "$BUMPED"
+          printf '%s=%s\n' checkout_ref "$CHECKOUT_REF"
+          printf '%s=%s\n' bump_branch "$BUMP_BRANCH"
+          printf '%s=%s\n' bump_pr_url "$BUMP_PR_URL"
       - name: Setup Node and install dependencies
         uses: ./.github/actions/setup-node-npm
 
@@ -213,7 +219,7 @@ jobs:
         run: npx --no-install web-ext sign --source-dir dist --artifacts-dir web-ext-artifacts --api-key "$AMO_API_KEY" --api-secret "$AMO_API_SECRET" --channel listed --amo-metadata config/extension/amo-metadata.json --timeout 900000
 
       - name: Upload signed XPI artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: signed-xpi
           path: web-ext-artifacts/*.xpi

@@ -1,5 +1,8 @@
 name: CI
 
+# Default CodeQL setup disabled the old ci.yml because it also hosted an
+# Advanced CodeQL job. Keep build validation separate from native scanning.
+
 on:
   push:
     branches:
@@ -8,8 +11,6 @@ on:
       - config/extension/manifest.base.json
   pull_request:
   workflow_dispatch: {}
-  schedule:
-    - cron: "32 3 * * 1"
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -21,19 +22,18 @@ permissions:
 
 jobs:
   build:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Detect code-relevant changes
         id: changes
-        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: |
             heavy:
@@ -77,36 +77,32 @@ jobs:
 
       - name: Upload build artifact
         if: steps.changes.outputs.heavy == 'true' && hashFiles('dist/**') != ''
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: extension-dist
           path: dist
           if-no-files-found: error
           retention-days: 7
 
-  codeql:
-    name: CodeQL
+  codeql-policy:
+    name: Verify native CodeQL
     permissions:
       actions: read
       contents: read
-      security-events: write
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
-        with:
-          languages: javascript-typescript
-          queries: security-extended
-
-      - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
+      - name: Require the real analysis for this source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CODEQL_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 .github/scripts/verify_native_codeql.py
 
   supply-chain:
     name: Supply Chain
@@ -120,7 +116,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -140,7 +136,7 @@ jobs:
           ls -1 web-ext-artifacts/*.zip
 
       - name: Generate CycloneDX SBOM
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: .
           format: cyclonedx-json
@@ -149,7 +145,7 @@ jobs:
           artifact-name: cyclonedx-sbom
 
       - name: Upload AMO package artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: amo-package
           path: web-ext-artifacts/*.zip
@@ -157,20 +153,20 @@ jobs:
           retention-days: 7
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: web-ext-artifacts/*.zip
 
   ci-gate:
-    if: always() && github.event_name != 'schedule'
-    needs: [build, codeql]
+    if: always()
+    needs: [build, codeql-policy]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - name: Require build and code analysis
         env:
           BUILD_RESULT: ${{ needs.build.result }}
-          CODEQL_RESULT: ${{ needs.codeql.result }}
+          CODEQL_RESULT: ${{ needs.codeql-policy.result }}
         run: |
           test "$BUILD_RESULT" = success
           test "$CODEQL_RESULT" = success
