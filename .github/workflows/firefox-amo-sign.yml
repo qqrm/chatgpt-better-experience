@@ -186,14 +186,20 @@ jobs:
           token: ${{ secrets.AUTOMATION_BOT_TOKEN }}
 
       - name: Log release target
+        env:
+          RELEASE_SHA: ${{ needs.prepare-version.outputs.release_sha }}
+          RELEASE_VERSION: ${{ needs.prepare-version.outputs.release_version }}
+          BUMPED: ${{ needs.prepare-version.outputs.bumped }}
+          CHECKOUT_REF: ${{ needs.prepare-version.outputs.checkout_ref }}
+          BUMP_BRANCH: ${{ needs.prepare-version.outputs.bump_branch }}
+          BUMP_PR_URL: ${{ needs.prepare-version.outputs.bump_pr_url }}
         run: |
-          echo "release_sha=${{ needs.prepare-version.outputs.release_sha }}"
-          echo "release_version=${{ needs.prepare-version.outputs.release_version }}"
-          echo "bumped=${{ needs.prepare-version.outputs.bumped }}"
-          echo "checkout_ref=${{ needs.prepare-version.outputs.checkout_ref }}"
-          echo "bump_branch=${{ needs.prepare-version.outputs.bump_branch }}"
-          echo "bump_pr_url=${{ needs.prepare-version.outputs.bump_pr_url }}"
-
+          printf '%s=%s\n' release_sha "$RELEASE_SHA"
+          printf '%s=%s\n' release_version "$RELEASE_VERSION"
+          printf '%s=%s\n' bumped "$BUMPED"
+          printf '%s=%s\n' checkout_ref "$CHECKOUT_REF"
+          printf '%s=%s\n' bump_branch "$BUMP_BRANCH"
+          printf '%s=%s\n' bump_pr_url "$BUMP_PR_URL"
       - name: Setup Node and install dependencies
         uses: ./.github/actions/setup-node-npm
 

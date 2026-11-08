@@ -1,5 +1,8 @@
 name: CI
 
+# Default CodeQL setup disabled the old ci.yml because it also hosted an
+# Advanced CodeQL job. Keep build validation separate from native scanning.
+
 on:
   push:
     branches:
@@ -8,8 +11,6 @@ on:
       - config/extension/manifest.base.json
   pull_request:
   workflow_dispatch: {}
-  schedule:
-    - cron: "32 3 * * 1"
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -21,7 +22,6 @@ permissions:
 
 jobs:
   build:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -84,14 +84,13 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  codeql:
-    name: CodeQL
+  codeql-policy:
+    name: Verify native CodeQL
     permissions:
       actions: read
       contents: read
-      security-events: write
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -99,14 +98,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
-        with:
-          languages: javascript-typescript
-          queries: security-extended
-
-      - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+      - name: Require the real analysis for this source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CODEQL_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 .github/scripts/verify_native_codeql.py
 
   supply-chain:
     name: Supply Chain
@@ -162,15 +158,15 @@ jobs:
           subject-path: web-ext-artifacts/*.zip
 
   ci-gate:
-    if: always() && github.event_name != 'schedule'
-    needs: [build, codeql]
+    if: always()
+    needs: [build, codeql-policy]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - name: Require build and code analysis
         env:
           BUILD_RESULT: ${{ needs.build.result }}
-          CODEQL_RESULT: ${{ needs.codeql.result }}
+          CODEQL_RESULT: ${{ needs.codeql-policy.result }}
         run: |
           test "$BUILD_RESULT" = success
           test "$CODEQL_RESULT" = success
