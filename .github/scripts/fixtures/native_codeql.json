@@ -1,0 +1,75 @@
+{
+  "repository": "qqrm/chatgpt-better-experience",
+  "sources": [
+    "https://api.github.com/repos/qqrm/chatgpt-better-experience/actions/workflows/410848374",
+    "https://api.github.com/repos/qqrm/chatgpt-better-experience/actions/runs/42442107825",
+    "https://api.github.com/repos/qqrm/chatgpt-better-experience/actions/runs/42442107825/jobs?per_page=100",
+    "https://api.github.com/repos/qqrm/chatgpt-better-experience/actions/runs/42448849400",
+    "https://api.github.com/repos/qqrm/chatgpt-better-experience/actions/runs/42448849400/jobs?per_page=100"
+  ],
+  "workflow": {
+    "id": 410848374,
+    "name": "CodeQL",
+    "path": "dynamic/github-code-scanning/codeql",
+    "state": "active"
+  },
+  "cases": [
+    {
+      "label": "main",
+      "run": {
+        "id": 42442107825,
+        "workflow_id": 410848374,
+        "path": "dynamic/github-code-scanning/codeql",
+        "event": "dynamic",
+        "head_sha": "75dbe13e29464131a778cb5b1b661e008129b3c6",
+        "status": "completed",
+        "conclusion": "success",
+        "run_attempt": 1
+      },
+      "jobs": [
+        {
+          "id": 128613322790,
+          "name": "Analyze (javascript-typescript)",
+          "run_id": 42442107825,
+          "head_sha": "75dbe13e29464131a778cb5b1b661e008129b3c6",
+          "run_attempt": 1,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 128613705589,
+          "name": "Adjust Configuration",
+          "run_id": 42442107825,
+          "head_sha": "75dbe13e29464131a778cb5b1b661e008129b3c6",
+          "run_attempt": 1,
+          "status": "completed",
+          "conclusion": "skipped"
+        }
+      ]
+    },
+    {
+      "label": "pull_request_464",
+      "run": {
+        "id": 42448849400,
+        "workflow_id": 410848374,
+        "path": "dynamic/github-code-scanning/codeql",
+        "event": "dynamic",
+        "head_sha": "aa2c2da27257f2a80d2b85f4fc8d0e7bab1e8b35",
+        "status": "completed",
+        "conclusion": "success",
+        "run_attempt": 1
+      },
+      "jobs": [
+        {
+          "id": 128633528864,
+          "name": "Analyze (javascript-typescript)",
+          "run_id": 42448849400,
+          "head_sha": "aa2c2da27257f2a80d2b85f4fc8d0e7bab1e8b35",
+          "run_attempt": 1,
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ]
+}
