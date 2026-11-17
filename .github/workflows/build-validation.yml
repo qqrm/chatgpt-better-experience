@@ -1,14 +1,9 @@
 name: CI
 
-# Default CodeQL setup disabled the old ci.yml because it also hosted an
-# Advanced CodeQL job. Keep build validation separate from native scanning.
-
 on:
   push:
     branches:
       - main
-    paths-ignore:
-      - config/extension/manifest.base.json
   pull_request:
   workflow_dispatch: {}
 
@@ -84,25 +79,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  codeql-policy:
-    name: Verify native CodeQL
+  codeql:
     permissions:
       actions: read
       contents: read
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Require the real analysis for this source commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CODEQL_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: python3 .github/scripts/verify_native_codeql.py
+      security-events: write
+    uses: ./.github/workflows/codeql.yml
 
   supply-chain:
     name: Supply Chain
@@ -159,14 +141,14 @@ jobs:
 
   ci-gate:
     if: always()
-    needs: [build, codeql-policy]
+    needs: [build, codeql]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - name: Require build and code analysis
         env:
           BUILD_RESULT: ${{ needs.build.result }}
-          CODEQL_RESULT: ${{ needs.codeql-policy.result }}
+          CODEQL_RESULT: ${{ needs.codeql.result }}
         run: |
           test "$BUILD_RESULT" = success
           test "$CODEQL_RESULT" = success
